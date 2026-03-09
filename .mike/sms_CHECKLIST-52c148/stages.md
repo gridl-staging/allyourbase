@@ -1,0 +1,8 @@
+1. [x] SMS Provider Layer - Provider interface, LogProvider, TwilioProvider, CaptureProvider (Phase 1 Steps 1-3)
+2. [x] Database & Config - Migration 013, SMS config fields with validation, startup wiring (Phase 1 Steps 4-5)
+3. [x] Auth Service & Handlers - OTP generation, phone normalization, geo check, request/confirm flows, route wiring (Phase 1 Step 6)
+4. [x] Server Wiring & Integration Tests - Server/CLI wiring, integration tests, smoke test (Phase 1 Steps 7-9)
+5. [x] SMS MFA Second Factor - Migration 014, enroll/challenge endpoints, MFA pending token gating (Phase 2)
+6. [x] Provider Expansion - Plivo, Telnyx, MSG91, AWS SNS, Vonage, webhook provider, test phone numbers (Phase 3 first half)
+7. [x] Fraud Hardening & Monitoring - libphonenumber upgrade, conversion rate monitoring, admin health endpoint (Phase 3 second half)
+8. Transactional SMS API - Phone utility refactor, migration 016, send endpoint, message history, delivery webhook (Phase 4)

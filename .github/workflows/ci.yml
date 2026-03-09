@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Admin UI
+        working-directory: ui
+        run: npm install --legacy-peer-deps && npm run build
+
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Build
+        run: go build ./cmd/ayb
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: $(go env GOPATH)/bin/staticcheck ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  test-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ayb_test
+          POSTGRES_PASSWORD: ayb_test
+          POSTGRES_DB: ayb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Admin UI
+        working-directory: ui
+        run: npm install --legacy-peer-deps && npm run build
+
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Integration tests
+        env:
+          TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
+        run: go test -race -count=1 -tags=integration ./...
+
+      - name: Supabase schema drift gate
+        env:
+          TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
+        run: >
+          go test -race -count=1 -tags=integration ./internal/sbmigrate
+          -run 'TestE2E_AnalyzeWithoutIsAnonymousColumn|TestE2E_AuthMigrationWithoutIsAnonymousColumn|TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt|TestE2E_IntrospectTablesFiltersHostedManagedTables|TestE2E_SchemaMigrationSkipsIncompatibleFKChain'

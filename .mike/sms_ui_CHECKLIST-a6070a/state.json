@@ -1,0 +1,22 @@
+{
+  "input_file": "/Users/stuart/repos/allyourbase_root/allyourbase_dev/_dev/messaging/impl/sms_ui_CHECKLIST.md",
+  "input_type": "checklist",
+  "current_stage": 5,
+  "current_rotation": "done",
+  "current_prompt_index": 3,
+  "iteration": 20,
+  "cumulative_cost_usd": 40.96959945,
+  "last_session_timestamp": "2026-02-21T07:19:16Z",
+  "stage_controller": {
+    "rotation": "done",
+    "stage": 5,
+    "num_stages": 5
+  },
+  "loop_controller": {
+    "pidx": 3,
+    "consec_fail": 0,
+    "backoff": 30,
+    "review_retries": 0
+  },
+  "_loop_ctrl_rotation": "work"
+}

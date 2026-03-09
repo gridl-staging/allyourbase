@@ -1,0 +1,171 @@
+# Dev artifacts
+/testpg
+/temptodo*.md
+/live-polls/
+
+# Live migration runtime artifacts (large binaries/data/logs)
+_dev/migration_test/work/
+_dev/migration_test/results/*.log
+_dev/migration_test/results/*.txt
+_dev/migration_test/results/*.json
+_dev/migration_test/results/*.csv
+_dev/migration_test/results/*.out
+
+ayb-linux-amd64
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+/ayb
+/bin/
+
+.claude/
+
+# rt.py agent logs
+agent_logs/
+HANDOFF.md
+ESCALATE.md
+DONE
+
+# Go workspace
+go.work
+go.work.sum
+
+# Node / pnpm
+**/node_modules/
+.pnpm-store/
+/.cache
+*.tsbuildinfo
+
+# Build artifacts
+/dist/
+
+# UI build output is committed (used by go:embed)
+# but don't track pnpm debug logs or Playwright artifacts
+ui/.pnpm-debug.log
+ui/test-results/
+ui/playwright-report/
+ui/browser-tests-unmocked/.auth/
+examples/shareborough/test-results/
+examples/shareborough/playwright-report/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.secret/
+
+# AYB runtime
+ayb.toml
+*.log
+docs-site/.vitepress/dist/
+docs-site/.vitepress/cache/
+
+
+**/target/
+/.cargo
+/.cache
+**/node_modules/
+node_modules/
+
+
+/.vscode
+/.env
+/.secret
+/dev-data
+/data
+/tmp
+/venv
+
+# Data directories
+/datasets/
+
+# Generated/temporary JSON (specific files, not blanket *.json)
+railway.json
+.claude/settings.local.json
+sdk_test/.cache/
+**/test-results/
+benchmarks_2/results.json
+demo-dualclient/dist/openapi.json
+demo-dualclient/dist/stats.json
+demo-dualclient/public/openapi.json
+
+# Build artifacts
+/dist
+/.wrangler
+
+# PHP / Composer
+**/vendor/
+composer.lock
+*.phpunit.result.cache
+
+# Build output (all subprojects)
+**/dist/
+
+# Demo build output is committed (used by go:embed)
+!examples/kanban/dist/
+!examples/live-polls/dist/
+
+# Lock files for dependencies (keep Cargo.lock for binaries, ignore others)
+**/package-lock.json
+!sdk/package-lock.json
+!examples/kanban/package-lock.json
+!examples/live-polls/package-lock.json
+
+# ML model caches
+**/.fastembed_cache/
+
+# Tantivy lock files
+*.tantivy-meta.lock
+*.tantivy-writer.lock
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Stable server binary for dashboard dev/testing
+bin/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Node
+node_modules/

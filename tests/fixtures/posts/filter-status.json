@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "description": "Filter posts by status='published' (tests simple filter condition)",
+    "expected_response_status": 200,
+    "expected_item_count": 2,
+    "expected_all_match_status": "published",
+    "test_tags": ["collections", "filter", "query"]
+  },
+  "posts": [
+    {"title": "Published Post 1", "content": "This is published", "status": "published"},
+    {"title": "Draft Post 1", "content": "This is a draft", "status": "draft"},
+    {"title": "Published Post 2", "content": "This is also published", "status": "published"}
+  ],
+  "filter": "status='published'"
+}

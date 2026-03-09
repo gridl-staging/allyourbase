@@ -1,0 +1,10 @@
+./cache_locator.go
+./config.go
+./decompression.go
+./embedded_postgres.go
+./logging.go
+./prepare_database.go
+./remote_fetch.go
+./rename.go
+./test_config.go
+./version_strategy.go

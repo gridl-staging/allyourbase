@@ -1,0 +1,5 @@
+1. ~~Audit + Backend endpoint~~ ✅ — Architecture/API audit (Phase 1) and Go backend for admin SMS messages endpoint (Phase 2). Complete.
+2. ~~TypeScript types + SMSHealth component~~ ✅ — All SMS types and API client functions (Phase 3), TDD SMSHealth stats dashboard component (Phase 4). Complete.
+3. ~~SMSMessages + SMSSendTester components~~ ✅ — TDD the messages table with pagination (Phase 5) and the send-SMS modal (Phase 6). Both are pure component work with mocked API. Complete.
+4. ~~Layout integration + Browser tests~~ ✅ — Wire SMS views into sidebar/routing (Phase 7), browser smoke tests (Phase 8), full unmocked e2e tests (Phase 9). Complete. 74 component tests, 4 smoke tests, 7 full e2e tests pass (1 skipped: auth gap).
+5. ~~Admin SMS send endpoint + final e2e~~ ✅ — `POST /api/admin/sms/send` with DRY `validateSMSSendBody` helper, 8 Go tests, UI updated, browser e2e send test un-skipped with conditional skip. Complete. 

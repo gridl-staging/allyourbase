@@ -1,0 +1,38 @@
+# Node deps — rebuilt inside Docker
+**/node_modules
+
+# Build output (Docker builds these fresh)
+ui/dist
+examples/*/dist
+live-polls/dist
+docs-site/.vitepress/dist
+
+# Local cache dirs (should not be in repo root but are)
+.gocache/
+.gocache_server/
+.gocache_auth/
+.cache/
+.mike/
+
+# Dev/local artifacts
+sdk/
+live-polls/
+_dev/
+_qa/
+agent_logs/
+archived_old_docs_feb15/
+ayb_storage/
+trash/
+notes.md
+.secret/
+
+# Go build cache
+vendor/
+
+# Git
+.git/
+.gitignore
+
+# Docker itself
+.dockerignore
+Dockerfile

@@ -1,0 +1,1 @@
+Good - implementations exist for all the core items. Let me check the migration and remaining details.

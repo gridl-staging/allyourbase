@@ -1,0 +1,90 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs-site:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy .vitepress/dist --project-name=ayb-docs
+          workingDirectory: docs-site
+
+  deploy-api-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate api-docs
+        run: |
+          mkdir -p api-docs
+          cp openapi/openapi.yaml api-docs/openapi.yaml
+          cat > api-docs/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>👾 Allyourbase API Reference</title>
+            <meta name="description" content="Interactive API documentation for Allyourbase — the open-source PostgreSQL backend-as-a-service." />
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👾</text></svg>" />
+            <style>
+              body { margin: 0; }
+            </style>
+          </head>
+          <body>
+            <script
+              id="api-reference"
+              data-url="./openapi.yaml"
+              data-configuration='{
+                "theme": "kepler",
+                "layout": "modern",
+                "hideDarkModeToggle": false,
+                "searchHotKey": "k",
+                "metaData": {
+                  "title": "👾 Allyourbase API Reference"
+                },
+                "hideDownloadButton": false
+              }'>
+            </script>
+            <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy api-docs --project-name=allyourbase-api-docs

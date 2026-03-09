@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "description": "User with email that already exists (tests unique constraint)",
+    "expected_response_status": 409,
+    "expected_error_message": "email already exists",
+    "expected_error_code": "CONFLICT",
+    "test_tags": ["auth", "registration", "error-handling"]
+  },
+  "email": "existing-user@example.com",
+  "password": "SecurePass123!"
+}

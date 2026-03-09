@@ -1,0 +1,13 @@
+{
+  "name": "ayb-qa-playwright",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:dashboard": "npx playwright test --project=dashboard-qa",
+    "test:polls": "npx playwright test --project=demo-live-polls-qa",
+    "test:kanban": "npx playwright test --project=demo-kanban-qa"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

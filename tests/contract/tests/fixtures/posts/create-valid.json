@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "description": "Valid post creation data",
+    "test_case": "TC-COLL-006",
+    "expected_response_status": 201,
+    "expected_record_fields": ["id", "title", "content", "author_id", "created_at"],
+    "test_tags": ["collections", "create", "happy-path"]
+  },
+  "title": "Introduction to PostgreSQL",
+  "content": "PostgreSQL is a powerful open-source relational database...",
+  "author_id": 1,
+  "status": "draft",
+  "tags": ["database", "postgresql", "tutorial"]
+}

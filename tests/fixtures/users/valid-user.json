@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "description": "Valid user with email and password for registration tests",
+    "expected_response_status": 201,
+    "expected_user_fields": ["id", "email", "created_at", "updated_at"],
+    "expected_token_type": "Bearer",
+    "expected_token_fields": ["token", "refreshToken", "user"],
+    "expected_password_hash_prefix": "$argon2id$",
+    "test_tags": ["auth", "registration", "happy-path"]
+  },
+  "email": "test-user@example.com",
+  "password": "SecurePass123!"
+}

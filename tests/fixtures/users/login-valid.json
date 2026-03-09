@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "description": "Valid credentials for user login",
+    "test_case": "TC-AUTH-002",
+    "expected_response_status": 200,
+    "expected_response_fields": ["token", "refreshToken", "user"],
+    "test_tags": ["auth", "login", "happy-path"]
+  },
+  "email": "existing@example.com",
+  "password": "KnownPassword123!",
+  "setup": {
+    "pre_existing_user": {
+      "email": "existing@example.com",
+      "password_hash": "$2a$10$XYZ...",
+      "email_verified": true
+    }
+  }
+}

@@ -1,0 +1,7 @@
+./auth.go
+./firestore.go
+./migrator.go
+./rtdb.go
+./scrypt.go
+./storage.go
+./types.go

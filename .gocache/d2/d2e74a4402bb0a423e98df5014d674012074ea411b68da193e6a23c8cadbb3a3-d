@@ -1,0 +1,6 @@
+./runner.go
+./user_runner.go
+./jobs_sql_test.go
+./matview_sql_test.go
+./oauth_sql_test.go
+./user_runner_test.go

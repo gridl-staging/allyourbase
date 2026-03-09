@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "description": "Valid webhook creation data",
+    "test_case": "TC-HOOK-001",
+    "expected_response_status": 201,
+    "expected_response_fields": ["id", "url", "secret", "events", "tables", "enabled", "created_at"],
+    "test_tags": ["webhooks", "create", "happy-path"]
+  },
+  "url": "https://example.com/webhook",
+  "secret": "my-secret-key-12345",
+  "events": ["INSERT", "UPDATE"],
+  "tables": ["posts", "comments"],
+  "enabled": true
+}

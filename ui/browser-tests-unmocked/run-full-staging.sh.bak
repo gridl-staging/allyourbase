@@ -1,0 +1,42 @@
+#!/bin/bash
+set -e
+
+# Run full test suite on staging environment
+# Usage: ./run-full-staging.sh
+
+echo "🧪 Running FULL test suite on STAGING..."
+echo "=========================================="
+echo "Target: https://staging.allyourbase.io"
+echo "This may take 10-15 minutes..."
+echo ""
+
+# Load staging environment
+export $(cat e2e/config/.env.staging | xargs)
+
+# Run smoke tests first
+echo "Step 1/2: Running smoke tests..."
+npx playwright test --project=smoke
+
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ Smoke tests FAILED - aborting full suite"
+  exit 1
+fi
+
+echo ""
+echo "Step 2/2: Running full test suite..."
+npx playwright test --project=full
+
+RESULT=$?
+
+if [ $RESULT -eq 0 ]; then
+  echo ""
+  echo "✅ Staging FULL test suite PASSED"
+  echo "   Safe to deploy to production"
+  exit 0
+else
+  echo ""
+  echo "❌ Staging full tests FAILED"
+  echo "   Fix issues before deploying to production"
+  exit 1
+fi

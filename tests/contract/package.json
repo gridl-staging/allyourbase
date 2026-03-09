@@ -1,0 +1,14 @@
+{
+  "name": "@ayb/contract-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Contract tests for external OAuth provider APIs",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}

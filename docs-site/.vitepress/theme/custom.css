@@ -1,0 +1,113 @@
+/* Brand colors */
+:root {
+  --vp-c-brand-1: #2563eb;
+  --vp-c-brand-2: #1d4ed8;
+  --vp-c-brand-3: #1e40af;
+  --vp-c-brand-soft: rgba(37, 99, 235, 0.14);
+  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+}
+
+.dark {
+  --vp-c-brand-1: #60a5fa;
+  --vp-c-brand-2: #3b82f6;
+  --vp-c-brand-3: #2563eb;
+}
+
+/* Hero tweaks */
+.VPHero .name {
+  font-size: 2rem !important;
+}
+
+.VPHero .text {
+  font-size: 3rem !important;
+  line-height: 1.15 !important;
+}
+
+.VPHero .tagline {
+  font-size: 1.2rem !important;
+  max-width: 560px !important;
+}
+
+/* Feature card icons */
+.VPFeature .icon {
+  font-size: 1.75rem;
+}
+
+/* Custom sections below the features */
+.custom-sections {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+.custom-sections h2 {
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 48px;
+  margin-top: 48px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.custom-sections h2:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Install grid */
+.install-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+@media (max-width: 640px) {
+  .install-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.install-option {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.install-option p strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+  color: var(--vp-c-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.install-option div[class*="language-"] {
+  margin: 0 !important;
+}
+
+/* Quickstart */
+.quickstart-steps {
+  margin-top: 24px;
+}
+
+/* Why table */
+.why-table {
+  margin-top: 32px;
+  overflow-x: auto;
+}
+
+.why-table table {
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+/* License section - less margin since it's the last section */
+.custom-sections h2:last-of-type {
+  margin-top: 32px;
+  padding-top: 32px;
+}

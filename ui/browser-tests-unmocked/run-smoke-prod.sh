@@ -1,0 +1,40 @@
+#!/bin/bash
+set -e
+
+# Run smoke tests on production environment
+# Usage: ./run-smoke-prod.sh
+#
+# ⚠️  WARNING: Only run this after staging tests pass
+# ⚠️  This hits the live production environment
+
+echo "🧪 Running smoke tests on PRODUCTION..."
+echo "========================================"
+echo "Target: https://install.allyourbase.io"
+echo ""
+read -p "⚠️  You are about to test PRODUCTION. Continue? (yes/no): " confirm
+
+if [ "$confirm" != "yes" ]; then
+  echo "Aborted."
+  exit 0
+fi
+
+# Load production environment
+export $(cat browser-tests-unmocked/config/.env.prod | grep -v "^#" | grep -v "^$" | xargs)
+
+# Run smoke tests only (fast validation)
+npx playwright test --project=smoke
+
+RESULT=$?
+
+if [ $RESULT -eq 0 ]; then
+  echo ""
+  echo "✅ Production smoke tests PASSED"
+  echo "   Production deployment validated"
+  exit 0
+else
+  echo ""
+  echo "❌ Production smoke tests FAILED"
+  echo "   ⚠️  CRITICAL: Production may have issues"
+  echo "   Consider rollback or immediate investigation"
+  exit 1
+fi

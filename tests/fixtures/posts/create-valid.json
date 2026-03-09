@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "description": "Create new post with valid data (happy path)",
+    "expected_response_status": 201,
+    "expected_fields": ["id", "title", "content", "status", "created_at", "updated_at"],
+    "expected_default_status": "draft",
+    "test_tags": ["collections", "create", "happy-path"]
+  },
+  "title": "New Test Post",
+  "content": "This is the content of the new test post",
+  "status": "draft"
+}

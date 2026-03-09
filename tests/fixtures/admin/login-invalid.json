@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "description": "Invalid admin password for login failure test",
+    "test_case": "TC-ADMIN-002",
+    "expected_response_status": 401,
+    "expected_error": "Invalid password",
+    "test_tags": ["admin", "authentication", "error-handling"]
+  },
+  "password": "wrong-password"
+}

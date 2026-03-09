@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "description": "Upload valid PNG image (1x1 pixel red dot, 68 bytes)",
+    "expected_response_status": 200,
+    "expected_fields": ["name", "size", "content_type", "url", "created_at"],
+    "expected_content_type": "image/png",
+    "expected_size_bytes": 68,
+    "expected_bucket": "test-bucket",
+    "test_tags": ["storage", "upload", "happy-path"]
+  },
+  "bucket": "test-bucket",
+  "filename": "test-image.png",
+  "file_content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "file_content_encoding": "base64"
+}

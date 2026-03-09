@@ -1,0 +1,51 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - bash -c "cd ui && npm install --legacy-peer-deps && npm run build"
+    - bash -c "cd examples/kanban && npm ci && VITE_AYB_URL='' npx vite build"
+    - bash -c "cd examples/live-polls && npm ci && VITE_AYB_URL='' npx vite build"
+
+builds:
+  - main: ./cmd/ayb
+    binary: ayb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: "ayb_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: gridlhq-staging
+    name: allyourbase
+  draft: false
+  prerelease: "false"

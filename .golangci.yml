@@ -1,0 +1,49 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      # HTTP response writing — error already sent via response
+      - (net/http.ResponseWriter).Write
+      - (net/http.ResponseWriter).WriteHeader
+      # io.Closer / Close patterns — standard Go defer close
+      - (io.Closer).Close
+      - (io.ReadCloser).Close
+      - (*os.File).Close
+      - (*database/sql.Rows).Close
+      - (*database/sql.Stmt).Close
+      - (*database/sql.DB).Close
+      # fmt print to io.Writer — CLI output, errors not meaningful
+      - io.Copy
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - fmt.Fprint
+      # Database transactions — rollback after commit is a no-op safety net
+      - (github.com/jackc/pgx/v5.Tx).Rollback
+      - (*github.com/jackc/pgx/v5/pgxpool.Pool).Exec
+      # CLI framework — panics on error internally
+      - (*github.com/spf13/pflag.FlagSet).Set
+      - (*github.com/spf13/cobra.Command).MarkFlagRequired
+      # Other intentionally ignored
+      - (*os.File).Write
+      - os.Remove
+      - os.Chdir
+      - os.WriteFile
+      - os.Mkdir
+      - os.Stdout.Write
+      - (*tabwriter.Writer).Flush
+      - (*encoding/json.Encoder).Encode
+      - (*encoding/json.Decoder).Decode
+      - encoding/json.Unmarshal
+      - filepath.Walk
+  staticcheck:
+    checks:
+      - "all"
+      - "-QF*"  # Disable quickfix suggestions (style preferences, not bugs)

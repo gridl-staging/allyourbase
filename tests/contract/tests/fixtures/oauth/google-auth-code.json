@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "description": "Google OAuth authorization code exchange",
+    "test_case": "Contract Test - Google OAuth",
+    "expected_response_status": 200,
+    "expected_response_fields": ["access_token", "expires_in", "token_type"],
+    "expected_token_type": "Bearer",
+    "test_tags": ["oauth", "google", "contract"]
+  },
+  "provider": "google",
+  "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+  "token_endpoint": "https://oauth2.googleapis.com/token",
+  "userinfo_endpoint": "https://www.googleapis.com/oauth2/v2/userinfo",
+  "scopes": "openid email profile",
+  "redirect_uri": "http://localhost:8090/api/auth/oauth/google/callback"
+}

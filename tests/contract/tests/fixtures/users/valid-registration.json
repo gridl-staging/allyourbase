@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "description": "Valid user registration data",
+    "test_case": "TC-AUTH-001",
+    "expected_response_status": 201,
+    "expected_user_fields": ["id", "email", "created_at"],
+    "expected_token_fields": ["token", "refreshToken"],
+    "test_tags": ["auth", "registration", "happy-path"]
+  },
+  "email": "newuser@example.com",
+  "password": "SecurePassword123!",
+  "name": "Test User"
+}

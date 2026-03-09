@@ -1,0 +1,35 @@
+services:
+  ayb:
+    build: .
+    ports:
+      - "8090:8090"
+    environment:
+      AYB_DATABASE_URL: "postgresql://ayb:ayb@postgres:5432/ayb?sslmode=disable"
+      AYB_AUTH_ENABLED: "true"
+      AYB_AUTH_JWT_SECRET: "change-me-to-a-secure-random-string-at-least-32-chars"
+      AYB_STORAGE_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ayb_storage:/app/ayb_storage
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ayb
+      POSTGRES_PASSWORD: ayb
+      POSTGRES_DB: ayb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ayb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  ayb_storage:

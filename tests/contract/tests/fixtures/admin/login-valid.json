@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "description": "Valid admin password for login",
+    "test_case": "TC-ADMIN-001",
+    "expected_response_status": 200,
+    "expected_response_fields": ["token"],
+    "test_tags": ["admin", "authentication", "happy-path"]
+  },
+  "password": "admin-test-password-123"
+}

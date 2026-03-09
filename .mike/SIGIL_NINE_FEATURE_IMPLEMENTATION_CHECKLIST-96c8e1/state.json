@@ -1,0 +1,59 @@
+{
+  "input_file": "/Users/stuart/repos/allyourbase_root/allyourbase_dev/_dev/SIGIL_NINE_FEATURE_IMPLEMENTATION_CHECKLIST.md",
+  "input_type": "checklist",
+  "current_stage": 5,
+  "current_rotation": "stage_transition",
+  "current_prompt_index": 5,
+  "iteration": 101,
+  "cumulative_cost_usd": 171.4678532999999,
+  "last_session_timestamp": "2026-02-22T13:38:20Z",
+  "base_branch": "",
+  "mike_branch": "",
+  "stage_branch": "",
+  "stage_worktree": "",
+  "parallel_groups": [],
+  "run_id": "41083472-ecdd-40bf-bb54-908094fa95ef",
+  "stage_rollups": {},
+  "open_defect_claim_ids": [],
+  "open_defect_claims": [],
+  "last_review_target": {
+    "iteration": 100,
+    "stage": 5,
+    "rotation": "work",
+    "prompt_name": "build",
+    "prompt_index": 3,
+    "model": "gpt-5.3-codex",
+    "provider": "codex",
+    "session_id_local": "iter0100-build-1771767217027"
+  },
+  "stage_controller": {
+    "rotation": "stage_transition",
+    "stage": 5,
+    "num_stages": 8,
+    "execution_plan": [],
+    "current_step": 0,
+    "completed_stages": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "loop_controller": {
+    "pidx": 5,
+    "consec_fail": 0,
+    "backoff": 30,
+    "review_retries": 0
+  },
+  "_loop_ctrl_rotation": "work",
+  "execution_plan": [],
+  "current_step": 0,
+  "completed_stages": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ]
+}

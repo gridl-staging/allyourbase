@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "description": "Google OAuth authorization code from test account (expires in 10 minutes)",
+    "expected_token_type": "Bearer",
+    "expected_expires_in_range": [3599, 3601],
+    "expected_scope": "openid email profile",
+    "expected_response_fields": ["access_token", "expires_in", "token_type", "scope", "id_token"],
+    "test_tags": ["oauth", "google", "contract-test"],
+    "note": "This code must be recently obtained (manual or automated). Contract tests should skip if expired."
+  },
+  "code": "TEST_AUTH_CODE_PLACEHOLDER",
+  "client_id": "GOOGLE_CLIENT_ID_FROM_ENV",
+  "client_secret": "GOOGLE_CLIENT_SECRET_FROM_ENV",
+  "redirect_uri": "http://localhost:8090/api/auth/oauth/google/callback"
+}

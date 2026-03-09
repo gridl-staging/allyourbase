@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "description": "Simple SELECT query for admin SQL execution",
+    "test_case": "TC-ADMIN-004",
+    "expected_response_status": 200,
+    "expected_response_fields": ["columns", "rows", "rowCount", "durationMs"],
+    "expected_columns": ["test_column", "message"],
+    "expected_row_count": 1,
+    "test_tags": ["admin", "sql", "happy-path"]
+  },
+  "query": "SELECT 1 AS test_column, 'hello' AS message",
+  "expected_rows": [
+    {
+      "test_column": 1,
+      "message": "hello"
+    }
+  ]
+}

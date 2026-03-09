@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "description": "Image file upload test data",
+    "test_case": "TC-STOR-001",
+    "expected_response_status": 201,
+    "expected_response_fields": ["id", "path", "size", "mimeType", "bucket"],
+    "expected_mime_type": "image/png",
+    "test_tags": ["storage", "upload", "happy-path"]
+  },
+  "bucket": "avatars",
+  "filename": "test-avatar.png",
+  "file_size": 2048,
+  "mime_type": "image/png",
+  "file_content_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+}

@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+# Run smoke tests on staging environment
+# Usage: ./run-smoke-staging.sh
+
+echo "🧪 Running smoke tests on STAGING..."
+echo "======================================"
+echo "Target: https://staging.allyourbase.io"
+echo ""
+
+# Load staging environment
+export $(cat e2e/config/.env.staging | xargs)
+
+# Run smoke tests only
+npx playwright test --project=smoke
+
+RESULT=$?
+
+if [ $RESULT -eq 0 ]; then
+  echo ""
+  echo "✅ Staging smoke tests PASSED"
+  echo "   Ready to run full suite or deploy to production"
+  exit 0
+else
+  echo ""
+  echo "❌ Staging smoke tests FAILED"
+  echo "   Do NOT deploy to production"
+  exit 1
+fi

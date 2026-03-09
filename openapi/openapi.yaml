@@ -1,0 +1,2748 @@
+openapi: 3.0.3
+info:
+  title: Allyourbase API
+  description: |
+    Backend-as-a-Service for PostgreSQL. Single binary. Auto-generated REST API
+    with filtering, sorting, pagination, foreign key expansion, full-text search,
+    batch operations, authentication, file storage, realtime events, and webhooks.
+  version: 0.1.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  contact:
+    name: Allyourbase
+    url: https://allyourbase.io
+
+servers:
+  - url: http://localhost:8090
+    description: Local development server
+
+# Default: no auth required. Individual operations override with BearerAuth or AdminAuth.
+security:
+  - {}
+
+tags:
+  - name: Health
+    description: Server health check
+  - name: Admin
+    description: Admin dashboard authentication, SQL editor, and server management
+  - name: Admin RLS
+    description: Row-Level Security policy management (admin-only)
+  - name: Admin API Keys
+    description: API key management (admin-only)
+  - name: Auth
+    description: User authentication (email/password, OAuth, JWT)
+  - name: Collections
+    description: Auto-generated CRUD for database tables
+  - name: RPC
+    description: Call PostgreSQL functions
+  - name: Schema
+    description: Database schema introspection
+  - name: Realtime
+    description: Server-Sent Events for table changes
+  - name: Storage
+    description: File upload, download, and management
+  - name: Webhooks
+    description: Event webhook management (admin-only)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/admin/status:
+    get:
+      tags: [Admin]
+      summary: Check if admin auth is required
+      operationId: adminStatus
+      responses:
+        "200":
+          description: Admin auth status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStatusResponse"
+
+  /api/admin/auth:
+    post:
+      tags: [Admin]
+      summary: Admin login
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminLoginResponse"
+        "401":
+          description: Invalid password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Admin auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/sql:
+    post:
+      tags: [Admin]
+      summary: Execute SQL query
+      description: Run arbitrary SQL against the database. Admin authentication required. 30-second timeout.
+      operationId: adminSql
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SqlRequest"
+      responses:
+        "200":
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SqlResponse"
+        "400":
+          description: Invalid query or SQL error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls:
+    get:
+      tags: [Admin RLS]
+      summary: List all RLS policies
+      description: List all Row-Level Security policies across all user tables.
+      operationId: adminListRlsPolicies
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: Array of RLS policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RlsPolicy"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Admin RLS]
+      summary: Create an RLS policy
+      operationId: adminCreateRlsPolicy
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRlsPolicyRequest"
+      responses:
+        "201":
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid request or SQL error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls/{table}:
+    get:
+      tags: [Admin RLS]
+      summary: List RLS policies for a table
+      operationId: adminListTableRlsPolicies
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of RLS policies for this table
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RlsPolicy"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls/{table}/status:
+    get:
+      tags: [Admin RLS]
+      summary: Get RLS status for a table
+      operationId: adminGetRlsStatus
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RLS enabled/force status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RlsStatusResponse"
+        "400":
+          description: Invalid table name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Table not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls/{table}/enable:
+    post:
+      tags: [Admin RLS]
+      summary: Enable RLS on a table
+      operationId: adminEnableRls
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RLS enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid table name or SQL error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls/{table}/disable:
+    post:
+      tags: [Admin RLS]
+      summary: Disable RLS on a table
+      operationId: adminDisableRls
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RLS disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid table name or SQL error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/rls/{table}/{policy}:
+    delete:
+      tags: [Admin RLS]
+      summary: Delete an RLS policy
+      operationId: adminDeleteRlsPolicy
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: policy
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Policy deleted
+        "400":
+          description: Invalid table or policy name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List registered users
+      description: |
+        Paginated list of auth users with optional email search.
+        Requires admin authentication and auth to be enabled.
+      operationId: adminListUsers
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+        - name: search
+          in: query
+          description: Search by email (ILIKE match)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/users/{id}:
+    delete:
+      tags: [Admin]
+      summary: Delete a user
+      description: Permanently deletes a user and all their sessions.
+      operationId: adminDeleteUser
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: User deleted
+        "400":
+          description: Missing user ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/api-keys:
+    get:
+      tags: [Admin API Keys]
+      summary: List all API keys
+      description: Paginated list of all API keys across all users.
+      operationId: adminListApiKeys
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated API key list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyListResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Admin API Keys]
+      summary: Create an API key for any user
+      operationId: adminCreateApiKey
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateApiKeyRequest"
+      responses:
+        "201":
+          description: API key created (plaintext key shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreateResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/api-keys/{id}:
+    delete:
+      tags: [Admin API Keys]
+      summary: Revoke an API key
+      operationId: adminRevokeApiKey
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: API key revoked
+        "400":
+          description: Invalid UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: API key not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/logs:
+    get:
+      tags: [Admin]
+      summary: Get server logs
+      description: Return recent server log entries from the in-memory ring buffer.
+      operationId: adminGetLogs
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/stats:
+    get:
+      tags: [Admin]
+      summary: Get server statistics
+      description: Return server runtime statistics including uptime, memory, goroutines, and database pool info.
+      operationId: adminGetStats
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: Server statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/secrets/rotate:
+    post:
+      tags: [Admin]
+      summary: Rotate JWT signing secret
+      description: Rotate the JWT signing secret, invalidating all existing user tokens. Admin tokens are unaffected.
+      operationId: adminRotateSecrets
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: Secret rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Rotation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid request (missing email/password)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded (10 req/min/IP)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: authRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (revoke refresh token)
+      operationId: authLogout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "204":
+          description: Logged out successfully
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/me:
+    delete:
+      tags: [Auth]
+      summary: Delete own account
+      description: Permanently deletes the authenticated user's account and all sessions.
+      operationId: authDeleteAccount
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Account deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      tags: [Auth]
+      summary: Get current user
+      operationId: authMe
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/password-reset:
+    post:
+      tags: [Auth]
+      summary: Request password reset email
+      operationId: authPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "204":
+          description: Reset email sent (always returns 204 regardless of email existence)
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/password-reset/confirm:
+    post:
+      tags: [Auth]
+      summary: Confirm password reset
+      operationId: authPasswordResetConfirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirmRequest"
+      responses:
+        "204":
+          description: Password reset successful
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/verify:
+    post:
+      tags: [Auth]
+      summary: Verify email address
+      operationId: authVerifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "204":
+          description: Email verified
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/verify/resend:
+    post:
+      tags: [Auth]
+      summary: Resend verification email
+      operationId: authResendVerification
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Verification email sent
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/oauth/{provider}:
+    get:
+      tags: [Auth]
+      summary: Start OAuth flow
+      operationId: authOAuthRedirect
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, github]
+      responses:
+        "200":
+          description: Not used (endpoint redirects)
+        "302":
+          description: Redirect to OAuth provider
+        "400":
+          description: Provider not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/oauth/{provider}/callback:
+    get:
+      tags: [Auth]
+      summary: OAuth callback
+      operationId: authOAuthCallback
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, github]
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Not used (endpoint redirects)
+        "302":
+          description: Redirect to app with tokens in hash fragment
+        "400":
+          description: Invalid OAuth callback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/magic-link:
+    post:
+      tags: [Auth]
+      summary: Request magic link email
+      description: |
+        Send a passwordless login link to the given email address. Always returns 200
+        regardless of whether the email exists (prevents email enumeration). Returns 404
+        if magic link feature is disabled in server config.
+      operationId: authMagicLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MagicLinkRequest"
+      responses:
+        "200":
+          description: Magic link sent (always returned to prevent email enumeration)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Missing email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Magic link feature not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/magic-link/confirm:
+    post:
+      tags: [Auth]
+      summary: Confirm magic link token
+      description: |
+        Verify a magic link token and return auth tokens. Creates the user account
+        if it doesn't exist (email is marked verified). Token is single-use.
+      operationId: authMagicLinkConfirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MagicLinkConfirmRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Magic link feature not enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/api-keys:
+    get:
+      tags: [Auth]
+      summary: List own API keys
+      description: List all API keys belonging to the authenticated user.
+      operationId: authListApiKeys
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User's API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Auth]
+      summary: Create an API key
+      description: |
+        Create a non-expiring API key for the authenticated user. Requires JWT
+        authentication (not API key auth) to prevent key bootstrapping.
+      operationId: authCreateApiKey
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateApiKeyRequest"
+      responses:
+        "201":
+          description: API key created (plaintext key shown once only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreateResponse"
+        "400":
+          description: Invalid scope or missing name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/api-keys/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke own API key
+      description: Revoke one of the authenticated user's own API keys.
+      operationId: authRevokeApiKey
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: API key revoked
+        "400":
+          description: Invalid UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: API key not found or not owned by user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/schema:
+    get:
+      tags: [Schema]
+      summary: Get full database schema
+      operationId: getSchema
+      responses:
+        "200":
+          description: Database schema
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaCache"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Schema cache not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/realtime:
+    get:
+      tags: [Realtime]
+      summary: Subscribe to realtime events (SSE)
+      description: |
+        Server-Sent Events stream for table changes. Events are filtered by
+        RLS policies when authentication is enabled. Pass JWT token as query
+        parameter for EventSource compatibility.
+      operationId: realtimeSubscribe
+      parameters:
+        - name: tables
+          in: query
+          description: Comma-separated table names to subscribe to
+          schema:
+            type: string
+            example: posts,comments
+        - name: token
+          in: query
+          description: JWT token (for EventSource which cannot set headers)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Each event is JSON: {"action": "create"|"update"|"delete", "table": "name", "record": {...}}
+        "401":
+          description: Invalid or missing JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/collections/{table}:
+    get:
+      tags: [Collections]
+      summary: List records
+      operationId: listRecords
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+        - $ref: "#/components/parameters/Filter"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Expand"
+        - $ref: "#/components/parameters/SkipTotal"
+        - $ref: "#/components/parameters/Search"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: Paginated list of records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponse"
+        "400":
+          description: Invalid filter or search syntax
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Collections]
+      summary: Create a record
+      operationId: createRecord
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Record fields as key-value pairs
+              additionalProperties: true
+      responses:
+        "201":
+          description: Record created
+          content:
+            application/json:
+              schema:
+                type: object
+                description: The created record
+                additionalProperties: true
+        "400":
+          description: Invalid JSON or no recognized columns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Unique constraint violation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: NOT NULL or check constraint violation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/collections/{table}/batch:
+    post:
+      tags: [Collections]
+      summary: Batch operations
+      description: |
+        Perform multiple create, update, and delete operations in a single
+        atomic transaction. If any operation fails, all changes are rolled back.
+        Max 1000 operations per request.
+      operationId: batchOperations
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchRequest"
+      responses:
+        "200":
+          description: Batch results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BatchResult"
+        "400":
+          description: Invalid request or operation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/collections/{table}/{id}:
+    get:
+      tags: [Collections]
+      summary: Get a record
+      operationId: getRecord
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+        - $ref: "#/components/parameters/RecordId"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Expand"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: The record
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: Collection or record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      tags: [Collections]
+      summary: Update a record (partial)
+      operationId: updateRecord
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+        - $ref: "#/components/parameters/RecordId"
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Fields to update
+              additionalProperties: true
+      responses:
+        "200":
+          description: The updated record
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          description: Invalid JSON or no recognized columns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Collection or record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Collections]
+      summary: Delete a record
+      operationId: deleteRecord
+      parameters:
+        - $ref: "#/components/parameters/TablePath"
+        - $ref: "#/components/parameters/RecordId"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "204":
+          description: Record deleted
+        "404":
+          description: Collection or record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/rpc/{function}:
+    post:
+      tags: [RPC]
+      summary: Call a PostgreSQL function
+      description: |
+        Invoke a PostgreSQL function by name with named arguments. Void functions
+        return 204 No Content. Set-returning functions return an array. Scalar
+        functions return the unwrapped value.
+      operationId: callFunction
+      parameters:
+        - name: function
+          in: path
+          required: true
+          description: PostgreSQL function name
+          schema:
+            type: string
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Named arguments as key-value pairs
+              additionalProperties: true
+      responses:
+        "200":
+          description: Function result (scalar value, object, or array)
+          content:
+            application/json:
+              schema: {}
+        "204":
+          description: Void function executed successfully
+        "400":
+          description: Invalid arguments or function error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Function not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/storage/{bucket}:
+    get:
+      tags: [Storage]
+      summary: List files in a bucket
+      operationId: listFiles
+      parameters:
+        - $ref: "#/components/parameters/BucketPath"
+        - name: prefix
+          in: query
+          description: Filter by filename prefix
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Max files to return
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          description: Number of files to skip
+          schema:
+            type: integer
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageListResponse"
+        "400":
+          description: Invalid bucket name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Storage]
+      summary: Upload a file
+      operationId: uploadFile
+      parameters:
+        - $ref: "#/components/parameters/BucketPath"
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+              required:
+                - file
+      responses:
+        "201":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageObject"
+        "400":
+          description: Invalid form or file too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/storage/{bucket}/{name}:
+    get:
+      tags: [Storage]
+      summary: Download a file
+      operationId: downloadFile
+      parameters:
+        - $ref: "#/components/parameters/BucketPath"
+        - $ref: "#/components/parameters/FileName"
+      responses:
+        "200":
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Storage]
+      summary: Delete a file
+      operationId: deleteFile
+      parameters:
+        - $ref: "#/components/parameters/BucketPath"
+        - $ref: "#/components/parameters/FileName"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "204":
+          description: File deleted
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/storage/{bucket}/{name}/sign:
+    post:
+      tags: [Storage]
+      summary: Get a signed URL for a file
+      description: Generate a time-limited signed URL. Default expiry is 1 hour, max 7 days.
+      operationId: signFileUrl
+      parameters:
+        - $ref: "#/components/parameters/BucketPath"
+        - $ref: "#/components/parameters/FileName"
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignRequest"
+      responses:
+        "200":
+          description: Signed URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignResponse"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: All webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook
+      operationId: createWebhook
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRequest"
+      responses:
+        "201":
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+        "400":
+          description: Invalid request (missing URL or invalid event)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/webhooks/{id}:
+    get:
+      tags: [Webhooks]
+      summary: Get a webhook
+      operationId: getWebhook
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+      responses:
+        "200":
+          description: The webhook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      tags: [Webhooks]
+      summary: Update a webhook (partial)
+      operationId: updateWebhook
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRequest"
+      responses:
+        "200":
+          description: The updated webhook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+        "400":
+          description: Invalid event type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook
+      operationId: deleteWebhook
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+      responses:
+        "204":
+          description: Webhook deleted
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/webhooks/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Test webhook delivery
+      description: |
+        Sends a test event to the webhook URL and reports the result.
+        Does not respect the enabled flag — you can test disabled webhooks.
+        Single attempt with 10-second timeout, no retries.
+      operationId: testWebhook
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+      responses:
+        "200":
+          description: Test result (success or failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookTestResult"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/webhooks/{id}/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook delivery history
+      description: Returns paginated delivery logs for a specific webhook, ordered newest first.
+      operationId: listWebhookDeliveries
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Delivery logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryListResponse"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/webhooks/{id}/deliveries/{deliveryId}:
+    get:
+      tags: [Webhooks]
+      summary: Get a single delivery log
+      operationId: getWebhookDelivery
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WebhookId"
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The delivery log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "401":
+          description: Admin authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Webhook or delivery not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from /api/auth/login or /api/auth/register
+    AdminAuth:
+      type: http
+      scheme: bearer
+      description: Admin token from /api/admin/auth
+
+  parameters:
+    TablePath:
+      name: table
+      in: path
+      required: true
+      description: Table/collection name
+      schema:
+        type: string
+    RecordId:
+      name: id
+      in: path
+      required: true
+      description: Record primary key value (composite keys separated by commas)
+      schema:
+        type: string
+    BucketPath:
+      name: bucket
+      in: path
+      required: true
+      description: Storage bucket name
+      schema:
+        type: string
+    FileName:
+      name: name
+      in: path
+      required: true
+      description: File name within the bucket
+      schema:
+        type: string
+    WebhookId:
+      name: id
+      in: path
+      required: true
+      description: Webhook UUID
+      schema:
+        type: string
+        format: uuid
+    Filter:
+      name: filter
+      in: query
+      description: "SQL-safe filter expression (e.g. status='active' AND age>21)"
+      schema:
+        type: string
+    Sort:
+      name: sort
+      in: query
+      description: "Sort fields with direction prefix (e.g. -created_at,+title). - = DESC, + = ASC"
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      description: Page number (default 1)
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    PerPage:
+      name: perPage
+      in: query
+      description: Items per page (default 20, max 500)
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 500
+    Fields:
+      name: fields
+      in: query
+      description: "Comma-separated column names to return (e.g. id,name,email)"
+      schema:
+        type: string
+    Expand:
+      name: expand
+      in: query
+      description: "Comma-separated foreign key column names to expand (e.g. author,category)"
+      schema:
+        type: string
+    SkipTotal:
+      name: skipTotal
+      in: query
+      description: Skip COUNT query for faster list responses
+      schema:
+        type: boolean
+        default: false
+    Search:
+      name: search
+      in: query
+      description: "Full-text search across all text columns. Supports PostgreSQL websearch_to_tsquery syntax."
+      schema:
+        type: string
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: HTTP status code
+          example: 400
+        message:
+          type: string
+          description: Human-readable error message
+          example: "collection not found: nonexistent"
+        data:
+          type: object
+          description: Field-level validation details
+          additionalProperties: true
+
+    ListResponse:
+      type: object
+      required: [items, page, perPage, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Records for the current page
+        page:
+          type: integer
+          example: 1
+        perPage:
+          type: integer
+          example: 20
+        totalItems:
+          type: integer
+          description: Total matching records (-1 if skipTotal=true)
+          example: 42
+        totalPages:
+          type: integer
+          description: Total pages (-1 if skipTotal=true)
+          example: 3
+
+    AuthRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: secretpassword
+
+    AuthResponse:
+      type: object
+      required: [token, refreshToken, user]
+      properties:
+        token:
+          type: string
+          description: JWT access token (default 15 min expiry)
+        refreshToken:
+          type: string
+          description: Refresh token (default 7 day expiry)
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, email, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    PasswordResetConfirmRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    BatchRequest:
+      type: object
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/BatchOperation"
+
+    BatchOperation:
+      type: object
+      required: [method]
+      properties:
+        method:
+          type: string
+          enum: [create, update, delete]
+        id:
+          type: string
+          description: Record ID (required for update and delete)
+        body:
+          type: object
+          description: Record data (required for create and update)
+          additionalProperties: true
+
+    BatchResult:
+      type: object
+      required: [index, status]
+      properties:
+        index:
+          type: integer
+          description: Position of the operation in the request array
+        status:
+          type: integer
+          description: HTTP status code for this operation (201, 200, or 204)
+        body:
+          type: object
+          description: The created or updated record (absent for deletes)
+          additionalProperties: true
+
+    StorageObject:
+      type: object
+      required: [id, bucket, name, size, contentType, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bucket:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes
+        contentType:
+          type: string
+          example: image/png
+        userId:
+          type: string
+          format: uuid
+          description: Uploader's user ID (if authenticated)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    StorageListResponse:
+      type: object
+      required: [items, totalItems]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StorageObject"
+        totalItems:
+          type: integer
+
+    SignRequest:
+      type: object
+      properties:
+        expiresIn:
+          type: integer
+          description: Expiry in seconds (default 3600, max 604800)
+          default: 3600
+          maximum: 604800
+
+    SignResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Signed URL path with token query parameter
+
+    WebhookRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL to receive webhook events
+        secret:
+          type: string
+          description: HMAC-SHA256 signing secret for payload verification
+        events:
+          type: array
+          items:
+            type: string
+            enum: [create, update, delete]
+          description: "Event types to subscribe to (default: all)"
+          default: [create, update, delete]
+        tables:
+          type: array
+          items:
+            type: string
+          description: "Table names to filter (default: all tables)"
+          default: []
+        enabled:
+          type: boolean
+          description: Whether the webhook is active
+          default: true
+
+    WebhookResponse:
+      type: object
+      required: [id, url, hasSecret, events, tables, enabled, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        hasSecret:
+          type: boolean
+          description: Whether a signing secret is configured (secret value is never exposed)
+        events:
+          type: array
+          items:
+            type: string
+            enum: [create, update, delete]
+        tables:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WebhookTestResult:
+      type: object
+      required: [success, durationMs]
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+          description: HTTP status code from target (omitted on connection error)
+        durationMs:
+          type: integer
+          format: int64
+        error:
+          type: string
+          description: Error message (omitted on success)
+
+    WebhookDelivery:
+      type: object
+      required: [id, webhookId, eventAction, eventTable, success, attempt, durationMs, deliveredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        webhookId:
+          type: string
+          format: uuid
+        eventAction:
+          type: string
+        eventTable:
+          type: string
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        attempt:
+          type: integer
+          description: Attempt number (1-3)
+        durationMs:
+          type: integer
+          format: int64
+        error:
+          type: string
+        requestBody:
+          type: string
+          description: JSON payload sent (truncated to 4KB)
+        responseBody:
+          type: string
+          description: Response body (truncated to 1KB)
+        deliveredAt:
+          type: string
+          format: date-time
+
+    DeliveryListResponse:
+      type: object
+      required: [items, page, perPage, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+        page:
+          type: integer
+        perPage:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    SqlRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: SQL query to execute
+          example: "SELECT * FROM posts LIMIT 10"
+
+    SqlResponse:
+      type: object
+      required: [columns, rows, rowCount, durationMs]
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+          description: Column names from the result set
+        rows:
+          type: array
+          items:
+            type: array
+            items: {}
+          description: Row data as arrays of values
+        rowCount:
+          type: integer
+          description: Number of rows returned
+        durationMs:
+          type: integer
+          format: int64
+          description: Query execution time in milliseconds
+
+    AdminLoginRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+
+    AdminLoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Admin Bearer token (HMAC-derived, valid for server lifetime)
+
+    AdminStatusResponse:
+      type: object
+      required: [auth]
+      properties:
+        auth:
+          type: boolean
+          description: Whether admin password authentication is required
+
+    AdminUser:
+      type: object
+      required: [id, email, emailVerified, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserListResponse:
+      type: object
+      required: [items, page, perPage, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        page:
+          type: integer
+        perPage:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    SchemaCache:
+      type: object
+      properties:
+        tables:
+          type: object
+          description: "Map of schema-qualified table names to table definitions"
+          additionalProperties:
+            $ref: "#/components/schemas/SchemaTable"
+        functions:
+          type: object
+          description: "Map of schema-qualified function names to function definitions"
+          additionalProperties:
+            $ref: "#/components/schemas/SchemaFunction"
+        schemas:
+          type: array
+          items:
+            type: string
+          description: List of database schemas
+        builtAt:
+          type: string
+          format: date-time
+
+    SchemaTable:
+      type: object
+      properties:
+        schema:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [table, view, materialized_view, partitioned_table]
+        comment:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaColumn"
+        primaryKey:
+          type: array
+          items:
+            type: string
+        foreignKeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaForeignKey"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaRelationship"
+
+    SchemaColumn:
+      type: object
+      properties:
+        name:
+          type: string
+        position:
+          type: integer
+        type:
+          type: string
+          description: PostgreSQL type name
+        nullable:
+          type: boolean
+        default:
+          type: string
+        comment:
+          type: string
+        isPrimaryKey:
+          type: boolean
+        jsonType:
+          type: string
+          description: Mapped JSON type (string, number, boolean, object, array)
+        enumValues:
+          type: array
+          items:
+            type: string
+
+    SchemaForeignKey:
+      type: object
+      properties:
+        constraintName:
+          type: string
+        columns:
+          type: array
+          items:
+            type: string
+        referencedSchema:
+          type: string
+        referencedTable:
+          type: string
+        referencedColumns:
+          type: array
+          items:
+            type: string
+        onUpdate:
+          type: string
+        onDelete:
+          type: string
+
+    SchemaRelationship:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [many-to-one, one-to-many]
+        fromSchema:
+          type: string
+        fromTable:
+          type: string
+        fromColumns:
+          type: array
+          items:
+            type: string
+        toSchema:
+          type: string
+        toTable:
+          type: string
+        toColumns:
+          type: array
+          items:
+            type: string
+        fieldName:
+          type: string
+
+    SchemaFunction:
+      type: object
+      properties:
+        schema:
+          type: string
+        name:
+          type: string
+        comment:
+          type: string
+        parameters:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              position:
+                type: integer
+        returnType:
+          type: string
+        returnsSet:
+          type: boolean
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    RlsPolicy:
+      type: object
+      properties:
+        tableSchema:
+          type: string
+        tableName:
+          type: string
+        policyName:
+          type: string
+        command:
+          type: string
+          enum: [SELECT, INSERT, UPDATE, DELETE, ALL]
+        permissive:
+          type: string
+          enum: [PERMISSIVE, RESTRICTIVE]
+        roles:
+          type: array
+          items:
+            type: string
+        usingExpr:
+          type: string
+          nullable: true
+        withCheckExpr:
+          type: string
+          nullable: true
+
+    CreateRlsPolicyRequest:
+      type: object
+      required: [table, name]
+      properties:
+        table:
+          type: string
+          description: Target table name
+        schema:
+          type: string
+          default: public
+        name:
+          type: string
+          description: Policy name
+        command:
+          type: string
+          enum: [ALL, SELECT, INSERT, UPDATE, DELETE]
+          default: ALL
+        permissive:
+          type: boolean
+          description: "true = PERMISSIVE (default), false = RESTRICTIVE"
+        roles:
+          type: array
+          items:
+            type: string
+        using:
+          type: string
+          description: USING expression (raw SQL)
+        withCheck:
+          type: string
+          description: WITH CHECK expression (raw SQL)
+
+    RlsStatusResponse:
+      type: object
+      properties:
+        rlsEnabled:
+          type: boolean
+        forceRls:
+          type: boolean
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        keyPrefix:
+          type: string
+          description: "First 12 chars of key (e.g. ayb_a1b2c3d4)"
+        scope:
+          type: string
+          enum: ["*", readonly, readwrite]
+        allowedTables:
+          type: array
+          items:
+            type: string
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ApiKeyListResponse:
+      type: object
+      required: [items, page, perPage, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiKey"
+        page:
+          type: integer
+        perPage:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    AdminCreateApiKeyRequest:
+      type: object
+      required: [userId, name]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scope:
+          type: string
+          enum: ["*", readonly, readwrite]
+          default: "*"
+        allowedTables:
+          type: array
+          items:
+            type: string
+          description: "Empty = all tables"
+
+    UserCreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum: ["*", readonly, readwrite]
+          default: "*"
+        allowedTables:
+          type: array
+          items:
+            type: string
+          description: "Empty = all tables"
+
+    ApiKeyCreateResponse:
+      type: object
+      required: [key, apiKey]
+      properties:
+        key:
+          type: string
+          description: Plaintext API key (shown once only, starts with ayb_)
+        apiKey:
+          $ref: "#/components/schemas/ApiKey"
+
+    LogEntry:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [DEBUG, INFO, WARN, ERROR]
+        message:
+          type: string
+        attrs:
+          type: object
+          additionalProperties: true
+          description: Structured key-value log attributes
+
+    LogsResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        message:
+          type: string
+          description: Present when log buffering is not enabled
+
+    StatsResponse:
+      type: object
+      properties:
+        uptime_seconds:
+          type: integer
+        go_version:
+          type: string
+        goroutines:
+          type: integer
+        memory_alloc:
+          type: integer
+          description: Bytes currently allocated (heap)
+        memory_sys:
+          type: integer
+          description: Bytes obtained from OS
+        gc_cycles:
+          type: integer
+        db_pool_total:
+          type: integer
+          description: Present only when DB pool exists
+        db_pool_idle:
+          type: integer
+        db_pool_in_use:
+          type: integer
+        db_pool_max:
+          type: integer
+
+    MagicLinkRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    MagicLinkConfirmRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
