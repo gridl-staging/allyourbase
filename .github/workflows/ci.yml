@@ -145,20 +145,6 @@ jobs:
 
   test-integration:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: ayb_test
-          POSTGRES_PASSWORD: ayb_test
-          POSTGRES_DB: ayb_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -186,15 +172,11 @@ jobs:
           go-version: "1.25"
 
       - name: Integration tests
-        env:
-          TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
-        run: go test -p 1 -race -count=1 -tags=integration ./...
+        run: go run ./internal/testutil/cmd/testpg -- go test -p 1 -race -count=1 -tags=integration ./...
 
       - name: Supabase schema drift gate
-        env:
-          TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
         run: >
-          go test -race -count=1 -tags=integration ./internal/sbmigrate
+          go run ./internal/testutil/cmd/testpg -- go test -p 1 -race -count=1 -tags=integration ./internal/sbmigrate
           -run 'TestE2E_AnalyzeWithoutIsAnonymousColumn|TestE2E_AuthMigrationWithoutIsAnonymousColumn|TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt|TestE2E_IntrospectTablesFiltersHostedManagedTables|TestE2E_SchemaMigrationSkipsIncompatibleFKChain'
 
   # test-cli-e2e runs the 29 CLI end-to-end integration tests as a dedicated
@@ -254,23 +236,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     env:
-      TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
       AYB_ADMIN_PASSWORD: ${{ format('ci-browser-admin-{0}-{1}', github.run_id, github.run_attempt) }}
-      AYB_START_COMMAND: ./ayb start --foreground --database-url "$TEST_DATABASE_URL"
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: ayb_test
-          POSTGRES_PASSWORD: ayb_test
-          POSTGRES_DB: ayb_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      AYB_START_COMMAND: ./ayb start --foreground
 
     steps:
       - uses: actions/checkout@v4
@@ -328,23 +295,8 @@ jobs:
     needs: build
     timeout-minutes: 10
     env:
-      TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
-      AYB_START_COMMAND: ./ayb start --foreground --database-url "$TEST_DATABASE_URL"
+      AYB_START_COMMAND: ./ayb start --foreground
       AYB_STORAGE_ENABLED: "true"
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: ayb_test
-          POSTGRES_PASSWORD: ayb_test
-          POSTGRES_DB: ayb_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
