@@ -10,34 +10,41 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 )
 
 // Config holds settings for the managed Postgres manager.
 type Config struct {
-	Port        uint32 // default 15432
-	DataDir     string // persistent data directory (default ~/.ayb/data)
-	RuntimeDir  string // ephemeral runtime directory (default ~/.ayb/run)
-	BinCacheDir string // binary cache directory (default ~/.ayb/pg)
-	Logger      *slog.Logger
+	BaseDir                string   // root directory for managed Postgres state (default ~/.ayb)
+	Port                   uint32   // default 15432
+	DataDir                string   // persistent data directory (default ~/.ayb/data)
+	RuntimeDir             string   // ephemeral runtime directory (default ~/.ayb/run)
+	PIDFile                string   // manager PID file path (default ~/.ayb/pg.pid)
+	BinCacheDir            string   // binary cache directory (default ~/.ayb/pg)
+	BinDir                 string   // extracted binaries directory (default ~/.ayb/pgbin)
+	BinaryURL              string   // custom download URL template (empty = GitHub default)
+	PGVersion              string   // PG major version (default "16")
+	Extensions             []string // extensions to ensure on every start (CREATE EXTENSION IF NOT EXISTS)
+	SharedPreloadLibraries []string // shared_preload_libraries for postgresql.conf
+	Logger                 *slog.Logger
 }
 
-// Manager manages the lifecycle of an managed PostgreSQL child process.
+// Manager manages the lifecycle of a managed PostgreSQL child process.
 type Manager struct {
-	cfg     Config
-	db      *embeddedpostgres.EmbeddedPostgres
-	connURL string
-	running bool
-	logger  *slog.Logger
-	pidFile string
+	cfg        Config
+	connURL    string
+	running    bool
+	logger     *slog.Logger
+	pidFile    string
+	binDir     string
+	dataDir    string
+	runtimeDir string
+	cacheDir   string
 }
 
 const (
-	dbName    = "ayb"
-	dbUser    = "ayb"
-	dbPass    = "ayb"
-	pgVersion = "16"
+	dbName = "ayb"
+	dbUser = "ayb"
+	dbPass = "ayb"
 )
 
 // New creates a new Manager. Does not start anything.
@@ -59,22 +66,26 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 	}
 
 	// Resolve paths, defaulting to ~/.ayb/ subdirectories.
-	home, err := aybHome()
+	home, err := resolveAYBHome(m.cfg.BaseDir)
 	if err != nil {
 		return "", fmt.Errorf("resolving ayb home: %w", err)
 	}
 
-	dataDir := m.cfg.DataDir
-	if dataDir == "" {
-		dataDir = filepath.Join(home, "data")
+	m.dataDir = m.cfg.DataDir
+	if m.dataDir == "" {
+		m.dataDir = filepath.Join(home, "data")
 	}
-	runtimeDir := m.cfg.RuntimeDir
-	if runtimeDir == "" {
-		runtimeDir = filepath.Join(home, "run")
+	m.runtimeDir = m.cfg.RuntimeDir
+	if m.runtimeDir == "" {
+		m.runtimeDir = filepath.Join(home, "run")
 	}
-	cacheDir := m.cfg.BinCacheDir
-	if cacheDir == "" {
-		cacheDir = filepath.Join(home, "pg")
+	m.cacheDir = m.cfg.BinCacheDir
+	if m.cacheDir == "" {
+		m.cacheDir = filepath.Join(home, "pg")
+	}
+	m.binDir = m.cfg.BinDir
+	if m.binDir == "" {
+		m.binDir = filepath.Join(home, "pgbin")
 	}
 
 	port := m.cfg.Port
@@ -82,69 +93,99 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 		port = 15432
 	}
 
-	binDir := filepath.Join(home, "pgbin")
+	pgVersion := m.cfg.PGVersion
+	if pgVersion == "" {
+		pgVersion = "16"
+	}
 
 	// Ensure directories exist.
-	for _, dir := range []string{dataDir, runtimeDir, cacheDir, binDir} {
+	for _, dir := range []string{m.dataDir, m.runtimeDir, m.cacheDir, m.binDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("creating directory %s: %w", dir, err)
 		}
 	}
 
 	// Check for orphaned process.
-	m.pidFile = filepath.Join(home, "pg.pid")
+	m.pidFile = resolvePIDFile(m.cfg, home)
 	cleanupOrphan(m.pidFile, m.logger)
 
-	// Check if first run (no cached binaries).
-	if _, err := os.Stat(cacheDir); err == nil {
-		entries, _ := os.ReadDir(cacheDir)
-		if len(entries) == 0 {
-			m.logger.Info("downloading PostgreSQL binaries (first run only)...")
-		}
+	// Platform detection.
+	platform, err := platformKey()
+	if err != nil {
+		return "", fmt.Errorf("detecting platform: %w", err)
 	}
 
-	m.db = embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
-		Port(port).
-		DataPath(dataDir).
-		RuntimePath(runtimeDir).
-		BinariesPath(binDir).
-		CachePath(cacheDir).
-		Version(embeddedpostgres.V16).
-		Database(dbName).
-		Username(dbUser).
-		Password(dbPass).
-		Logger(newLogWriter(m.logger)).
-		StartTimeout(60 * time.Second))
+	// Download binary (with cache check).
+	usedLegacyFallback, err := ensureBinary(ctx, ensureBinaryOpts{
+		version:   pgVersion,
+		platform:  platform,
+		cacheDir:  m.cacheDir,
+		binDir:    m.binDir,
+		baseURL:   m.cfg.BinaryURL,
+		sha256URL: sha256SumsURL(m.cfg.BinaryURL, pgVersion),
+	})
+	if err != nil {
+		return "", fmt.Errorf("ensuring PG binary: %w", err)
+	}
+	if usedLegacyFallback {
+		m.logger.Warn("managed postgres is using the legacy fallback binary source; advanced extensions may be unavailable",
+			"pg_version", pgVersion,
+			"platform", platform,
+		)
+	}
 
-	if err := m.db.Start(); err != nil {
+	// Initialize data directory (skips if already initialized).
+	if err := runInitDB(ctx, m.binDir, m.dataDir, m.logger); err != nil {
+		return "", fmt.Errorf("initializing data directory: %w", err)
+	}
+
+	// Write postgresql.conf.
+	if err := writePostgresConf(m.dataDir, port, m.runtimeDir, m.cfg.SharedPreloadLibraries); err != nil {
+		return "", fmt.Errorf("writing postgresql.conf: %w", err)
+	}
+
+	// Start postgres.
+	if err := startPostgres(ctx, m.binDir, m.dataDir, port, m.logger); err != nil {
 		return "", fmt.Errorf("starting managed postgres: %w", err)
+	}
+	if err := ensureManagedDatabase(ctx, port, m.logger); err != nil {
+		_ = stopPostgres(m.binDir, m.dataDir, m.logger)
+		return "", fmt.Errorf("ensuring managed database: %w", err)
 	}
 
 	// Write our PID file by reading the Postgres postmaster.pid.
-	pgPidFile := filepath.Join(dataDir, "postmaster.pid")
+	pgPidFile := filepath.Join(m.dataDir, "postmaster.pid")
 	if pid, err := readPostmasterPID(pgPidFile); err == nil && pid > 0 {
 		_ = writePID(m.pidFile, pid)
 	}
 
-	m.connURL = fmt.Sprintf("postgresql://%s:%s@127.0.0.1:%d/%s?sslmode=disable",
-		dbUser, dbPass, port, dbName)
+	m.connURL = managedConnURL(port, dbName)
 	m.running = true
+
+	// Ensure configured extensions are created. CREATE EXTENSION IF NOT EXISTS
+	// is idempotent, so running on every start is safe and allows extensions
+	// added to config after initial setup to take effect.
+	if len(m.cfg.Extensions) > 0 {
+		if err := initExtensions(ctx, m.connURL, m.cfg.Extensions, m.logger); err != nil {
+			m.logger.Warn("extension initialization failed (non-fatal)", "error", err)
+		}
+	}
 
 	m.logger.Info("managed postgres started",
 		"port", port,
-		"data", dataDir,
+		"data", m.dataDir,
 	)
 	return m.connURL, nil
 }
 
 // Stop gracefully shuts down the managed PostgreSQL child process.
 func (m *Manager) Stop() error {
-	if !m.running || m.db == nil {
+	if !m.running {
 		return nil
 	}
 
 	m.logger.Info("stopping managed postgres")
-	err := m.db.Stop()
+	err := stopPostgres(m.binDir, m.dataDir, m.logger)
 	m.running = false
 
 	// Clean up PID file.
@@ -171,6 +212,18 @@ func (m *Manager) IsRunning() bool {
 
 // aybHome returns ~/.ayb, creating it if necessary.
 func aybHome() (string, error) {
+	return resolveAYBHome("")
+}
+
+// resolveAYBHome returns the configured AYB state directory, or ~/.ayb by default.
+func resolveAYBHome(baseDir string) (string, error) {
+	if baseDir != "" {
+		if err := os.MkdirAll(baseDir, 0o755); err != nil {
+			return "", fmt.Errorf("creating %s: %w", baseDir, err)
+		}
+		return baseDir, nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user home directory: %w", err)
@@ -212,6 +265,13 @@ func removePID(path string) error {
 		return err
 	}
 	return nil
+}
+
+func resolvePIDFile(cfg Config, home string) string {
+	if cfg.PIDFile != "" {
+		return cfg.PIDFile
+	}
+	return filepath.Join(home, "pg.pid")
 }
 
 // readPostmasterPID reads the PID from Postgres's postmaster.pid file.
@@ -273,7 +333,7 @@ func cleanupOrphan(pidPath string, logger *slog.Logger) {
 
 // --- Log writer adapter ---
 
-// logWriter adapts *slog.Logger to io.Writer for embedded-postgres output.
+// logWriter adapts *slog.Logger to io.Writer for postgres output.
 type logWriter struct {
 	logger *slog.Logger
 }

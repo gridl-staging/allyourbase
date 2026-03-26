@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,33 +11,6 @@ import (
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
-
-// --- redactURL tests ---
-
-func TestRedactURLStripsCredentials(t *testing.T) {
-	got := redactURL("postgres://user:secret@host:5432/mydb")
-	testutil.Contains(t, got, "***")
-	testutil.True(t, !strings.Contains(got, "secret"), "secret should be redacted")
-	testutil.True(t, !strings.Contains(got, "user"), "username should be redacted")
-	testutil.Contains(t, got, "host:5432/mydb")
-}
-
-func TestRedactURLStripsUserOnly(t *testing.T) {
-	got := redactURL("postgres://admin@host:5432/db")
-	testutil.Contains(t, got, "***")
-	testutil.True(t, !strings.Contains(got, "admin"), "username should be redacted")
-	testutil.Contains(t, got, "host:5432/db")
-}
-
-func TestRedactURLPassesThroughNoCredentials(t *testing.T) {
-	got := redactURL("postgres://host:5432/db")
-	testutil.Equal(t, "postgres://host:5432/db", got)
-}
-
-func TestRedactURLReturnsStarsOnInvalidURL(t *testing.T) {
-	got := redactURL("://not a valid url")
-	testutil.Equal(t, "***", got)
-}
 
 // bannerToString runs printBannerTo with a bytes.Buffer to capture output.
 func bannerToString(cfg *config.Config, embeddedPG bool, useColor bool) string {
@@ -158,6 +133,7 @@ func TestBannerShowsGeneratedPassword(t *testing.T) {
 	out := bannerToStringWithPassword(cfg, false, false, "abc123secret")
 	testutil.Contains(t, out, "Admin password:")
 	testutil.Contains(t, out, "abc123secret")
+	testutil.Contains(t, out, "Save this password now; it won't be shown again.")
 }
 
 func TestBannerHidesPasswordWhenNotGenerated(t *testing.T) {
@@ -305,4 +281,24 @@ func TestBannerHintNeverShowsToken(t *testing.T) {
 	out := bannerToStringWithPassword(cfg, false, false, "mytoken123")
 	testutil.False(t, strings.Contains(out, "--admin-token"))
 	testutil.Contains(t, out, `ayb sql`)
+}
+
+func TestNewLoggerRestrictsLogPathPermissions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, _, logPath, closeFn := newLogger("info", "json")
+	defer closeFn()
+
+	testutil.True(t, logPath != "", "logger should create a log path")
+
+	logDir := filepath.Dir(logPath)
+
+	dirInfo, err := os.Stat(logDir)
+	testutil.NoError(t, err)
+	testutil.Equal(t, os.FileMode(0o700), dirInfo.Mode().Perm())
+
+	fileInfo, err := os.Stat(logPath)
+	testutil.NoError(t, err)
+	testutil.Equal(t, os.FileMode(0o600), fileInfo.Mode().Perm())
 }

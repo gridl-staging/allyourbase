@@ -1,3 +1,4 @@
+// Package schema Watcher monitors PostgreSQL DDL changes via LISTEN/NOTIFY notifications, with automatic fallback to periodic polling when event triggers are unavailable.
 package schema
 
 import (
@@ -132,6 +133,7 @@ func (w *Watcher) runListener(ctx context.Context) error {
 	}
 }
 
+// listenLoop establishes a PostgreSQL connection, enables listening on the schema change notification channel, schedules a full reload to catch missed notifications, and enters the notification wait loop.
 func (w *Watcher) listenLoop(ctx context.Context) error {
 	conn, err := pgx.Connect(ctx, w.connString)
 	if err != nil {

@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./browser-tests-mocked",
+  outputDir: "test-results-mocked",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
@@ -21,6 +22,8 @@ export default defineConfig({
     timeout: 60_000,
   },
   reporter: [
+    ["html", { outputFolder: "playwright-report", open: "never" }],
+    ["json", { outputFile: "playwright-report/results.json" }],
     ["list"],
   ],
 });

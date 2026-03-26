@@ -1,6 +1,8 @@
 package migrations
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,4 +135,40 @@ func TestListFilesIgnoresDirectories(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, files, 1)
 	testutil.Equal(t, "001_init.sql", files[0])
+}
+
+func TestNewUserRunnerWithSchema(t *testing.T) {
+	t.Parallel()
+
+	r := NewUserRunnerWithSchema(nil, "/tmp/migrations", "tenant-a", testutil.DiscardLogger())
+	testutil.Equal(t, "tenant-a", r.schemaName)
+}
+
+func TestUserRunnerDBMethodsRequirePool(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "20260304_init.sql"), []byte("SELECT 1;"), 0o644)
+	testutil.NoError(t, err)
+
+	r := NewUserRunner(nil, dir, nil)
+
+	err = r.Bootstrap(context.Background())
+	testutil.True(t, errors.Is(err, errUserRunnerPoolRequired))
+
+	_, err = r.Up(context.Background())
+	testutil.True(t, errors.Is(err, errUserRunnerPoolRequired))
+
+	_, err = r.Status(context.Background())
+	testutil.True(t, errors.Is(err, errUserRunnerPoolRequired))
+}
+
+func TestNewUserRunnerDefaultsNilLogger(t *testing.T) {
+	t.Parallel()
+
+	r := NewUserRunner(nil, "/tmp/migrations", nil)
+	testutil.NotNil(t, r.logger)
+
+	rs := NewUserRunnerWithSchema(nil, "/tmp/migrations", "tenant-a", nil)
+	testutil.NotNil(t, rs.logger)
 }

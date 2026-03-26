@@ -32,6 +32,12 @@ export interface AuthResponse {
   user: User;
 }
 
+/** Health check response returned by GET /health. */
+export interface HealthResponse {
+  status: string;
+  database: string;
+}
+
 /** User record from the auth system. */
 export interface User {
   id: string;
@@ -54,13 +60,7 @@ export interface App {
 }
 
 /** Paginated app list envelope returned by admin apps API. */
-export interface AppListResponse {
-  items: App[];
-  page: number;
-  perPage: number;
-  totalItems: number;
-  totalPages: number;
-}
+export type AppListResponse = ListResponse<App>;
 
 /** Admin API key record (matches admin api-keys API response). */
 export interface AdminAPIKey {
@@ -78,13 +78,7 @@ export interface AdminAPIKey {
 }
 
 /** Paginated admin API key list envelope. */
-export interface AdminAPIKeyListResponse {
-  items: AdminAPIKey[];
-  page: number;
-  perPage: number;
-  totalItems: number;
-  totalPages: number;
-}
+export type AdminAPIKeyListResponse = ListResponse<AdminAPIKey>;
 
 /** Request body for creating an admin API key. */
 export interface CreateAdminAPIKeyRequest {
@@ -103,9 +97,10 @@ export interface CreateAdminAPIKeyResponse {
 
 /** Realtime event from SSE stream. */
 export interface RealtimeEvent {
-  action: "create" | "update" | "delete";
+  action: "create" | "update" | "delete" | "INSERT" | "UPDATE" | "DELETE";
   table: string;
   record: Record<string, unknown>;
+  oldRecord?: Record<string, unknown>;
 }
 
 /** Stored file metadata returned by storage endpoints. */
@@ -117,7 +112,7 @@ export interface StorageObject {
   contentType: string;
   userId?: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 /** A single operation within a batch request. */
@@ -140,6 +135,17 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+/** Notify metadata sent with RPC requests to trigger realtime events. */
+export interface RpcNotifyOption {
+  table: string;
+  action: "create" | "update" | "delete";
+}
+
+/** Optional RPC transport options mirrored from backend request headers. */
+export interface RpcOptions {
+  notify?: RpcNotifyOption;
+}
+
 /** Registered OAuth client (matches admin OAuth clients API response). */
 export interface OAuthClient {
   id: string;
@@ -159,13 +165,7 @@ export interface OAuthClient {
 }
 
 /** Paginated OAuth client list envelope. */
-export interface OAuthClientListResponse {
-  items: OAuthClient[];
-  page: number;
-  perPage: number;
-  totalItems: number;
-  totalPages: number;
-}
+export type OAuthClientListResponse = ListResponse<OAuthClient>;
 
 /** Request body for creating an OAuth client. */
 export interface CreateOAuthClientRequest {
@@ -222,8 +222,14 @@ export interface OAuthOptions {
 /** Auth state change events emitted by `onAuthStateChange`. */
 export type AuthStateEvent = "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED";
 
+/** Auth session payload emitted by `onAuthStateChange`. */
+export interface AuthSession {
+  token: string;
+  refreshToken: string;
+}
+
 /** Callback for auth state change events. */
 export type AuthStateListener = (
   event: AuthStateEvent,
-  session: { token: string; refreshToken: string } | null,
+  session: AuthSession | null,
 ) => void;

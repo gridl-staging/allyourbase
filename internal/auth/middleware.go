@@ -35,6 +35,10 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 				return
 			}
 
+			if claims.SessionID != "" && svc.activityTracker != nil {
+				svc.activityTracker.Touch(r.Context(), claims.SessionID)
+			}
+
 			ctx := context.WithValue(r.Context(), ctxKey{}, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -80,6 +84,39 @@ func RequireMFAPending(svc *Service) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireAuthOrMFAPending accepts either a normal authenticated token or an MFA
+// pending token, attaching the claims to the appropriate context key.
+func RequireAuthOrMFAPending(svc *Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, ok := extractBearerToken(r)
+			if !ok {
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
+					"missing or invalid authorization header",
+					"https://allyourbase.io/guide/authentication")
+				return
+			}
+
+			claims, err := validateTokenOrAPIKey(r.Context(), svc, token)
+			if err != nil {
+				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
+					"invalid or expired token",
+					"https://allyourbase.io/guide/authentication")
+				return
+			}
+
+			if claims.MFAPending {
+				ctx := context.WithValue(r.Context(), mfaPendingCtxKey{}, claims)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ctxKey{}, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 type mfaPendingCtxKey struct{}
 
 // mfaPendingClaimsFromContext retrieves MFA pending claims from the request context.
@@ -99,6 +136,22 @@ func ClaimsFromContext(ctx context.Context) *Claims {
 // This is primarily useful for testing.
 func ContextWithClaims(ctx context.Context, claims *Claims) context.Context {
 	return context.WithValue(ctx, ctxKey{}, claims)
+}
+
+// RequireAAL2 returns middleware that rejects requests without AAL2 claims.
+// Use this on routes that require multi-factor authentication.
+func RequireAAL2(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := ClaimsFromContext(r.Context())
+		if claims == nil || claims.AAL != "aal2" {
+			httputil.WriteJSON(w, http.StatusForbidden, map[string]string{
+				"error":   "insufficient_aal",
+				"message": "MFA verification is required for this action",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // validateTokenOrAPIKey checks if the token is an OAuth access token (ayb_at_ prefix),

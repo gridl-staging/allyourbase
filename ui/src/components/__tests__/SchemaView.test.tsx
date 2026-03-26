@@ -159,4 +159,39 @@ describe("SchemaView", () => {
 
     expect(screen.getByText("[draft, published, archived]")).toBeInTheDocument();
   });
+
+  it("applies dark mode classes to schema containers and relationship badges", () => {
+    const table = makeTable({
+      relationships: [
+        {
+          name: "posts_author",
+          type: "many-to-one",
+          fromSchema: "public",
+          fromTable: "posts",
+          fromColumns: ["author_id"],
+          toSchema: "public",
+          toTable: "users",
+          toColumns: ["id"],
+          fieldName: "author",
+        },
+      ],
+      comment: "Blog posts table",
+    });
+
+    render(<SchemaView table={table} />);
+
+    expect(screen.getByRole("heading", { name: "Columns" })).toHaveClass("dark:text-gray-200");
+
+    const columnsTableShell = screen.getAllByRole("table")[0].closest("div.border") as HTMLElement;
+    expect(columnsTableShell).toHaveClass("dark:border-gray-700");
+
+    const columnsHeader = screen.getByRole("columnheader", { name: "Name" }).closest("thead") as HTMLElement;
+    expect(columnsHeader).toHaveClass("dark:bg-gray-800");
+
+    expect(screen.getByText("uuid")).toHaveClass("dark:bg-blue-900/40");
+    expect(screen.getByText("uuid")).toHaveClass("dark:text-blue-300");
+    expect(screen.getByText("many-to-one")).toHaveClass("dark:bg-purple-900/40");
+    expect(screen.getByText("many-to-one")).toHaveClass("dark:text-purple-300");
+    expect(screen.getByText("Blog posts table")).toHaveClass("dark:text-gray-300");
+  });
 });

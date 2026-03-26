@@ -1,3 +1,4 @@
+// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/auth.go.
 package pbmigrate
 
 import (
@@ -100,9 +101,11 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, collections
 	return nil
 }
 
-// parseAuthUsers converts PBRecords to AuthUser structs
+// TODO: Document parseAuthUsers.
 func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 	users := make([]AuthUser, 0, len(records))
+	// Track emails seen so far for duplicate detection (case-insensitive).
+	emailSeen := make(map[string]string, len(records)) // lower(email) -> original record ID
 
 	for _, record := range records {
 		user := AuthUser{
@@ -117,6 +120,13 @@ func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 			return nil, fmt.Errorf("missing or invalid email for user %s", record.ID)
 		}
 
+		// Duplicate email check (case-insensitive, matching the LOWER() unique index)
+		lowerEmail := strings.ToLower(user.Email)
+		if firstID, exists := emailSeen[lowerEmail]; exists {
+			return nil, fmt.Errorf("duplicate email %q: records %s and %s", user.Email, firstID, record.ID)
+		}
+		emailSeen[lowerEmail] = record.ID
+
 		if hash, ok := record.Data["passwordHash"].(string); ok {
 			user.PasswordHash = hash
 		} else if hash, ok := record.Data["password"].(string); ok {
@@ -124,6 +134,12 @@ func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 			user.PasswordHash = hash
 		} else {
 			return nil, fmt.Errorf("missing password hash for user %s", user.Email)
+		}
+
+		// Reject empty or whitespace-only hashes — they would insert an
+		// unusable credential row and silently break authentication.
+		if strings.TrimSpace(user.PasswordHash) == "" {
+			return nil, fmt.Errorf("empty password hash for user %s", user.Email)
 		}
 
 		// Verified status (could be bool or int)
@@ -143,18 +159,16 @@ func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 			user.UpdatedAt = updated
 		}
 
-		// Extract custom fields
+		// Extract custom fields — always include every non-system,
+		// non-standard-auth schema field so that absent or nil values
+		// are preserved as SQL NULL instead of being silently omitted.
 		for _, field := range schema {
-			if field.System {
+			if field.System || isStandardAuthField(field.Name) {
 				continue
 			}
-			// Skip standard auth fields
-			if isStandardAuthField(field.Name) {
-				continue
-			}
-			if val, ok := record.Data[field.Name]; ok {
-				user.CustomFields[field.Name] = val
-			}
+			// Use the value from Data if present (including explicit nil);
+			// otherwise default to nil so the INSERT includes NULL.
+			user.CustomFields[field.Name] = record.Data[field.Name]
 		}
 
 		users = append(users, user)
@@ -163,18 +177,21 @@ func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 	return users, nil
 }
 
-// isStandardAuthField checks if a field is a standard PocketBase auth field
+// standardAuthFields contains lowercase names of built-in PocketBase auth fields.
+var standardAuthFields = map[string]bool{
+	"email":                  true,
+	"passwordhash":           true,
+	"password":               true,
+	"verified":               true,
+	"emailvisibility":        true,
+	"tokenkey":               true,
+	"lastresetsentat":        true,
+	"lastverificationsentat": true,
+}
+
+// isStandardAuthField checks if a field is a standard PocketBase auth field (case-insensitive).
 func isStandardAuthField(name string) bool {
-	standardFields := []string{
-		"email", "passwordHash", "password", "verified",
-		"emailVisibility", "tokenKey", "lastResetSentAt", "lastVerificationSentAt",
-	}
-	for _, field := range standardFields {
-		if strings.EqualFold(name, field) {
-			return true
-		}
-	}
-	return false
+	return standardAuthFields[strings.ToLower(name)]
 }
 
 // getCustomFields returns non-system, non-standard auth fields

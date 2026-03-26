@@ -9,12 +9,13 @@ import (
 func TestPgTypeToJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		typ     string
-		isArray bool
-		isEnum  bool
-		isJSON  bool
-		want    string
+		name       string
+		typ        string
+		isArray    bool
+		isEnum     bool
+		isJSON     bool
+		isGeometry bool
+		want       string
 	}{
 		// Arrays always return "array" regardless of base type.
 		{name: "integer array", typ: "integer[]", isArray: true, want: "array"},
@@ -26,6 +27,7 @@ func TestPgTypeToJSON(t *testing.T) {
 		{name: "jsonb flag", typ: "jsonb", isJSON: true, want: "object"},
 		{name: "json by name", typ: "json", want: "object"},
 		{name: "jsonb by name", typ: "jsonb", want: "object"},
+		{name: "geometry by flag", typ: "geometry", isGeometry: true, want: "object"},
 
 		// Enum types return "string".
 		{name: "enum", typ: "mood", isEnum: true, want: "string"},
@@ -92,7 +94,7 @@ func TestPgTypeToJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := pgTypeToJSON(tt.typ, tt.isArray, tt.isEnum, tt.isJSON)
+			got := pgTypeToJSON(tt.typ, tt.isArray, tt.isEnum, tt.isJSON, tt.isGeometry)
 			testutil.Equal(t, tt.want, got)
 		})
 	}

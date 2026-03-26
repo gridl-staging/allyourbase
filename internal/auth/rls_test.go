@@ -16,49 +16,6 @@ func TestSetRLSContextNilClaims(t *testing.T) {
 	testutil.NoError(t, err)
 }
 
-func TestQuoteIdent(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "simple identifier",
-			input: "ayb_authenticated",
-			want:  `"ayb_authenticated"`,
-		},
-		{
-			name:  "identifier with double quote",
-			input: `say"hello`,
-			want:  `"say""hello"`,
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  `""`,
-		},
-		{
-			name:  "identifier with multiple quotes",
-			input: `test"foo"bar`,
-			want:  `"test""foo""bar"`,
-		},
-		{
-			name:  "SQL injection attempt",
-			input: `table"; DROP TABLE users; --`,
-			want:  `"table""; DROP TABLE users; --"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := quoteIdent(tt.input)
-			testutil.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestEscapeLiteral(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -189,10 +146,61 @@ func TestRLSStatements(t *testing.T) {
 				RegisteredClaims: jwt.RegisteredClaims{Subject: tt.userID},
 				Email:            tt.email,
 			}
-			roleSQL, userIDSQL, emailSQL := rlsStatements(claims)
-			testutil.Equal(t, tt.wantRole, roleSQL)
-			testutil.Equal(t, tt.wantUserID, userIDSQL)
-			testutil.Equal(t, tt.wantEmail, emailSQL)
+			stmts := rlsStatements(claims)
+			testutil.Equal(t, tt.wantRole, stmts[0])
+			testutil.Equal(t, tt.wantUserID, stmts[1])
+			testutil.Equal(t, tt.wantEmail, stmts[2])
+			testutil.Equal(t, 3, len(stmts))
 		})
 	}
+}
+
+func TestRLSStatements_TenantID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tenant_id set", func(t *testing.T) {
+		t.Parallel()
+		claims := &Claims{
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
+			Email:            "a@b.com",
+			TenantID:         "tenant-abc-123",
+		}
+		stmts := rlsStatements(claims)
+		testutil.Equal(t, 4, len(stmts))
+		testutil.Equal(t, "SET LOCAL ayb.tenant_id = 'tenant-abc-123'", stmts[3])
+	})
+
+	t.Run("tenant_id empty omitted", func(t *testing.T) {
+		t.Parallel()
+		claims := &Claims{
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
+			Email:            "a@b.com",
+			TenantID:         "",
+		}
+		stmts := rlsStatements(claims)
+		testutil.Equal(t, 3, len(stmts))
+	})
+
+	t.Run("tenant_id whitespace omitted", func(t *testing.T) {
+		t.Parallel()
+		claims := &Claims{
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
+			Email:            "a@b.com",
+			TenantID:         "   ",
+		}
+		stmts := rlsStatements(claims)
+		testutil.Equal(t, 3, len(stmts))
+	})
+
+	t.Run("tenant_id with special chars escaped", func(t *testing.T) {
+		t.Parallel()
+		claims := &Claims{
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
+			Email:            "a@b.com",
+			TenantID:         "tenant'; DROP TABLE tenants; --",
+		}
+		stmts := rlsStatements(claims)
+		testutil.Equal(t, 4, len(stmts))
+		testutil.Equal(t, "SET LOCAL ayb.tenant_id = 'tenant''; DROP TABLE tenants; --'", stmts[3])
+	})
 }

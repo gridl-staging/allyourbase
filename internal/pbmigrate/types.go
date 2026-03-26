@@ -1,3 +1,4 @@
+// Package pbmigrate Types for PocketBase to PostgreSQL data migration, including collection definitions, field schemas, records, and migration configuration.
 package pbmigrate
 
 import (
@@ -6,7 +7,9 @@ import (
 	"github.com/allyourbase/ayb/internal/migrate"
 )
 
-// PBCollection represents a PocketBase collection from the _collections table
+// PBCollection represents a PocketBase collection from the _collections table.
+// Rules are nil for admin-only access, empty strings for open access, or
+// expression strings for conditional access. Type is "base", "view", or "auth".
 type PBCollection struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name"`
@@ -50,16 +53,66 @@ type PBRecord struct {
 	Data    map[string]interface{} // field name → value
 }
 
+// RuleStatus classifies a PocketBase rule for RLS conversion.
+type RuleStatus int
+
+const (
+	// RuleStatusConvertible means the rule can be automatically converted to PostgreSQL RLS.
+	RuleStatusConvertible RuleStatus = iota
+	// RuleStatusLocked means the rule is nil (admin-only), no policy needed.
+	RuleStatusLocked
+	// RuleStatusUnsupported means the rule contains PocketBase-specific syntax
+	// that cannot be automatically converted to PostgreSQL RLS.
+	RuleStatusUnsupported
+)
+
+// RuleClassification is the result of classifying a PocketBase rule expression.
+// Every rule is classified into exactly one bucket via classifyRule/convertRuleExpression.
+type RuleClassification struct {
+	Status     RuleStatus
+	PgExpr     string // converted PostgreSQL expression; non-empty only when Status == RuleStatusConvertible
+	Rule       string // original PocketBase rule expression
+	Diagnostic string // human-readable explanation; non-empty when Status != RuleStatusConvertible
+}
+
+// RLSDiagnostic records a non-convertible RLS rule encountered during migration or analysis.
+type RLSDiagnostic struct {
+	Collection string
+	Action     string
+	Rule       string
+	Message    string
+}
+
+// ruleAction pairs an action name with a collection's rule pointer.
+type ruleAction struct {
+	name string
+	rule *string
+}
+
+// ruleActions returns the four CRUD rule actions for a collection.
+// ViewRule is intentionally excluded: both ListRule and ViewRule map to SELECT
+// in PostgreSQL, so we use the more restrictive ListRule for the SELECT policy.
+func ruleActions(coll PBCollection) []ruleAction {
+	return []ruleAction{
+		{"list", coll.ListRule},
+		{"create", coll.CreateRule},
+		{"update", coll.UpdateRule},
+		{"delete", coll.DeleteRule},
+	}
+}
+
 // MigrationStats tracks migration progress
 type MigrationStats struct {
-	Collections int
-	Tables      int
-	Views       int
-	Records     int
-	AuthUsers   int
-	Files       int
-	Policies    int
-	Errors      []string
+	Collections    int
+	Tables         int
+	Views          int
+	Records        int
+	AuthUsers      int
+	Files          int
+	Policies       int
+	Errors         []string
+	FailedFiles    []string        // exact "collection/relpath" for each file copy failure
+	RLSDiagnostics []RLSDiagnostic // non-convertible rules found during RLS generation
 }
 
 // MigrationOptions configures the migration process

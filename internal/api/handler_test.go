@@ -10,6 +10,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
@@ -56,7 +57,14 @@ func testCacheHolder(sc *schema.SchemaCache) *schema.CacheHolder {
 
 func testHandler(sc *schema.SchemaCache) http.Handler {
 	ch := testCacheHolder(sc)
-	h := NewHandler(nil, ch, slog.Default(), nil, nil)
+	h := NewHandler(nil, ch, slog.Default(), nil, nil, nil)
+	return h.Routes()
+}
+
+func testHandlerWithOptions(sc *schema.SchemaCache, opts ...HandlerOption) http.Handler {
+	ch := testCacheHolder(sc)
+	h := NewHandler(nil, ch, slog.Default(), nil, nil, nil)
+	h.ApplyOptions(opts...)
 	return h.Routes()
 }
 
@@ -78,6 +86,19 @@ func decodeError(t *testing.T, w *httptest.ResponseRecorder) httputil.ErrorRespo
 	var resp httputil.ErrorResponse
 	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	return resp
+}
+
+func TestNewHandlerNormalizesTypedNilHub(t *testing.T) {
+	t.Parallel()
+
+	ch := testCacheHolder(testSchema())
+	var hub *realtime.Hub
+	h := NewHandler(nil, ch, slog.Default(), hub, nil, nil)
+	if h.hub != nil {
+		t.Fatal("expected typed nil realtime hub to normalize to nil")
+	}
+
+	h.publishEvent("create", "users", map[string]any{"id": "123"}, nil)
 }
 
 // --- Schema not ready ---

@@ -4,6 +4,7 @@ package migrations_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"testing/fstest"
@@ -417,4 +418,287 @@ func TestGetApplied(t *testing.T) {
 	testutil.True(t, len(applied) >= 1, "should have applied migrations")
 	testutil.Equal(t, "001_ayb_meta.sql", applied[0].Name)
 	testutil.False(t, applied[0].AppliedAt.IsZero(), "applied_at should be set")
+}
+
+func TestBillingMigrations(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	err := runner.Bootstrap(ctx)
+	testutil.NoError(t, err)
+
+	_, err = runner.Run(ctx)
+	testutil.NoError(t, err)
+
+	var hasBillingTable bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = '_ayb_billing')`,
+	).Scan(&hasBillingTable)
+	testutil.NoError(t, err)
+	testutil.True(t, hasBillingTable, "_ayb_billing table should exist")
+
+	type colInfo struct {
+		name       string
+		notNull    bool
+		hasDefault sql.NullString
+	}
+	rows, err := sharedPG.Pool.Query(ctx, `
+		SELECT column_name, is_nullable = 'NO', column_default
+		FROM information_schema.columns
+		WHERE table_name = '_ayb_billing'
+		AND column_name IN ('tenant_id', 'stripe_customer_id', 'stripe_subscription_id', 'plan', 'payment_status', 'created_at', 'updated_at')
+	`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	var gotCols []colInfo
+	for rows.Next() {
+		var ci colInfo
+		testutil.NoError(t, rows.Scan(&ci.name, &ci.notNull, &ci.hasDefault))
+		gotCols = append(gotCols, ci)
+	}
+	testutil.NoError(t, rows.Err())
+
+	foundCols := make(map[string]colInfo)
+	for _, ci := range gotCols {
+		foundCols[ci.name] = ci
+	}
+	testutil.True(t, foundCols["tenant_id"].name == "tenant_id", "tenant_id column should exist")
+	testutil.True(t, foundCols["plan"].name == "plan", "plan column should exist")
+	testutil.True(t, foundCols["payment_status"].name == "payment_status", "payment_status column should exist")
+	testutil.True(t, foundCols["plan"].hasDefault.Valid, "plan should have a default")
+	testutil.True(t, foundCols["payment_status"].hasDefault.Valid, "payment_status should have a default")
+
+	var hasPlanCheck bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM pg_constraint
+			WHERE conrelid = '_ayb_billing'::regclass
+			AND contype = 'c'
+			AND conname = 'chk_ayb_billing_plan'
+		)`,
+	).Scan(&hasPlanCheck)
+	testutil.NoError(t, err)
+	testutil.True(t, hasPlanCheck, "plan check constraint should exist")
+
+	var hasPaymentCheck bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM pg_constraint
+			WHERE conrelid = '_ayb_billing'::regclass
+			AND contype = 'c'
+			AND conname = 'chk_ayb_billing_payment_status'
+		)`,
+	).Scan(&hasPaymentCheck)
+	testutil.NoError(t, err)
+	testutil.True(t, hasPaymentCheck, "payment_status check constraint should exist")
+
+	var hasStripeCustomerIdx bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM pg_indexes
+			WHERE schemaname = 'public'
+			AND tablename = '_ayb_billing'
+			AND indexname = 'idx_ayb_billing_stripe_customer_id'
+		)`,
+	).Scan(&hasStripeCustomerIdx)
+	testutil.NoError(t, err)
+	testutil.True(t, hasStripeCustomerIdx, "stripe_customer_id unique partial index should exist")
+
+	var hasBillingCols bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = '_ayb_tenant_usage_daily' AND column_name = 'bandwidth_bytes')`,
+	).Scan(&hasBillingCols)
+	testutil.NoError(t, err)
+	testutil.True(t, hasBillingCols, "bandwidth_bytes column should exist on _ayb_tenant_usage_daily")
+
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = '_ayb_tenant_usage_daily' AND column_name = 'function_invocations')`,
+	).Scan(&hasBillingCols)
+	testutil.NoError(t, err)
+	testutil.True(t, hasBillingCols, "function_invocations column should exist on _ayb_tenant_usage_daily")
+}
+
+func TestBillingWebhookAndUsageSyncMigrations(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	err := runner.Bootstrap(ctx)
+	testutil.NoError(t, err)
+
+	_, err = runner.Run(ctx)
+	testutil.NoError(t, err)
+
+	var hasWebhookTable bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = '_ayb_billing_webhook_events')`,
+	).Scan(&hasWebhookTable)
+	testutil.NoError(t, err)
+	testutil.True(t, hasWebhookTable, "_ayb_billing_webhook_events table should exist")
+
+	var hasUsageSyncTable bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = '_ayb_billing_usage_sync')`,
+	).Scan(&hasUsageSyncTable)
+	testutil.NoError(t, err)
+	testutil.True(t, hasUsageSyncTable, "_ayb_billing_usage_sync table should exist")
+
+	// Webhook events table columns.
+	type colInfo struct {
+		name string
+	}
+	rows, err := sharedPG.Pool.Query(ctx, `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_name = '_ayb_billing_webhook_events'
+		ORDER BY ordinal_position`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	webhookCols := map[string]bool{}
+	for rows.Next() {
+		var c colInfo
+		testutil.NoError(t, rows.Scan(&c.name))
+		webhookCols[c.name] = true
+	}
+	testutil.NoError(t, rows.Err())
+	for _, name := range []string{"event_id", "event_type", "payload", "processed_at"} {
+		testutil.True(t, webhookCols[name], "%s column should exist on _ayb_billing_webhook_events", name)
+	}
+
+	// Usage sync table columns.
+	rows, err = sharedPG.Pool.Query(ctx, `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_name = '_ayb_billing_usage_sync'
+		ORDER BY ordinal_position`)
+	testutil.NoError(t, err)
+	defer rows.Close()
+
+	usageCols := map[string]bool{}
+	for rows.Next() {
+		var c colInfo
+		testutil.NoError(t, rows.Scan(&c.name))
+		usageCols[c.name] = true
+	}
+	testutil.NoError(t, rows.Err())
+	for _, name := range []string{"tenant_id", "usage_date", "metric", "last_reported_value", "updated_at"} {
+		testutil.True(t, usageCols[name], "%s column should exist on _ayb_billing_usage_sync", name)
+	}
+
+	var hasWebhookEventUnique bool
+	err = sharedPG.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM pg_constraint
+			WHERE conrelid = '_ayb_billing_webhook_events'::regclass
+			AND contype = 'u'
+		)`,
+	).Scan(&hasWebhookEventUnique)
+	testutil.NoError(t, err)
+	testutil.True(t, hasWebhookEventUnique, "_ayb_billing_webhook_events should have a UNIQUE constraint")
+
+	var hasUsageSyncPK bool
+	err = sharedPG.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM pg_constraint
+			WHERE conrelid = '_ayb_billing_usage_sync'::regclass
+			AND contype = 'p'
+		)`,
+	).Scan(&hasUsageSyncPK)
+	testutil.NoError(t, err)
+	testutil.True(t, hasUsageSyncPK, "_ayb_billing_usage_sync should have a composite primary key")
+
+	var hasMetricCheck bool
+	err = sharedPG.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM pg_constraint
+			WHERE conrelid = '_ayb_billing_usage_sync'::regclass
+			AND contype = 'c'
+			AND conname = 'chk_ayb_billing_usage_sync_metric'
+		)`,
+	).Scan(&hasMetricCheck)
+	testutil.NoError(t, err)
+	testutil.True(t, hasMetricCheck, "_ayb_billing_usage_sync should have metric check constraint")
+
+	var hasWebhookProcessedIdx bool
+	err = sharedPG.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'public'
+			AND tablename = '_ayb_billing_webhook_events'
+			AND indexname = 'idx_ayb_billing_webhook_events_processed_at'
+		)`,
+	).Scan(&hasWebhookProcessedIdx)
+	testutil.NoError(t, err)
+	testutil.True(t, hasWebhookProcessedIdx, "idx_ayb_billing_webhook_events_processed_at should exist")
+
+	var hasUsageSyncTenantDateIdx bool
+	err = sharedPG.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'public'
+			AND tablename = '_ayb_billing_usage_sync'
+			AND indexname = 'idx_ayb_billing_usage_sync_tenant_date'
+		)`,
+	).Scan(&hasUsageSyncTenantDateIdx)
+	testutil.NoError(t, err)
+	testutil.True(t, hasUsageSyncTenantDateIdx, "idx_ayb_billing_usage_sync_tenant_date should exist")
+}
+
+func TestSchemaIsolation_Migration154Alignment(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	runner := migrations.NewRunner(sharedPG.Pool, testutil.DiscardLogger())
+	testutil.NoError(t, runner.Bootstrap(ctx))
+	_, err := runner.Run(ctx)
+	testutil.NoError(t, err)
+
+	legacySlug := "legacy-database-mode"
+	_, err = sharedPG.Pool.Exec(ctx, `ALTER TABLE _ayb_tenants DROP CONSTRAINT _ayb_tenants_isolation_mode_check`)
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(ctx, `
+		ALTER TABLE _ayb_tenants
+			ADD CONSTRAINT _ayb_tenants_isolation_mode_check
+			CHECK (isolation_mode IN ('schema', 'database'))`)
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(ctx, `ALTER TABLE _ayb_tenants ALTER COLUMN isolation_mode SET DEFAULT 'schema'`)
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(
+		ctx,
+		`INSERT INTO _ayb_tenants (name, slug, isolation_mode) VALUES ('legacy', $1, 'database')`,
+		legacySlug,
+	)
+	testutil.NoError(t, err)
+
+	migrationSQL, err := os.ReadFile("sql/154_ayb_tenants_isolation_mode_shared_schema.sql")
+	testutil.NoError(t, err)
+	_, err = sharedPG.Pool.Exec(ctx, string(migrationSQL))
+	testutil.NoError(t, err)
+
+	var legacyMode string
+	err = sharedPG.Pool.QueryRow(ctx, `SELECT isolation_mode FROM _ayb_tenants WHERE slug = $1`, legacySlug).Scan(&legacyMode)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "shared", legacyMode)
+
+	var defaultMode string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`INSERT INTO _ayb_tenants (name, slug) VALUES ('default-mode', 'default-shared-mode') RETURNING isolation_mode`,
+	).Scan(&defaultMode)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "shared", defaultMode)
+
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_tenants (name, slug, isolation_mode) VALUES ('invalid-mode', 'invalid-database-mode', 'database')`,
+	)
+	testutil.NotNil(t, err)
+	testutil.ErrorContains(t, err, "_ayb_tenants_isolation_mode_check")
 }

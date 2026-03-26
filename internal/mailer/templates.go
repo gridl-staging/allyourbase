@@ -21,6 +21,7 @@ func init() {
 type TemplateData struct {
 	AppName   string
 	ActionURL string
+	Code      string // used by MFA code emails
 }
 
 // RenderPasswordReset renders the password reset email and returns HTML and plain text.
@@ -38,6 +39,16 @@ func RenderVerification(data TemplateData) (html string, text string, err error)
 	return render("verification.html", data)
 }
 
+// RenderMFAEmailEnroll renders the email MFA enrollment verification email.
+func RenderMFAEmailEnroll(data TemplateData) (html string, text string, err error) {
+	return render("mfa_email_enroll.html", data)
+}
+
+// RenderMFAEmailChallenge renders the email MFA challenge verification email.
+func RenderMFAEmailChallenge(data TemplateData) (html string, text string, err error) {
+	return render("mfa_email_challenge.html", data)
+}
+
 func render(name string, data TemplateData) (string, string, error) {
 	var buf bytes.Buffer
 	if err := templates.ExecuteTemplate(&buf, name, data); err != nil {
@@ -51,9 +62,11 @@ func render(name string, data TemplateData) (string, string, error) {
 
 // Default subjects for system email templates.
 const (
-	DefaultPasswordResetSubject  = "Reset your password"
-	DefaultVerificationSubject   = "Verify your email"
-	DefaultMagicLinkSubject      = "Your login link"
+	DefaultPasswordResetSubject     = "Reset your password"
+	DefaultVerificationSubject      = "Verify your email"
+	DefaultMagicLinkSubject         = "Your login link"
+	DefaultMFAEmailEnrollSubject    = "Verify your email MFA enrollment"
+	DefaultMFAEmailChallengeSubject = "Your verification code"
 )
 
 // BuiltinHTMLTemplate returns the raw HTML source for a built-in template.

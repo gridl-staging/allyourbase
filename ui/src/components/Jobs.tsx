@@ -3,7 +3,8 @@ import type { JobListResponse, JobResponse, JobState, QueueStats } from "../type
 import { cancelJob, getQueueStats, listJobs, retryJob } from "../api";
 import { AlertCircle, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { formatDate } from "./shared/format";
+import { useAppToast } from "./ToastProvider";
 
 const STATE_OPTIONS: Array<{ value: ""; label: string } | { value: JobState; label: string }> = [
   { value: "", label: "All states" },
@@ -25,20 +26,15 @@ function stateBadgeClass(state: JobState): string {
     case "failed":
       return "bg-red-100 text-red-700";
     case "canceled":
-      return "bg-gray-100 text-gray-700";
+      return "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200";
     default:
-      return "bg-gray-100 text-gray-700";
+      return "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200";
   }
 }
 
 function lastErrorPreview(job: JobResponse): string {
   if (!job.lastError) return "-";
   return job.lastError.length > 90 ? `${job.lastError.slice(0, 90)}...` : job.lastError;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "-";
-  return new Date(iso).toLocaleString();
 }
 
 interface AppliedFilters {
@@ -58,24 +54,28 @@ export function Jobs() {
   const [typeFilter, setTypeFilter] = useState("");
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>({});
 
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const load = useCallback(
     async (filters: AppliedFilters) => {
-      try {
-        setError(null);
-        const [jobsRes, statsRes] = await Promise.all([
-          listJobs(filters),
-          getQueueStats(),
-        ]);
-        setJobs(jobsRes);
-        setStats(statsRes);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load jobs");
+      setError(null);
+      const [jobsResult, statsResult] = await Promise.allSettled([
+        listJobs(filters),
+        getQueueStats(),
+      ]);
+
+      if (jobsResult.status === "rejected") {
+        const jobsError = jobsResult.reason;
+        setError(jobsError instanceof Error ? jobsError.message : "Failed to load jobs");
         setJobs(null);
-      } finally {
+        setStats(null);
         setLoading(false);
+        return;
       }
+
+      setJobs(jobsResult.value);
+      setStats(statsResult.status === "fulfilled" ? statsResult.value : null);
+      setLoading(false);
     },
     [],
   );
@@ -91,6 +91,18 @@ export function Jobs() {
     if (typeFilter.trim()) next.type = typeFilter.trim();
     setLoading(true);
     setAppliedFilters(next);
+  };
+
+  const handleClearFilters = () => {
+    setStateFilter("");
+    setTypeFilter("");
+    setLoading(true);
+    setAppliedFilters({});
+  };
+
+  const handleRefresh = () => {
+    setLoading(true);
+    load(appliedFilters);
   };
 
   const handleRetry = async (job: JobResponse) => {
@@ -121,7 +133,7 @@ export function Jobs() {
 
   if (loading && !jobs) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading jobs...
       </div>
@@ -148,12 +160,14 @@ export function Jobs() {
     );
   }
 
+  const hasAppliedFilters = Boolean(appliedFilters.state || appliedFilters.type);
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Job Queue</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage background jobs and monitor queue health
           </p>
         </div>
@@ -161,12 +175,12 @@ export function Jobs() {
 
       {stats && (
         <div className="mb-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 text-xs">
-          <div className="border rounded px-3 py-2 bg-gray-50">Queued: {stats.queued}</div>
-          <div className="border rounded px-3 py-2 bg-gray-50">Running: {stats.running}</div>
-          <div className="border rounded px-3 py-2 bg-gray-50">Completed: {stats.completed}</div>
-          <div className="border rounded px-3 py-2 bg-gray-50">Failed: {stats.failed}</div>
-          <div className="border rounded px-3 py-2 bg-gray-50">Canceled: {stats.canceled}</div>
-          <div className="border rounded px-3 py-2 bg-gray-50">
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">Queued: {stats.queued}</div>
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">Running: {stats.running}</div>
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">Completed: {stats.completed}</div>
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">Failed: {stats.failed}</div>
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">Canceled: {stats.canceled}</div>
+          <div className="border rounded px-3 py-2 bg-gray-50 dark:bg-gray-800">
             Oldest queued age: {stats.oldestQueuedAgeSec ?? "-"}s
           </div>
         </div>
@@ -174,7 +188,7 @@ export function Jobs() {
 
       <form onSubmit={handleApplyFilters} className="mb-4 flex items-end gap-3">
         <div>
-          <label htmlFor="jobs-state-filter" className="block text-xs text-gray-600 mb-1">
+          <label htmlFor="jobs-state-filter" className="block text-xs text-gray-600 dark:text-gray-300 mb-1">
             State
           </label>
           <select
@@ -182,7 +196,7 @@ export function Jobs() {
             aria-label="State"
             value={stateFilter}
             onChange={(e) => setStateFilter(e.target.value as JobState | "")}
-            className="border rounded px-2 py-1.5 text-sm bg-white"
+            className="border rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-800"
           >
             {STATE_OPTIONS.map((opt) => (
               <option key={opt.value || "all"} value={opt.value}>
@@ -192,7 +206,7 @@ export function Jobs() {
           </select>
         </div>
         <div>
-          <label htmlFor="jobs-type-filter" className="block text-xs text-gray-600 mb-1">
+          <label htmlFor="jobs-type-filter" className="block text-xs text-gray-600 dark:text-gray-300 mb-1">
             Type
           </label>
           <input
@@ -213,25 +227,53 @@ export function Jobs() {
       </form>
 
       {jobs && jobs.items.length === 0 ? (
-        <div className="text-center py-12 border rounded-lg bg-gray-50 text-gray-500 text-sm">
-          No jobs found for the selected filters
+        <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 px-6">
+          {hasAppliedFilters ? (
+            <>
+              <XCircle className="w-9 h-9 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+              <h2 className="text-sm font-medium text-gray-800 dark:text-gray-200">No jobs match these filters</h2>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                Clear filters to see all jobs, or adjust state and type.
+              </p>
+              <button
+                onClick={handleClearFilters}
+                className="mt-3 text-sm text-blue-600 hover:underline"
+              >
+                Clear filters
+              </button>
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-9 h-9 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+              <h2 className="text-sm font-medium text-gray-800 dark:text-gray-200">No jobs in queue yet</h2>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                Run a background task, webhook delivery, or scheduled job, then refresh to see it here.
+              </p>
+              <button
+                onClick={handleRefresh}
+                className="mt-3 text-sm text-blue-600 hover:underline"
+              >
+                Refresh jobs
+              </button>
+            </>
+          )}
         </div>
       ) : jobs ? (
         <div className="border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-800 border-b">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">State</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Created</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Attempts</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Last Error</th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600">Actions</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">State</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Type</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Created</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Attempts</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Last Error</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody>
               {jobs.items.map((job) => (
-                <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
                   <td className="px-4 py-2.5">
                     <span
                       className={cn(
@@ -243,18 +285,18 @@ export function Jobs() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
-                    <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">
+                    <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-200">
                       {job.type}
                     </code>
-                    <div className="text-[10px] text-gray-400 mt-0.5">{job.id}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{job.id}</div>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                     {formatDate(job.createdAt)}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                     {job.attempts} / {job.maxAttempts}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[320px]">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 max-w-[320px]">
                     {lastErrorPreview(job)}
                   </td>
                   <td className="px-4 py-2.5">
@@ -290,7 +332,6 @@ export function Jobs() {
         </div>
       ) : null}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

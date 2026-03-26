@@ -1,3 +1,4 @@
+// Package cli init defines the CLI command for scaffolding new AYB-backed projects with configuration, schema, and SDK files. It supports multiple project templates and provides guidance for getting started.
 package cli
 
 import (
@@ -40,6 +41,7 @@ func templateNames() []string {
 	return names
 }
 
+// runInit scaffolds a new AYB-backed project with the provided name and template. It validates the template, runs the scaffold operation, and prints next steps for the user.
 func runInit(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	tmpl, _ := cmd.Flags().GetString("template")

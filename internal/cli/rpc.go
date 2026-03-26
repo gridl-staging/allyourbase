@@ -1,3 +1,4 @@
+// Package cli RPC command and helper functions for invoking PostgreSQL functions through the AYB server's RPC endpoint.
 package cli
 
 import (
@@ -35,6 +36,7 @@ func init() {
 	rpcCmd.Flags().String("url", "", "Server URL (default http://127.0.0.1:8090)")
 }
 
+// parseRPCArgs parses key=value argument pairs, attempting to decode each value as JSON for proper types like numbers and booleans, falling back to strings.
 func parseRPCArgs(rawArgs []string) (map[string]any, error) {
 	args := make(map[string]any, len(rawArgs))
 	for _, a := range rawArgs {
@@ -56,6 +58,7 @@ func parseRPCArgs(rawArgs []string) (map[string]any, error) {
 	return args, nil
 }
 
+// runRPC executes a PostgreSQL function via the AYB server's RPC endpoint, authenticating with an admin token and formatting the response based on the output format.
 func runRPC(cmd *cobra.Command, args []string) error {
 	funcName := args[0]
 	outFmt := outputFormat(cmd)
@@ -125,6 +128,7 @@ func runRPC(cmd *cobra.Command, args []string) error {
 	return formatRPCResult(result)
 }
 
+// formatRPCResult formats and prints an RPC result as a table for arrays of objects, as a list for arrays of scalars, as key-value pairs for objects, or as a single value for scalars.
 func formatRPCResult(result any) error {
 	switch v := result.(type) {
 	case []any:
@@ -177,6 +181,7 @@ func formatRPCResult(result any) error {
 	return nil
 }
 
+// formatScalar converts a value to its string representation, printing NULL for nil, integers without decimals, floats with appropriate precision, booleans, and JSON for complex types.
 func formatScalar(v any) string {
 	if v == nil {
 		return "NULL"

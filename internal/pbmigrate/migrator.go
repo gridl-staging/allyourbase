@@ -1,3 +1,4 @@
+// Package pbmigrate orchestrates migration of PocketBase databases to PostgreSQL, handling schema creation, data import, authentication user migration, RLS policy generation, and file storage.
 package pbmigrate
 
 import (
@@ -7,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 )
 
@@ -184,7 +187,7 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	return &m.stats, nil
 }
 
-// migrateSchema creates tables and views
+// TODO: Document Migrator.migrateSchema.
 func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, collections []PBCollection, phase migrate.Phase) error {
 	completed := 0
 	for _, coll := range collections {
@@ -206,9 +209,13 @@ func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, collections []
 
 		var sqlStmt string
 		var typeName string
+		var err error
 
 		if coll.Type == "view" {
-			sqlStmt = BuildCreateViewSQL(coll)
+			sqlStmt, err = BuildCreateViewSQL(coll)
+			if err != nil {
+				return fmt.Errorf("failed to build view %s: %w", coll.Name, err)
+			}
 			typeName = "view"
 			m.stats.Views++
 		} else {
@@ -224,6 +231,22 @@ func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, collections []
 		if !m.opts.DryRun {
 			if _, err := tx.ExecContext(ctx, sqlStmt); err != nil {
 				return fmt.Errorf("failed to create %s %s: %w", typeName, coll.Name, err)
+			}
+		}
+
+		// Keep index translation in typemap helpers and run index DDL only
+		// after the table is created in this same transaction.
+		if coll.Type != "view" {
+			indexStmts, err := BuildCreateIndexSQL(coll)
+			if err != nil {
+				return fmt.Errorf("failed to translate indexes for %s: %w", coll.Name, err)
+			}
+			for _, indexStmt := range indexStmts {
+				if !m.opts.DryRun {
+					if _, err := tx.ExecContext(ctx, indexStmt); err != nil {
+						return fmt.Errorf("failed to create index for %s: %w", coll.Name, err)
+					}
+				}
 			}
 		}
 
@@ -287,7 +310,7 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, collections []PB
 	return nil
 }
 
-// insertBatch inserts a batch of records
+// TODO: Document Migrator.insertBatch.
 func (m *Migrator) insertBatch(ctx context.Context, tx *sql.Tx, tableName string, schema []PBField, records []PBRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -355,8 +378,8 @@ func (m *Migrator) insertBatch(ctx context.Context, tx *sql.Tx, tableName string
 		query := fmt.Sprintf(
 			"INSERT INTO %s (%s) VALUES (%s)",
 			SanitizeIdentifier(tableName),
-			joinQuoted(columns),
-			join(placeholders, ", "),
+			sqlutil.QuoteIdentList(columns),
+			strings.Join(placeholders, ", "),
 		)
 
 		if _, err := tx.ExecContext(ctx, query, values...); err != nil {
@@ -393,6 +416,7 @@ func fieldExpectsTextArray(field PBField) bool {
 	}
 }
 
+// coerceToTextArray converts a value to a PostgreSQL text array ([]string) for columns that expect array types. It handles nil by returning an empty array, attempts to unmarshal JSON strings and byte slices, passes through existing string arrays, converts []interface{} by stringifying each element, and returns other types unchanged.
 func coerceToTextArray(val interface{}) interface{} {
 	switch v := val.(type) {
 	case nil:
@@ -429,7 +453,7 @@ func coerceToTextArray(val interface{}) interface{} {
 	}
 }
 
-// migrateRLS creates RLS policies
+// TODO: Document Migrator.migrateRLS.
 func (m *Migrator) migrateRLS(ctx context.Context, tx *sql.Tx, collections []PBCollection) error {
 	for _, coll := range collections {
 		// Skip system, auth, and view collections
@@ -437,9 +461,13 @@ func (m *Migrator) migrateRLS(ctx context.Context, tx *sql.Tx, collections []PBC
 			continue
 		}
 
-		// Generate policies
-		policies, err := GenerateRLSPolicies(coll)
+		// Generate policies — diagnostics are recorded regardless of error
+		// so dry-run, verbose, and summary reporting all use the same path.
+		policies, diags, err := GenerateRLSPolicies(coll)
+		m.stats.RLSDiagnostics = append(m.stats.RLSDiagnostics, diags...)
 		if err != nil {
+			diagMsg := fmt.Sprintf("RLS conversion failed for %s: %v", coll.Name, err)
+			m.stats.Errors = append(m.stats.Errors, diagMsg)
 			return fmt.Errorf("failed to generate policies for %s: %w", coll.Name, err)
 		}
 
@@ -495,21 +523,12 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 			{Label: "Tables", SourceCount: report.Tables, TargetCount: stats.Tables},
 			{Label: "Views", SourceCount: report.Views, TargetCount: stats.Views},
 			{Label: "Records", SourceCount: report.Records, TargetCount: stats.Records},
-			{Label: "Auth users", SourceCount: report.AuthUsers, TargetCount: countUserStats(stats)},
+			{Label: "Auth users", SourceCount: report.AuthUsers, TargetCount: stats.AuthUsers},
 			{Label: "RLS policies", SourceCount: report.RLSPolicies, TargetCount: stats.Policies},
 			{Label: "Files", SourceCount: report.Files, TargetCount: stats.Files},
 		},
 	}
 }
-
-func countUserStats(stats *MigrationStats) int {
-	// Auth users are counted in Records for the existing migrator.
-	// We need a separate field. For now, return 0 — we'll refine this
-	// when we add AuthUsers to MigrationStats.
-	return stats.AuthUsers
-}
-
-// Helper functions
 
 func countSchemaTables(collections []PBCollection) int {
 	count := 0
@@ -553,23 +572,4 @@ func formatElapsed(d time.Duration) string {
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
 	return fmt.Sprintf("%.1fs", d.Seconds())
-}
-
-func joinQuoted(strs []string) string {
-	quoted := make([]string, len(strs))
-	for i, s := range strs {
-		quoted[i] = SanitizeIdentifier(s)
-	}
-	return join(quoted, ", ")
-}
-
-func join(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
 }

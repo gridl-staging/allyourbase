@@ -15,5 +15,11 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "src/integration-helpers.ts",
+    "src/test_utils/**"
+  ]
 }

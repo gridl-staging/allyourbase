@@ -1,9 +1,11 @@
+// Package auth Apps provides functions for managing registered applications: creating, retrieving, listing, updating, and deleting app records in the auth system.
 package auth
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +18,7 @@ type App struct {
 	Name                   string    `json:"name"`
 	Description            string    `json:"description"`
 	OwnerUserID            string    `json:"ownerUserId"`
+	TenantID               *string   `json:"tenantId,omitempty"`
 	RateLimitRPS           int       `json:"rateLimitRps"`
 	RateLimitWindowSeconds int       `json:"rateLimitWindowSeconds"`
 	CreatedAt              time.Time `json:"createdAt"`
@@ -31,6 +34,47 @@ type AppListResult struct {
 	TotalPages int   `json:"totalPages"`
 }
 
+func normalizeAppListPagination(page, perPage int) (int, int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+	offset := (page - 1) * perPage
+	return page, perPage, offset
+}
+
+func calculateTotalPages(totalItems, perPage int) int {
+	totalPages := totalItems / perPage
+	if totalItems%perPage != 0 {
+		totalPages++
+	}
+	return totalPages
+}
+
+// scanApps scans database rows into App values and returns them as a slice, or an error if scanning fails. An empty slice is returned if no rows are present.
+func scanApps(rows pgx.Rows) ([]App, error) {
+	var items []App
+	for rows.Next() {
+		a, scanErr := scanApp(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scanning app: %w", scanErr)
+		}
+		items = append(items, *a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating apps: %w", err)
+	}
+	if items == nil {
+		items = []App{}
+	}
+	return items, nil
+}
+
 // ErrAppNotFound is returned when an app doesn't exist.
 var ErrAppNotFound = errors.New("app not found")
 
@@ -43,20 +87,34 @@ var ErrAppOwnerNotFound = errors.New("owner user not found")
 // ErrAppInvalidRateLimit is returned when rate limit values are negative.
 var ErrAppInvalidRateLimit = errors.New("rate limit values must be non-negative")
 
+// appColumns is the canonical column list for app SELECT queries.
+const appColumns = `id, name, description, owner_user_id, tenant_id, rate_limit_rps, rate_limit_window_seconds, created_at, updated_at`
+
+// scanApp scans a single app row using the canonical appColumns order.
+func scanApp(row pgx.Row) (*App, error) {
+	var a App
+	err := row.Scan(
+		&a.ID, &a.Name, &a.Description, &a.OwnerUserID, &a.TenantID,
+		&a.RateLimitRPS, &a.RateLimitWindowSeconds, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 // CreateApp creates a new application.
 func (s *Service) CreateApp(ctx context.Context, name, description, ownerUserID string) (*App, error) {
 	if name == "" {
 		return nil, ErrAppNameRequired
 	}
 
-	var app App
-	err := s.pool.QueryRow(ctx,
+	a, err := scanApp(s.pool.QueryRow(ctx,
 		`INSERT INTO _ayb_apps (name, description, owner_user_id)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds, created_at, updated_at`,
+		 RETURNING `+appColumns,
 		name, description, ownerUserID,
-	).Scan(&app.ID, &app.Name, &app.Description, &app.OwnerUserID,
-		&app.RateLimitRPS, &app.RateLimitWindowSeconds, &app.CreatedAt, &app.UpdatedAt)
+	))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
@@ -65,76 +123,84 @@ func (s *Service) CreateApp(ctx context.Context, name, description, ownerUserID 
 		return nil, fmt.Errorf("creating app: %w", err)
 	}
 
-	s.logger.Info("app created", "app_id", app.ID, "name", name, "owner", ownerUserID)
-	return &app, nil
+	s.logger.Info("app created", "app_id", a.ID, "name", name, "owner", ownerUserID)
+	return a, nil
 }
 
 // GetApp retrieves an app by ID.
 func (s *Service) GetApp(ctx context.Context, id string) (*App, error) {
-	var app App
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds, created_at, updated_at
-		 FROM _ayb_apps WHERE id = $1`,
+	a, err := scanApp(s.pool.QueryRow(ctx,
+		`SELECT `+appColumns+` FROM _ayb_apps WHERE id = $1`,
 		id,
-	).Scan(&app.ID, &app.Name, &app.Description, &app.OwnerUserID,
-		&app.RateLimitRPS, &app.RateLimitWindowSeconds, &app.CreatedAt, &app.UpdatedAt)
+	))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrAppNotFound
 		}
 		return nil, fmt.Errorf("getting app: %w", err)
 	}
-	return &app, nil
+	return a, nil
 }
 
-// ListApps returns a paginated list of all apps.
-func (s *Service) ListApps(ctx context.Context, page, perPage int) (*AppListResult, error) {
-	if page < 1 {
-		page = 1
+// appTenantID returns the effective tenant identifier for an app.
+// When tenant_id is set it returns that value (tenant-native path, legacy=false).
+// When tenant_id is NULL it falls back to owner_user_id (legacy=true) so
+// unmigrated apps remain resolvable during migration cutover.
+func appTenantID(a *App) (id string, legacy bool) {
+	if a.TenantID != nil {
+		return *a.TenantID, false
 	}
-	if perPage < 1 {
-		perPage = 20
+	return a.OwnerUserID, true
+}
+
+// ResolveAppTenant returns the tenant ID for an app, using the tenant-native
+// path when tenant_id is set, and the legacy owner_user_id path otherwise.
+// A warn log is emitted when the fallback is used so unmigrated traffic is
+// measurable during cutover.
+func (s *Service) ResolveAppTenant(ctx context.Context, appID string) (tenantID string, legacy bool, err error) {
+	a, err := s.GetApp(ctx, appID)
+	if err != nil {
+		return "", false, err
 	}
-	if perPage > 100 {
-		perPage = 100
+	id, isLegacy := appTenantID(a)
+	if isLegacy {
+		s.logger.Warn("app tenant fallback: using owner_user_id (not yet migrated)",
+			slog.String("app_id", appID),
+			slog.String("owner_user_id", a.OwnerUserID),
+		)
 	}
-	offset := (page - 1) * perPage
+	return id, isLegacy, nil
+}
+
+// listApps returns a paginated list of apps, optionally filtered by tenant ID when tenantID is non-nil. Pagination parameters are normalized before execution.
+func (s *Service) listApps(ctx context.Context, tenantID *string, page, perPage int) (*AppListResult, error) {
+	page, perPage, offset := normalizeAppListPagination(page, perPage)
+
+	countSQL := `SELECT COUNT(*) FROM _ayb_apps`
+	listSQL := `SELECT ` + appColumns + ` FROM _ayb_apps ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	countArgs := []any{}
+	listArgs := []any{perPage, offset}
+	if tenantID != nil {
+		countSQL += ` WHERE tenant_id = $1`
+		listSQL = `SELECT ` + appColumns + ` FROM _ayb_apps WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+		countArgs = []any{*tenantID}
+		listArgs = []any{*tenantID, perPage, offset}
+	}
 
 	var totalItems int
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_apps`).Scan(&totalItems)
-	if err != nil {
+	if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&totalItems); err != nil {
 		return nil, fmt.Errorf("counting apps: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds, created_at, updated_at
-		 FROM _ayb_apps ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-		perPage, offset,
-	)
+	rows, err := s.pool.Query(ctx, listSQL, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("listing apps: %w", err)
 	}
 	defer rows.Close()
 
-	var items []App
-	for rows.Next() {
-		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.OwnerUserID,
-			&a.RateLimitRPS, &a.RateLimitWindowSeconds, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning app: %w", err)
-		}
-		items = append(items, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating apps: %w", err)
-	}
-	if items == nil {
-		items = []App{}
-	}
-
-	totalPages := totalItems / perPage
-	if totalItems%perPage != 0 {
-		totalPages++
+	items, err := scanApps(rows)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AppListResult{
@@ -142,8 +208,18 @@ func (s *Service) ListApps(ctx context.Context, page, perPage int) (*AppListResu
 		Page:       page,
 		PerPage:    perPage,
 		TotalItems: totalItems,
-		TotalPages: totalPages,
+		TotalPages: calculateTotalPages(totalItems, perPage),
 	}, nil
+}
+
+// ListApps returns a paginated list of all apps.
+func (s *Service) ListApps(ctx context.Context, page, perPage int) (*AppListResult, error) {
+	return s.listApps(ctx, nil, page, perPage)
+}
+
+// ListAppsByTenant returns a paginated list of apps belonging to tenantID.
+func (s *Service) ListAppsByTenant(ctx context.Context, tenantID string, page, perPage int) (*AppListResult, error) {
+	return s.listApps(ctx, &tenantID, page, perPage)
 }
 
 // UpdateApp updates an app's name, description, and rate limits.
@@ -155,15 +231,13 @@ func (s *Service) UpdateApp(ctx context.Context, id, name, description string, r
 		return nil, ErrAppInvalidRateLimit
 	}
 
-	var app App
-	err := s.pool.QueryRow(ctx,
+	a, err := scanApp(s.pool.QueryRow(ctx,
 		`UPDATE _ayb_apps
 		 SET name = $2, description = $3, rate_limit_rps = $4, rate_limit_window_seconds = $5, updated_at = NOW()
 		 WHERE id = $1
-		 RETURNING id, name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds, created_at, updated_at`,
+		 RETURNING `+appColumns,
 		id, name, description, rateLimitRPS, rateLimitWindowSeconds,
-	).Scan(&app.ID, &app.Name, &app.Description, &app.OwnerUserID,
-		&app.RateLimitRPS, &app.RateLimitWindowSeconds, &app.CreatedAt, &app.UpdatedAt)
+	))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrAppNotFound
@@ -172,7 +246,7 @@ func (s *Service) UpdateApp(ctx context.Context, id, name, description string, r
 	}
 
 	s.logger.Info("app updated", "app_id", id, "name", name)
-	return &app, nil
+	return a, nil
 }
 
 // DeleteApp deletes an app by ID. All API keys scoped to this app are revoked

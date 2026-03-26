@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/emailtemplates"
+	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/go-chi/chi/v5"
 )
@@ -118,6 +119,14 @@ func (f *fakeEmailTemplateAdmin) Preview(ctx context.Context, key, subjectTpl, h
 		Subject: subject,
 		HTML:    htmlOut,
 		Text:    "stripped",
+	}, nil
+}
+
+func (f *fakeEmailTemplateAdmin) Render(ctx context.Context, key string, vars map[string]string) (*emailtemplates.RenderedEmail, error) {
+	return &emailtemplates.RenderedEmail{
+		Subject: "Rendered Subject",
+		HTML:    "<p>Rendered</p>",
+		Text:    "Rendered",
 	}, nil
 }
 
@@ -605,12 +614,12 @@ func TestEmailTemplatesSend_TemplateNotFoundMappedToNotFound(t *testing.T) {
 	testutil.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestIsValidEmailAddress(t *testing.T) {
+func TestValidateEmailAddress(t *testing.T) {
 	t.Parallel()
 
 	valid := []string{"user@example.com", "a@b.co", "test+tag@domain.org"}
 	for _, email := range valid {
-		testutil.True(t, isValidEmailAddress(email), "%q should be valid", email)
+		testutil.NoError(t, httputil.ValidateEmail(email))
 	}
 
 	invalid := []string{
@@ -623,6 +632,6 @@ func TestIsValidEmailAddress(t *testing.T) {
 		"Display Name <user@example.com>",
 	}
 	for _, email := range invalid {
-		testutil.True(t, !isValidEmailAddress(email), "%q should be invalid", email)
+		testutil.Error(t, httputil.ValidateEmail(email))
 	}
 }

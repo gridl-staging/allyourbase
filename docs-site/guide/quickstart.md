@@ -1,18 +1,32 @@
 # Quickstart: Build a Todo App
+<!-- audited 2026-03-20 -->
 
-Build a working CRUD app with Allyourbase in 5 minutes.
+Build a working CRUD app with Allyourbase in a few minutes.
 
 ## 1. Start AYB
 
 ```bash
 # Install
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSLo /tmp/ayb-install.sh https://install.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 
 # Start with managed PostgreSQL (zero config)
 ayb start
 ```
 
-AYB is now running at `http://localhost:8090`.
+AYB starts in detached mode and is available at `http://127.0.0.1:8090`.
+
+If this is your first run and `admin.password` is unset, startup prints a generated admin password and a reset hint:
+
+```text
+To reset: ayb admin reset-password
+```
+
+Optional readiness check:
+
+```bash
+curl http://127.0.0.1:8090/health
+```
 
 ## 2. Create a todos table
 
@@ -27,7 +41,7 @@ ayb sql "CREATE TABLE todos (
 )"
 ```
 
-Or create it via the admin dashboard at `http://localhost:8090/admin`.
+Or create it via the admin dashboard at `http://127.0.0.1:8090/admin`.
 
 ## 3. Set up the project
 
@@ -44,7 +58,7 @@ Create `index.mjs`:
 ```js
 import { AYBClient } from "@allyourbase/js";
 
-const ayb = new AYBClient("http://localhost:8090");
+const ayb = new AYBClient("http://127.0.0.1:8090");
 
 // Create todos
 await ayb.records.create("todos", { title: "Buy groceries" });
@@ -85,7 +99,7 @@ node index.mjs
 
 Output:
 
-```
+```text
 All todos: [ { id: 3, title: 'Ship v1', ... }, { id: 2, title: 'Write docs', ... }, { id: 1, title: 'Buy groceries', ... } ]
 Pending: [ { id: 3, title: 'Ship v1', completed: false }, { id: 1, title: 'Buy groceries', completed: false } ]
 Marked "Ship v1" as done
@@ -100,7 +114,7 @@ Subscribe to changes from another process:
 ```js
 import { AYBClient } from "@allyourbase/js";
 
-const ayb = new AYBClient("http://localhost:8090");
+const ayb = new AYBClient("http://127.0.0.1:8090");
 
 const unsubscribe = ayb.realtime.subscribe(["todos"], (event) => {
   console.log(`[${event.action}]`, event.record);
@@ -111,7 +125,7 @@ console.log("Listening for todo changes... (Ctrl-C to stop)");
 await new Promise(() => {});
 ```
 
-Now create/update/delete todos in another terminal or via the admin dashboard — you'll see the events stream in.
+Now create/update/delete todos in another terminal or via the admin dashboard and watch the events stream in.
 
 ## Next steps
 

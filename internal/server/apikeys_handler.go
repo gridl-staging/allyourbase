@@ -8,7 +8,6 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
-	"github.com/go-chi/chi/v5"
 )
 
 // apiKeyManager is the interface for admin API key operations.
@@ -38,15 +37,11 @@ func handleAdminListAPIKeys(svc apiKeyManager) http.HandlerFunc {
 // handleAdminRevokeAPIKey revokes any API key by ID.
 func handleAdminRevokeAPIKey(svc apiKeyManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if id == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "api key id is required")
+		keyID, ok := parseUUIDParamWithLabel(w, r, "id", "api key id")
+		if !ok {
 			return
 		}
-		if !httputil.IsValidUUID(id) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid api key id format")
-			return
-		}
+		id := keyID.String()
 
 		err := svc.AdminRevokeAPIKey(r.Context(), id)
 		if err != nil {
@@ -68,6 +63,7 @@ type adminCreateAPIKeyRequest struct {
 	Scope         string   `json:"scope"`         // "*", "readonly", "readwrite"; defaults to "*"
 	AllowedTables []string `json:"allowedTables"` // empty = all tables
 	AppID         *string  `json:"appId"`         // nil = user-scoped key; non-nil = app-scoped key
+	OrgID         *string  `json:"orgId"`         // nil = not org-scoped; mutually exclusive with appId
 }
 
 type adminCreateAPIKeyResponse struct {
@@ -98,11 +94,20 @@ func handleAdminCreateAPIKey(svc apiKeyManager) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "invalid appId format")
 			return
 		}
+		if req.OrgID != nil && !httputil.IsValidUUID(*req.OrgID) {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid orgId format")
+			return
+		}
+		if req.AppID != nil && req.OrgID != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "appId and orgId are mutually exclusive")
+			return
+		}
 
 		opts := auth.CreateAPIKeyOptions{
 			Scope:         req.Scope,
 			AllowedTables: req.AllowedTables,
 			AppID:         req.AppID,
+			OrgID:         req.OrgID,
 		}
 
 		plaintext, key, err := svc.CreateAPIKey(r.Context(), req.UserID, req.Name, opts)
@@ -113,6 +118,14 @@ func handleAdminCreateAPIKey(svc apiKeyManager) http.HandlerFunc {
 			}
 			if errors.Is(err, auth.ErrInvalidAppID) {
 				httputil.WriteError(w, http.StatusBadRequest, "app not found")
+				return
+			}
+			if errors.Is(err, auth.ErrInvalidOrgID) {
+				httputil.WriteError(w, http.StatusBadRequest, "org not found")
+				return
+			}
+			if errors.Is(err, auth.ErrAppOrgScopeConflict) {
+				httputil.WriteError(w, http.StatusBadRequest, "appId and orgId are mutually exclusive")
 				return
 			}
 			if errors.Is(err, auth.ErrUserNotFound) {

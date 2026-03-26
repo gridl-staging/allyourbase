@@ -9,20 +9,20 @@ import (
 )
 
 type fakeRefresherStore struct {
-	entry              *Registration
-	getErr             error
-	exists             bool
-	populated          bool
-	existsErr          error
-	uniqueIndex        bool
-	uniqueIndexErr     error
-	lockedRefreshErr   error
-	lastRefreshSQL     string
-	lastLockKey        string
-	updateStatusCall   int
-	lastStatus         RefreshStatus
-	lastErrorText      *string
-	registerErr        error
+	entry            *Registration
+	getErr           error
+	exists           bool
+	populated        bool
+	existsErr        error
+	uniqueIndex      bool
+	uniqueIndexErr   error
+	lockedRefreshErr error
+	lastRefreshSQL   string
+	lastLockKey      string
+	updateStatusCall int
+	lastStatus       RefreshStatus
+	lastErrorText    *string
+	registerErr      error
 }
 
 func (f *fakeRefresherStore) Get(ctx context.Context, id string) (*Registration, error) {

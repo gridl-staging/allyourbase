@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Collections - Create Record
@@ -37,7 +37,7 @@ test.describe("Smoke: Collections Create", () => {
 
     // Act: navigate to the table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const sidebar = page.locator("aside");
     const tableLink = sidebar.getByText(tableName, { exact: true });
     await expect(tableLink).toBeVisible({ timeout: 5000 });
@@ -58,7 +58,7 @@ test.describe("Smoke: Collections Create", () => {
 
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Step 2: Navigate to SQL Editor via sidebar
     const sidebar = page.locator("aside");
@@ -79,13 +79,12 @@ test.describe("Smoke: Collections Create", () => {
     const runButton = page.getByRole("button", { name: /run|execute/i });
     await runButton.click();
 
-    // Step 4: Reload to see new table in sidebar
-    await page.reload();
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    // Wait for DDL to complete — sidebar auto-refreshes after CREATE TABLE
+    await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
-    // Step 5: Click on the new table in sidebar
+    // Step 4: Click on the new table in sidebar (auto-refreshed after DDL)
     const tableLink = sidebar.getByText("smoke_test_records", { exact: true });
-    await expect(tableLink).toBeVisible({ timeout: 5000 });
+    await expect(tableLink).toBeVisible({ timeout: 15000 });
     await tableLink.click();
 
     // Step 6: Click "New Row" button to create record

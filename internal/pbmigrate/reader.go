@@ -1,3 +1,4 @@
+// Package pbmigrate Reader reads data from a PocketBase SQLite database and adapts to different schema versions by detecting available columns and parsing JSON-encoded fields.
 package pbmigrate
 
 import (
@@ -141,6 +142,7 @@ func (r *Reader) ReadCollections() ([]PBCollection, error) {
 	return collections, nil
 }
 
+// getCollectionsSchemaColumn returns the name of the schema column in the _collections table, detecting between schema and fields column variants across PocketBase versions.
 func (r *Reader) getCollectionsSchemaColumn() (string, error) {
 	rows, err := r.db.Query(`PRAGMA table_info('_collections')`)
 	if err != nil {

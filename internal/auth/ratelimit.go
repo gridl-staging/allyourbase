@@ -1,10 +1,9 @@
+// Package auth provides rate limiting functionality. This file implements RateLimiter, an in-memory per-IP sliding window rate limiter with periodic cleanup of stale entries.
 package auth
 
 import (
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -107,6 +106,7 @@ func pruneTimestamps(v *visitor, cutoff time.Time) {
 	v.timestamps = valid
 }
 
+// cleanup is a background goroutine that periodically removes stale visitor entries. It runs once per rate limit window, pruning timestamps older than the window duration and deleting visitor entries with no remaining timestamps. It terminates when Stop is called.
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(rl.window)
 	defer ticker.Stop()
@@ -129,35 +129,5 @@ func (rl *RateLimiter) cleanup() {
 }
 
 func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-
-	// Only trust proxy headers when the direct connection is from a
-	// private/loopback address (i.e. the request came through a reverse proxy).
-	// Without this check, any client can spoof X-Forwarded-For to bypass rate limits.
-	if isPrivateIP(host) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			ip := xff
-			if i := strings.IndexByte(xff, ','); i >= 0 {
-				ip = xff[:i]
-			}
-			return strings.TrimSpace(ip)
-		}
-		if xri := r.Header.Get("X-Real-IP"); xri != "" {
-			return strings.TrimSpace(xri)
-		}
-	}
-
-	return host
-}
-
-// isPrivateIP checks whether an IP string is a private/loopback address.
-func isPrivateIP(ip string) bool {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	return parsed.IsLoopback() || parsed.IsPrivate()
+	return httputil.ClientIP(r)
 }

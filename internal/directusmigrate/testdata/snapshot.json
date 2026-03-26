@@ -1,0 +1,27 @@
+{
+  "collections": [
+    {"collection": "authors"},
+    {"collection": "articles"},
+    {"collection": "directus_users"}
+  ],
+  "fields": [
+    {"collection": "authors", "field": "id", "type": "uuid", "schema": {"is_primary_key": true, "is_nullable": false}},
+    {"collection": "authors", "field": "name", "type": "string", "schema": {"is_nullable": false}},
+    {"collection": "articles", "field": "id", "type": "uuid", "schema": {"is_primary_key": true, "is_nullable": false}},
+    {"collection": "articles", "field": "author_id", "type": "uuid", "schema": {"is_nullable": false}},
+    {"collection": "articles", "field": "published_at", "type": "datetime", "schema": {"is_nullable": true}},
+    {"collection": "articles", "field": "score", "type": "float", "schema": {"is_nullable": true}},
+    {"collection": "directus_users", "field": "id", "type": "uuid", "schema": {"is_primary_key": true}}
+  ],
+  "relations": [
+    {"collection": "articles", "field": "author_id", "related_collection": "authors", "meta": {"one_field": "id"}}
+  ],
+  "roles": [
+    {"id": "public", "name": "Public"},
+    {"id": "editor", "name": "Editor"}
+  ],
+  "permissions": [
+    {"role": "public", "collection": "articles", "action": "read"},
+    {"role": "editor", "collection": "articles", "action": "update"}
+  ]
+}

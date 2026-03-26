@@ -3,7 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 
 const BASE_URL = "http://localhost:8090";
-const ADMIN_PASSWORD = "6ec99beaa59ff6a5ad311ed7929fedec";
+const ADMIN_PASSWORD =
+  process.env.ADMIN_PASSWORD || process.env.AYB_ADMIN_PASSWORD || "";
 const SCREENSHOTS_DIR = path.join(__dirname, "..", "results", "screenshots");
 
 // Defect tracking
@@ -14,6 +15,11 @@ function recordDefect(desc: string) {
 }
 
 test.beforeAll(() => {
+  if (!ADMIN_PASSWORD) {
+    throw new Error(
+      "Set ADMIN_PASSWORD (or AYB_ADMIN_PASSWORD) before running dashboard QA tests"
+    );
+  }
   fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 });
 

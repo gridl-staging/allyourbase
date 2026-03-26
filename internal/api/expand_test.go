@@ -2,13 +2,37 @@ package api
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+type captureQuerier struct {
+	lastQuery string
+	lastArgs  []any
+	err       error
+}
+
+func (q *captureQuerier) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	q.lastQuery = sql
+	q.lastArgs = args
+	return nil, q.err
+}
+
+func (q *captureQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
+	panic("QueryRow not used in expand tests")
+}
+
+func (q *captureQuerier) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	panic("Exec not used in expand tests")
+}
 
 func TestGetOrCreateExpand(t *testing.T) {
 	t.Parallel()
@@ -295,4 +319,27 @@ func TestExpandRelationAllowsUnrestrictedTable(t *testing.T) {
 		expandRelation(ctx, nil, sc, postsTable, records2, []string{"author"}, 0, claims, logger)
 	}()
 	testutil.True(t, panicked, "full-access claims: expected panic from nil pool query, meaning scope check passed")
+}
+
+func TestFetchRelatedUsesGeometryAwareProjection(t *testing.T) {
+	t.Parallel()
+
+	relTable := &schema.Table{
+		Schema: "public",
+		Name:   "routes",
+		Columns: []*schema.Column{
+			{Name: "id"},
+			{Name: "path", IsGeometry: true},
+		},
+	}
+
+	q := &captureQuerier{err: errors.New("query failed")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	values := []any{1}
+
+	related := fetchRelated(context.Background(), q, relTable, "id", values, logger, "routes")
+	testutil.Nil(t, related)
+	testutil.Contains(t, q.lastQuery, `SELECT "id", ST_AsGeoJSON("path")::jsonb AS "path" FROM "public"."routes" WHERE "id" IN ($1)`)
+	testutil.SliceLen(t, q.lastArgs, 1)
+	testutil.Equal(t, 1, q.lastArgs[0])
 }

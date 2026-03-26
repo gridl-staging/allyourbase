@@ -1,3 +1,4 @@
+// Package cli migrate_pocketbase.go defines the pocketbase migration subcommand, coordinating the import of PocketBase collections, data, and RLS policies into PostgreSQL.
 package cli
 
 import (
@@ -50,6 +51,7 @@ func init() {
 	migratePocketbaseCmd.MarkFlagRequired("source")
 }
 
+// runMigratePocketbase is the command handler for migrating PocketBase SQLite databases to PostgreSQL. It performs pre-flight analysis, prompts for user confirmation, executes the migration within a transaction, and reports results. The handler supports dry-run mode for previewing changes, optional file migration, and JSON output for automation.
 func runMigratePocketbase(cmd *cobra.Command, args []string) error {
 	sourcePath, _ := cmd.Flags().GetString("source")
 	databaseURL, _ := cmd.Flags().GetString("database-url")

@@ -1,3 +1,4 @@
+// Package matview Store provides database persistence for materialized view registrations and implements refresh locking, state queries, and metadata updates.
 package matview
 
 import (
@@ -24,6 +25,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// scanRegistration scans a single database row into a Registration, unmarshaling a nullable status string as a RefreshStatus pointer.
 func scanRegistration(row pgx.Row) (*Registration, error) {
 	var r Registration
 	var status *string
@@ -48,6 +50,7 @@ func scanRegistration(row pgx.Row) (*Registration, error) {
 	return &r, nil
 }
 
+// scanRegistrations scans all rows from a query result into a slice of Registrations, unmarshaling nullable status strings as RefreshStatus pointers.
 func scanRegistrations(rows pgx.Rows) ([]Registration, error) {
 	result := make([]Registration, 0)
 	for rows.Next() {

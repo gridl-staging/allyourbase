@@ -26,6 +26,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run src/integration*.test.ts --no-file-parallelism",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
@@ -39,9 +40,10 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "eventsource": "^3.0.7",
     "jsdom": "^27.0.1",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.0"
   }
 }

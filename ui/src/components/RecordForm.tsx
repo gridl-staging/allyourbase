@@ -119,18 +119,18 @@ export function RecordForm({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white shadow-lg overflow-y-auto flex flex-col">
-        <div className="px-6 py-4 border-b flex items-center justify-between sticky top-0 bg-white z-10">
+      <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 shadow-lg overflow-y-auto flex flex-col text-gray-900 dark:text-gray-100">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-900 z-10">
           <h2 className="font-semibold">
             {mode === "create" ? "New Record" : "Edit Record"}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded" aria-label="Close">
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {error && (
-          <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 text-sm">
+          <div className="mx-6 mt-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 rounded px-3 py-2 text-sm">
             {error}
           </div>
         )}
@@ -152,18 +152,18 @@ export function RecordForm({
             );
           })}
 
-          <div className="flex gap-2 pt-4 border-t sticky bottom-0 bg-white py-4">
+          <div className="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-900 py-4">
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 bg-gray-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+              className="flex-1 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded px-4 py-2 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50"
             >
               {saving ? "Saving..." : mode === "create" ? "Create" : "Save Changes"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded"
+              className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
             >
               Cancel
             </button>
@@ -237,9 +237,9 @@ function FieldInput({
 
   return (
     <div>
-      <label htmlFor={`field-${column.name}`} className="text-xs font-medium text-gray-600 block mb-1">
+      <label htmlFor={`field-${column.name}`} className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
         {column.name}
-        <span className="text-gray-300 font-normal ml-1.5">{column.type}</span>
+        <span className="text-gray-300 dark:text-gray-500 font-normal ml-1.5">{column.type}</span>
         {!column.nullable && !column.default && (
           <span className="text-red-400 ml-0.5">*</span>
         )}
@@ -255,8 +255,8 @@ function FieldInput({
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled}
           className={cn(
-            "w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-            disabled && "bg-gray-50 text-gray-400",
+            "w-full border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+            disabled && "bg-gray-50 dark:bg-gray-800/70 text-gray-400 dark:text-gray-500",
           )}
         >
           {column.nullable && <option value="">null</option>}
@@ -270,8 +270,8 @@ function FieldInput({
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled}
           className={cn(
-            "w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-            disabled && "bg-gray-50 text-gray-400",
+            "w-full border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+            disabled && "bg-gray-50 dark:bg-gray-800/70 text-gray-400 dark:text-gray-500",
           )}
         >
           <option value="">-- select --</option>
@@ -291,9 +291,9 @@ function FieldInput({
             onBlur={handleBlur}
             disabled={disabled}
             className={cn(
-              "flex-1 border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-              disabled && "bg-gray-50 text-gray-400",
-              hint && "border-amber-400",
+              "flex-1 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+              disabled && "bg-gray-50 dark:bg-gray-800/70 text-gray-400 dark:text-gray-500",
+              hint && "border-amber-400 dark:border-amber-500",
             )}
             placeholder={placeholder}
           />
@@ -303,7 +303,7 @@ function FieldInput({
               onClick={generateUuid}
               title="Generate random UUID"
               aria-label="Generate random UUID"
-              className="px-2 py-2 border rounded text-gray-500 hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-2 py-2 border border-gray-300 dark:border-gray-700 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <Dices className="w-4 h-4" />
             </button>
@@ -318,9 +318,9 @@ function FieldInput({
           disabled={disabled}
           rows={isJson ? 5 : 3}
           className={cn(
-            "w-full border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y",
-            disabled && "bg-gray-50 text-gray-400",
-            hint && "border-amber-400",
+            "w-full border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y",
+            disabled && "bg-gray-50 dark:bg-gray-800/70 text-gray-400 dark:text-gray-500",
+            hint && "border-amber-400 dark:border-amber-500",
           )}
           placeholder={placeholder}
         />
@@ -332,15 +332,15 @@ function FieldInput({
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled}
           className={cn(
-            "w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-            disabled && "bg-gray-50 text-gray-400",
+            "w-full border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+            disabled && "bg-gray-50 dark:bg-gray-800/70 text-gray-400 dark:text-gray-500",
           )}
           placeholder={placeholder}
         />
       )}
 
       {hint && (
-        <p className="mt-1 text-xs text-amber-600">{hint}</p>
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{hint}</p>
       )}
     </div>
   );

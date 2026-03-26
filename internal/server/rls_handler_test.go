@@ -15,12 +15,17 @@ import (
 
 // fakeRlsQuerier is an in-memory fake for testing RLS handlers.
 type fakeRlsQuerier struct {
-	policies []RlsPolicy
-	status   *RlsTableStatus
-	execStmt string
-	queryErr error
-	execErr  error
-	scanErr  error
+	policies     []RlsPolicy
+	status       *RlsTableStatus
+	execStmt     string
+	execStmts    []string
+	querySQL     string
+	queryArgs    []any
+	queryRowSQL  string
+	queryRowArgs []any
+	queryErr     error
+	execErr      error
+	scanErr      error
 }
 
 type fakeRow struct {
@@ -71,6 +76,8 @@ func (r *fakeRows) Close()     {}
 func (r *fakeRows) Err() error { return nil }
 
 func (f *fakeRlsQuerier) QueryRow(_ context.Context, sql string, args ...any) pgxRow {
+	f.queryRowSQL = sql
+	f.queryRowArgs = append([]any(nil), args...)
 	return &fakeRow{status: f.status, scanErr: f.scanErr}
 }
 
@@ -78,12 +85,88 @@ func (f *fakeRlsQuerier) Query(_ context.Context, sql string, args ...any) (pgxR
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
+	f.querySQL = sql
+	f.queryArgs = append([]any(nil), args...)
 	return &fakeRows{policies: f.policies}, nil
 }
 
 func (f *fakeRlsQuerier) Exec(_ context.Context, sql string, args ...any) error {
 	f.execStmt = sql
+	f.execStmts = append(f.execStmts, sql)
 	return f.execErr
+}
+
+func TestApplyStorageObjectsTemplateUserOwnFiles(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/templates/storage-objects/{template}", handleApplyStorageObjectsTemplateWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/templates/storage-objects/user-own-files", strings.NewReader(`{"prefix":"storage_owner"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.True(t, len(q.execStmts) >= 2, "expected enable rls + create policy statements")
+	testutil.Contains(t, q.execStmts[0], `ALTER TABLE "_ayb_storage_objects" ENABLE ROW LEVEL SECURITY`)
+	testutil.Contains(t, q.execStmts[1], `CREATE POLICY "storage_owner_all"`)
+	testutil.Contains(t, q.execStmts[1], `user_id = auth.uid()`)
+}
+
+func TestApplyStorageObjectsTemplateBucketScopedRequiresBucket(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/templates/storage-objects/{template}", handleApplyStorageObjectsTemplateWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/templates/storage-objects/bucket-scoped", strings.NewReader(`{"prefix":"bucket_images"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "bucket is required")
+}
+
+func TestApplyStorageObjectsTemplateBucketScopedAllowsHyphenBucket(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/templates/storage-objects/{template}", handleApplyStorageObjectsTemplateWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/templates/storage-objects/bucket-scoped", strings.NewReader(`{"prefix":"storage_bucket","bucket":"my-photos"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.True(t, len(q.execStmts) >= 2, "expected enable rls + create policy statements")
+	testutil.Contains(t, q.execStmts[1], `bucket = 'my-photos'`)
+	testutil.Contains(t, q.execStmts[1], `CREATE POLICY "storage_bucket_all"`)
+}
+
+func TestApplyStorageObjectsTemplatePublicReadAuthWrite(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/templates/storage-objects/{template}", handleApplyStorageObjectsTemplateWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/templates/storage-objects/public-read-auth-write", strings.NewReader(`{"prefix":"storage_public_auth"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.True(t, len(q.execStmts) >= 5, "expected enable rls + 4 policy statements")
+	testutil.Contains(t, q.execStmts[1], `CREATE POLICY "storage_public_auth_select"`)
+	testutil.Contains(t, q.execStmts[2], `CREATE POLICY "storage_public_auth_insert"`)
+	testutil.Contains(t, q.execStmts[3], `CREATE POLICY "storage_public_auth_update"`)
+	testutil.Contains(t, q.execStmts[4], `CREATE POLICY "storage_public_auth_delete"`)
 }
 
 func strPtr(s string) *string { return &s }
@@ -180,6 +263,25 @@ func TestListRlsPoliciesByTable(t *testing.T) {
 	testutil.Equal(t, "posts", policies[0].TableName)
 }
 
+func TestListRlsPoliciesByQualifiedTable(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{policies: []RlsPolicy{
+		{TableSchema: "private", TableName: "posts", PolicyName: "p1", Command: "ALL", Permissive: "PERMISSIVE", Roles: []string{}},
+	}}
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/rls/{table}", handleListRlsPoliciesWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/rls/private.posts", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, 2, len(q.queryArgs))
+	testutil.Equal(t, "private", q.queryArgs[0])
+	testutil.Equal(t, "posts", q.queryArgs[1])
+}
+
 func TestListRlsPoliciesQueryError(t *testing.T) {
 	t.Parallel()
 	q := &fakeRlsQuerier{queryErr: fmt.Errorf("connection refused")}
@@ -213,6 +315,23 @@ func TestGetRlsStatusEnabled(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.True(t, status.RlsEnabled, "RLS should be enabled")
 	testutil.True(t, !status.ForceRls, "ForceRLS should be disabled")
+}
+
+func TestGetRlsStatusQualifiedTableUsesSchemaAndTable(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{status: &RlsTableStatus{RlsEnabled: true, ForceRls: false}}
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/rls/{table}/status", handleGetRlsStatusWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/rls/private.posts/status", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, 2, len(q.queryRowArgs))
+	testutil.Equal(t, "posts", q.queryRowArgs[0])
+	testutil.Equal(t, "private", q.queryRowArgs[1])
 }
 
 func TestGetRlsStatusTableNotFound(t *testing.T) {
@@ -826,6 +945,21 @@ func TestEnableRlsVerifiesSQL(t *testing.T) {
 	testutil.Contains(t, q.execStmt, `ALTER TABLE "orders" ENABLE ROW LEVEL SECURITY`)
 }
 
+func TestEnableRlsQualifiedTableVerifiesSQL(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/{table}/enable", handleEnableRlsWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/private.orders/enable", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, `ALTER TABLE "private"."orders" ENABLE ROW LEVEL SECURITY`, q.execStmt)
+}
+
 func TestDisableRlsVerifiesSQL(t *testing.T) {
 	t.Parallel()
 	q := &fakeRlsQuerier{}
@@ -841,6 +975,21 @@ func TestDisableRlsVerifiesSQL(t *testing.T) {
 	testutil.Contains(t, q.execStmt, `ALTER TABLE "orders" DISABLE ROW LEVEL SECURITY`)
 }
 
+func TestDisableRlsQualifiedTableVerifiesSQL(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Post("/api/admin/rls/{table}/disable", handleDisableRlsWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls/private.orders/disable", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Equal(t, `ALTER TABLE "private"."orders" DISABLE ROW LEVEL SECURITY`, q.execStmt)
+}
+
 func TestCreateRlsPolicySqlInjectionInRole(t *testing.T) {
 	t.Parallel()
 	q := &fakeRlsQuerier{}
@@ -854,6 +1003,36 @@ func TestCreateRlsPolicySqlInjectionInRole(t *testing.T) {
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "invalid role name")
+}
+
+func TestCreateRlsPolicyRejectsUsingStackedSQL(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+	handler := handleCreateRlsPolicyWithQuerier(q)
+
+	body := `{"table":"posts","name":"inj_using","command":"ALL","using":"true); DROP TABLE users; --"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid USING expression")
+}
+
+func TestCreateRlsPolicyRejectsWithCheckStackedSQL(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+	handler := handleCreateRlsPolicyWithQuerier(q)
+
+	body := `{"table":"posts","name":"inj_check","command":"INSERT","withCheck":"auth.uid() IS NOT NULL /* injected */"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/rls", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid WITH CHECK expression")
 }
 
 func TestCreateRlsPolicyMultipleRoles(t *testing.T) {
@@ -904,4 +1083,19 @@ func TestDeleteRlsPolicyVerifiesSQL(t *testing.T) {
 	testutil.Equal(t, http.StatusNoContent, w.Code)
 	// Verify exact SQL structure with quoted identifiers
 	testutil.Equal(t, q.execStmt, `DROP POLICY "owner_policy" ON "users"`)
+}
+
+func TestDeleteRlsPolicyQualifiedTableVerifiesSQL(t *testing.T) {
+	t.Parallel()
+	q := &fakeRlsQuerier{}
+
+	r := chi.NewRouter()
+	r.Delete("/api/admin/rls/{table}/{policy}", handleDeleteRlsPolicyWithQuerier(q))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/rls/private.users/owner_policy", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusNoContent, w.Code)
+	testutil.Equal(t, `DROP POLICY "owner_policy" ON "private"."users"`, q.execStmt)
 }

@@ -1,4 +1,5 @@
 # Email
+<!-- audited 2026-03-21 -->
 
 AYB sends transactional emails for password reset, email verification, and magic link login. Three backend options let you start with zero configuration and switch to production-ready email delivery when needed.
 
@@ -7,7 +8,7 @@ AYB sends transactional emails for password reset, email verification, and magic
 AYB supports configurable subject/HTML email templates for built-in auth flows and arbitrary app keys.
 
 - Full guide: [Email Templates](./email-templates.md)
-- Admin/API/CLI management: create overrides, preview with variables, enable/disable, reset, and send test emails
+- Admin/API/CLI management: create overrides, preview with variables, enable/disable, delete overrides (including auth-key reset), and send test emails
 - Auth safety behavior: if a custom auth template fails to render, AYB falls back to the built-in default so auth flows continue
 
 Operational workflow:
@@ -15,6 +16,11 @@ Operational workflow:
 1. Customize or create a template (`/api/admin/email/templates/{key}` or `ayb email-templates set`)
 2. Preview with real variables before saving/sending
 3. Send a test email (`/api/admin/email/send` or `ayb email-templates send`) to validate final output
+
+Shipped defaults:
+
+- `email.backend = "log"` (development-safe, no provider setup required)
+- `email.from_name = "Allyourbase"`
 
 ## Backends
 
@@ -48,6 +54,8 @@ auth_method = "PLAIN"
 tls = true
 ```
 
+If `email.smtp.port` is omitted or set to `0`, AYB falls back to SMTP port `587`.
+
 #### Provider presets
 
 **Resend:**
@@ -74,8 +82,8 @@ password = "your-smtp-key"
 [email.smtp]
 host = "email-smtp.us-east-1.amazonaws.com"
 port = 465
-username = "AKIAIOSFODNN7EXAMPLE"
-password = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+username = "YOUR_SES_SMTP_USERNAME"
+password = "YOUR_SES_SMTP_PASSWORD"
 auth_method = "PLAIN"
 tls = true
 ```
@@ -93,6 +101,8 @@ url = "https://your-app.com/api/send-email"
 secret = "hmac-signing-secret"
 timeout = 10
 ```
+
+If `email.webhook.timeout` is omitted or set to `0`, AYB falls back to `10` seconds.
 
 AYB sends a POST request with:
 
@@ -119,5 +129,13 @@ AYB_EMAIL_SMTP_HOST=smtp.resend.com
 AYB_EMAIL_SMTP_PORT=465
 AYB_EMAIL_SMTP_USERNAME=resend
 AYB_EMAIL_SMTP_PASSWORD=re_YOUR_API_KEY
+AYB_EMAIL_SMTP_AUTH_METHOD=PLAIN
 AYB_EMAIL_SMTP_TLS=true
+AYB_EMAIL_WEBHOOK_URL=https://your-app.com/api/send-email
+AYB_EMAIL_WEBHOOK_SECRET=hmac-signing-secret
+AYB_EMAIL_WEBHOOK_TIMEOUT=10
 ```
+
+::: info
+`EmailPolicyConfig` fields (`email.policy.*`) are configurable via TOML but do not have `AYB_EMAIL_POLICY_*` environment variable mappings.
+:::

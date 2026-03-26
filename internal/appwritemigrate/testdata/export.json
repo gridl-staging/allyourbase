@@ -1,0 +1,50 @@
+{
+  "collections": [
+    {
+      "name": "authors",
+      "attributes": [
+        {"key": "id", "type": "string", "required": true},
+        {"key": "email", "type": "email", "required": true},
+        {"key": "homepage", "type": "url", "required": false},
+        {"key": "last_login_ip", "type": "ip", "required": false}
+      ],
+      "indexes": [
+        {"key": "authors_email_idx", "attributes": ["email"], "type": "key"}
+      ],
+      "permissions": {
+        "read": ["user:*"],
+        "create": ["user:*"],
+        "update": ["team:ops"],
+        "delete": []
+      },
+      "documents": [
+        {"$id": "a1", "email": "a@example.com", "homepage": "https://example.com", "last_login_ip": "127.0.0.1"}
+      ]
+    },
+    {
+      "name": "posts",
+      "attributes": [
+        {"key": "id", "type": "string", "required": true},
+        {"key": "author_id", "type": "relationship", "required": true, "related_collection": "authors"},
+        {"key": "title", "type": "string", "required": true},
+        {"key": "likes", "type": "integer", "required": false},
+        {"key": "rating", "type": "float", "required": false},
+        {"key": "published", "type": "boolean", "required": false},
+        {"key": "visibility", "type": "enum", "required": false, "elements": ["public", "private"]},
+        {"key": "published_at", "type": "datetime", "required": false}
+      ],
+      "indexes": [
+        {"key": "posts_title_idx", "attributes": ["title"], "type": "key"}
+      ],
+      "permissions": {
+        "read": ["team:ops"],
+        "create": [],
+        "update": [],
+        "delete": []
+      },
+      "documents": [
+        {"$id": "p1", "author_id": "a1", "title": "hello", "likes": 3, "rating": 4.5, "published": true, "visibility": "public", "published_at": "2025-01-01T00:00:00Z"}
+      ]
+    }
+  ]
+}

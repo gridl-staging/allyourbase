@@ -71,6 +71,23 @@ func TestTypeScriptAllJSONTypes(t *testing.T) {
 	testutil.Contains(t, out, "  arr_col: unknown[];")
 }
 
+func TestTypeScriptVectorMapsToNumberArray(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.docs": {
+			Schema: "public", Name: "docs", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "embedding", Position: 1, JSONType: "array", TypeName: "vector(1536)", IsVector: true},
+				{Name: "tags", Position: 2, JSONType: "array", TypeName: "text[]"},
+			},
+		},
+	})
+
+	out := TypeScript(sc)
+	testutil.Contains(t, out, "  embedding: number[];")
+	testutil.Contains(t, out, "  tags: unknown[];")
+}
+
 func TestTypeScriptNullableColumns(t *testing.T) {
 	t.Parallel()
 	sc := newCache(map[string]*schema.Table{
@@ -328,4 +345,129 @@ func TestIsSystemTable(t *testing.T) {
 	testutil.True(t, isSystemTable("_ayb_sessions"), "_ayb_sessions is system")
 	testutil.False(t, isSystemTable("posts"), "posts is not system")
 	testutil.False(t, isSystemTable("ayb_data"), "ayb_data is not system (no underscore prefix)")
+}
+
+func TestTypeScriptGeometryKnownType(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.places": {
+			Schema: "public", Name: "places", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "location", Position: 2, JSONType: "object", IsGeometry: true, GeometryType: "Point", SRID: 4326},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	testutil.Contains(t, out, "  location: GeoJSON.Point;")
+	testutil.Contains(t, out, "export namespace GeoJSON")
+}
+
+func TestTypeScriptGeometryGenericType(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.shapes": {
+			Schema: "public", Name: "shapes", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "geom", Position: 2, JSONType: "object", IsGeometry: true, GeometryType: ""},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	testutil.Contains(t, out, "  geom: GeoJSON.Geometry;")
+}
+
+func TestTypeScriptGeographyEmitsGeoJSON(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.routes": {
+			Schema: "public", Name: "routes", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "path", Position: 2, JSONType: "object", IsGeometry: true, IsGeography: true, GeometryType: "LineString"},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	testutil.Contains(t, out, "  path: GeoJSON.LineString;")
+}
+
+func TestTypeScriptNullableSpatialColumn(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.events": {
+			Schema: "public", Name: "events", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "venue", Position: 2, JSONType: "object", IsGeometry: true, GeometryType: "Point", IsNullable: true},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	testutil.Contains(t, out, "  venue: GeoJSON.Point | null;")
+}
+
+func TestTypeScriptNoSpatialColumnsNoGeoJSONNamespace(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.users": {
+			Schema: "public", Name: "users", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "name", Position: 2, JSONType: "string"},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	testutil.False(t, strings.Contains(out, "GeoJSON"), "should not contain GeoJSON namespace when no spatial columns")
+}
+
+func TestTypeScriptMixedSpatialAndNonSpatialTables(t *testing.T) {
+	t.Parallel()
+	sc := newCache(map[string]*schema.Table{
+		"public.places": {
+			Schema: "public", Name: "places", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "location", Position: 2, JSONType: "object", IsGeometry: true, GeometryType: "Polygon"},
+			},
+			PrimaryKey: []string{"id"},
+		},
+		"public.users": {
+			Schema: "public", Name: "users", Kind: "table",
+			Columns: []*schema.Column{
+				{Name: "id", Position: 1, JSONType: "integer", IsPrimaryKey: true},
+				{Name: "name", Position: 2, JSONType: "string"},
+			},
+			PrimaryKey: []string{"id"},
+		},
+	})
+
+	out := TypeScript(sc)
+
+	// GeoJSON namespace appears exactly once.
+	count := strings.Count(out, "export namespace GeoJSON")
+	testutil.Equal(t, 1, count)
+
+	// Spatial column uses GeoJSON type.
+	testutil.Contains(t, out, "  location: GeoJSON.Polygon;")
+
+	// Non-spatial column is normal.
+	testutil.Contains(t, out, "  name: string;")
 }

@@ -16,7 +16,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { formatDate } from "./shared/format";
+import { useAppToast } from "./ToastProvider";
 
 type ModalState =
   | { kind: "none" }
@@ -31,13 +32,8 @@ function statusBadgeClass(status: string | null): string {
     case "error":
       return "bg-red-100 text-red-700";
     default:
-      return "bg-gray-100 text-gray-700";
+      return "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200";
   }
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "-";
-  return new Date(iso).toLocaleString();
 }
 
 function errorPreview(error: string | null): string {
@@ -58,7 +54,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
   const [submitting, setSubmitting] = useState(false);
   const [registerForm, setRegisterForm] = useState({ view: "", mode: "standard" });
   const [editMode, setEditMode] = useState("standard");
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const discoveredMatviews = useMemo(() => {
     return Object.values(schema.tables)
@@ -165,7 +161,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading materialized views...
       </div>
@@ -197,7 +193,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Materialized Views</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Register and refresh materialized views
           </p>
         </div>
@@ -211,31 +207,31 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
       </div>
 
       {data && data.items.length === 0 ? (
-        <div className="text-center py-12 border rounded-lg bg-gray-50 text-gray-500 text-sm">
+        <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm">
           No materialized views registered
         </div>
       ) : data ? (
         <div className="border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-800 border-b">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Schema</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">View Name</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Mode</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Last Refresh</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Duration</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Error</th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600">Actions</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Schema</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">View Name</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Mode</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Status</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Last Refresh</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Duration</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Error</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.items.map((mv) => (
-                <tr key={mv.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-xs text-gray-600">{mv.schemaName}</td>
+                <tr key={mv.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
+                  <td className="px-4 py-2.5 text-xs text-gray-600 dark:text-gray-300">{mv.schemaName}</td>
                   <td className="px-4 py-2.5 font-medium">{mv.viewName}</td>
                   <td className="px-4 py-2.5">
-                    <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">
+                    <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-200">
                       {mv.refreshMode}
                     </code>
                   </td>
@@ -250,16 +246,16 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
                         {mv.lastRefreshStatus}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-400">-</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                     {formatDate(mv.lastRefreshAt)}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                     {mv.lastRefreshDurationMs != null ? `${mv.lastRefreshDurationMs}ms` : "-"}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[240px]">
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 max-w-[240px]">
                     {errorPreview(mv.lastRefreshError)}
                   </td>
                   <td className="px-4 py-2.5">
@@ -276,14 +272,14 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
                       <button
                         onClick={() => openEdit(mv)}
                         aria-label={`Edit matview ${mv.id}`}
-                        className="p-1 text-gray-400 hover:text-blue-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setModal({ kind: "delete", matview: mv })}
                         aria-label={`Delete matview ${mv.id}`}
-                        className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -299,13 +295,13 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
       {/* Register modal */}
       {modal.kind === "register" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl border">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl border">
             <div className="px-5 py-4 border-b">
               <h2 className="text-base font-semibold">Register Materialized View</h2>
             </div>
             <form onSubmit={handleRegister} className="p-5 space-y-3">
               <div>
-                <label htmlFor="matview-view" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="matview-view" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   View
                 </label>
                 <select
@@ -324,7 +320,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
                 </select>
               </div>
               <div>
-                <label htmlFor="matview-mode" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="matview-mode" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Refresh Mode
                 </label>
                 <select
@@ -342,7 +338,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
                 <button
                   type="button"
                   onClick={() => setModal({ kind: "none" })}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -362,13 +358,13 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
       {/* Edit mode modal */}
       {modal.kind === "edit" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl border">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl border">
             <div className="px-5 py-4 border-b">
               <h2 className="text-base font-semibold">Edit Refresh Mode</h2>
             </div>
             <form onSubmit={handleUpdate} className="p-5 space-y-3">
               <div>
-                <label htmlFor="edit-matview-mode" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="edit-matview-mode" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Refresh Mode
                 </label>
                 <select
@@ -386,7 +382,7 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
                 <button
                   type="button"
                   onClick={() => setModal({ kind: "none" })}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -406,19 +402,19 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
       {/* Delete confirmation modal */}
       {modal.kind === "delete" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl border">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl border">
             <div className="px-5 py-4 border-b">
               <h2 className="text-base font-semibold">Unregister materialized view?</h2>
             </div>
             <div className="p-5">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 This will remove <span className="font-medium">{modal.matview.viewName}</span> from
                 the refresh registry. The materialized view itself will not be dropped.
               </p>
               <div className="pt-4 flex justify-end gap-2">
                 <button
                   onClick={() => setModal({ kind: "none" })}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -435,7 +431,6 @@ export function MatviewsAdmin({ schema }: MatviewsAdminProps) {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

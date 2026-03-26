@@ -26,9 +26,13 @@ func fakeAYB(t *testing.T) *httptest.Server {
 
 		case r.URL.Path == "/api/schema":
 			json.NewEncoder(w).Encode(map[string]any{
-				"tables": []any{
-					map[string]any{
-						"name": "posts",
+				"hasPostGIS":     true,
+				"postGISVersion": "3.4",
+				"tables": map[string]any{
+					"public.posts": map[string]any{
+						"schema": "public",
+						"name":   "posts",
+						"kind":   "table",
 						"columns": []any{
 							map[string]any{"name": "id", "type": "integer", "nullable": false},
 							map[string]any{"name": "title", "type": "text", "nullable": false},
@@ -36,22 +40,33 @@ func fakeAYB(t *testing.T) *httptest.Server {
 							map[string]any{"name": "published", "type": "boolean", "nullable": false},
 							map[string]any{"name": "author_id", "type": "integer", "nullable": true},
 						},
-						"primary_keys": []any{"id"},
-						"foreign_keys": []any{
-							map[string]any{"column": "author_id", "references_table": "authors", "references_column": "id"},
+						"primaryKey": []any{"id"},
+						"foreignKeys": []any{
+							map[string]any{
+								"columns":           []any{"author_id"},
+								"referencedSchema":  "public",
+								"referencedTable":   "authors",
+								"referencedColumns": []any{"id"},
+							},
 						},
 					},
-					map[string]any{
-						"name": "authors",
+					"public.authors": map[string]any{
+						"schema": "public",
+						"name":   "authors",
+						"kind":   "table",
 						"columns": []any{
 							map[string]any{"name": "id", "type": "integer", "nullable": false},
 							map[string]any{"name": "name", "type": "text", "nullable": false},
 						},
-						"primary_keys": []any{"id"},
+						"primaryKey": []any{"id"},
 					},
 				},
-				"functions": []any{
-					map[string]any{"name": "get_post_count", "return_type": "integer"},
+				"functions": map[string]any{
+					"public.get_post_count": map[string]any{
+						"schema":     "public",
+						"name":       "get_post_count",
+						"returnType": "integer",
+					},
 				},
 			})
 
@@ -128,9 +143,17 @@ func TestListTables(t *testing.T) {
 	_, out, err := handleListTables(context.Background(), c)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 2, len(out.Tables))
+	testutil.True(t, out.HasPostGIS)
+	testutil.Equal(t, "3.4", out.PostGISVersion)
 
-	name0, _ := out.Tables[0]["name"].(string)
-	testutil.Equal(t, "posts", name0)
+	tableNames := make(map[string]bool)
+	for _, tbl := range out.Tables {
+		if name, ok := tbl["name"].(string); ok {
+			tableNames[name] = true
+		}
+	}
+	testutil.True(t, tableNames["posts"])
+	testutil.True(t, tableNames["authors"])
 }
 
 func TestDescribeTable(t *testing.T) {
@@ -399,7 +422,7 @@ func TestServerHasToolsRegistered(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, 11, len(tools.Tools))
+	testutil.Equal(t, 13, len(tools.Tools))
 
 	// Verify specific tool names exist
 	toolNames := make(map[string]bool)
@@ -417,6 +440,8 @@ func TestServerHasToolsRegistered(t *testing.T) {
 	testutil.True(t, toolNames["call_function"])
 	testutil.True(t, toolNames["get_status"])
 	testutil.True(t, toolNames["list_functions"])
+	testutil.True(t, toolNames["spatial_query"])
+	testutil.True(t, toolNames["spatial_info"])
 }
 
 func TestServerHasResourcesRegistered(t *testing.T) {

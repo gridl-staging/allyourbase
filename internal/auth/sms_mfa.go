@@ -1,3 +1,4 @@
+// Package auth Implements SMS-based multi-factor authentication flows including enrollment, challenge, and verification. Provides OTP generation, storage, transmission, and validation.
 package auth
 
 import (
@@ -6,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/sms"
@@ -21,10 +23,19 @@ const mfaPendingTokenDur = 5 * time.Minute
 // generateMFAPendingToken issues a short-lived JWT (5 min) with MFAPending: true.
 // This token grants access only to the MFA challenge/verify endpoints, not normal routes.
 func (s *Service) generateMFAPendingToken(user *User) (string, error) {
+	return s.generateMFAPendingTokenWithMethod(user, "")
+}
+
+// generateMFAPendingTokenWithMethod issues a short-lived JWT with MFAPending: true, optionally including the authentication method in the AMR claim. This token grants access only to MFA challenge and verify endpoints.
+func (s *Service) generateMFAPendingTokenWithMethod(user *User, method string) (string, error) {
 	now := time.Now()
 	jti := make([]byte, 16)
 	if _, err := rand.Read(jti); err != nil {
 		return "", fmt.Errorf("generating jti: %w", err)
+	}
+	amr := make([]string, 0, 1)
+	if method = strings.TrimSpace(method); method != "" {
+		amr = append(amr, method)
 	}
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -35,6 +46,8 @@ func (s *Service) generateMFAPendingToken(user *User) (string, error) {
 		},
 		Email:      user.Email,
 		MFAPending: true,
+		AAL:        "aal1",
+		AMR:        amr,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	s.jwtSecretMu.RLock()
@@ -122,8 +135,8 @@ func (s *Service) ChallengeSMSMFA(ctx context.Context, userID string) error {
 	return s.sendOTPToPhone(ctx, phone, "Your verification code is: ")
 }
 
-// VerifySMSMFA verifies the MFA challenge OTP and issues full tokens.
-func (s *Service) VerifySMSMFA(ctx context.Context, userID, code string) (*User, string, string, error) {
+// VerifySMSMFA verifies the MFA challenge OTP and issues AAL2 tokens.
+func (s *Service) VerifySMSMFA(ctx context.Context, userID, code, firstFactorMethod string) (*User, string, string, error) {
 	phone, err := s.mfaEnrolledPhone(ctx, userID)
 	if err != nil {
 		return nil, "", "", err
@@ -138,7 +151,22 @@ func (s *Service) VerifySMSMFA(ctx context.Context, userID, code string) (*User,
 		return nil, "", "", fmt.Errorf("looking up user: %w", err)
 	}
 
-	return s.issueTokens(ctx, user)
+	sessionOpts := mfaSessionOptions(firstFactorMethod, "sms_otp")
+	sessionID, refreshToken, err := s.createSession(ctx, user.ID, sessionOpts)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("creating session: %w", err)
+	}
+	sessionOpts.SessionID = sessionID
+	sessionOpts, err = s.sessionTokenOptions(ctx, user, sessionOpts)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("resolving session tenant: %w", err)
+	}
+	token, err := s.generateTokenWithOpts(ctx, user, sessionOpts)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generating AAL2 token: %w", err)
+	}
+
+	return user, token, refreshToken, nil
 }
 
 // mfaEnrolledPhone looks up the enrolled MFA phone for a user.
@@ -203,10 +231,8 @@ func (s *Service) sendOTPToPhone(ctx context.Context, phone, msgPrefix string) e
 		return err
 	}
 
-	if s.smsProvider != nil {
-		if _, err := s.smsProvider.Send(ctx, phone, msgPrefix+otp); err != nil {
-			return fmt.Errorf("sending OTP: %w", err)
-		}
+	if err := s.sendAuthSMS(ctx, phone, msgPrefix+otp, "sms_mfa"); err != nil {
+		return fmt.Errorf("sending OTP: %w", err)
 	}
 
 	return nil

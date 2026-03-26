@@ -17,6 +17,9 @@ import {
   ListTodo,
   CalendarClock,
   Mail,
+  Bell,
+  Activity,
+  Gauge,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -40,7 +43,7 @@ interface CommandPaletteProps {
   tables: Table[];
 }
 
-const ICON_CLS = "w-4 h-4 text-gray-400 shrink-0";
+const ICON_CLS = "w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0";
 
 const NAV_ITEMS: Omit<CommandItem, "id">[] = [
   { label: "SQL Editor", section: "Navigation", icon: <Code className={ICON_CLS} />, action: { kind: "view", view: "sql-editor" } },
@@ -54,8 +57,12 @@ const NAV_ITEMS: Omit<CommandItem, "id">[] = [
   { label: "SMS Health", section: "Navigation", icon: <MessageCircle className={ICON_CLS} />, action: { kind: "view", view: "sms-health" } },
   { label: "SMS Messages", section: "Navigation", icon: <MessageSquare className={ICON_CLS} />, action: { kind: "view", view: "sms-messages" } },
   { label: "Email Templates", section: "Navigation", icon: <Mail className={ICON_CLS} />, action: { kind: "view", view: "email-templates" } },
+  { label: "Push Notifications", section: "Navigation", icon: <Bell className={ICON_CLS} />, action: { kind: "view", view: "push" } },
   { label: "Jobs", section: "Navigation", icon: <ListTodo className={ICON_CLS} />, action: { kind: "view", view: "jobs" } },
   { label: "Schedules", section: "Navigation", icon: <CalendarClock className={ICON_CLS} />, action: { kind: "view", view: "schedules" } },
+  { label: "Realtime Inspector", section: "Navigation", icon: <Activity className={ICON_CLS} />, action: { kind: "view", view: "realtime-inspector" } },
+  { label: "Security Advisor", section: "Navigation", icon: <Shield className={ICON_CLS} />, action: { kind: "view", view: "security-advisor" } },
+  { label: "Performance Advisor", section: "Navigation", icon: <Gauge className={ICON_CLS} />, action: { kind: "view", view: "performance-advisor" } },
 ];
 
 function buildItems(tables: Table[]): CommandItem[] {
@@ -175,14 +182,14 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]" onClick={onClose}>
       <div className="absolute inset-0 bg-black/20" />
       <div
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-2xl border overflow-hidden"
+        className="relative w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-2xl border overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Command palette"
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
-          <Search className="w-4 h-4 text-gray-400 shrink-0" />
+          <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -190,11 +197,11 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search tables, pages..."
-            className="flex-1 text-sm outline-none bg-transparent placeholder:text-gray-400"
+            className="flex-1 text-sm outline-none bg-transparent placeholder:text-gray-400 dark:text-gray-500"
             autoComplete="off"
             spellCheck={false}
           />
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 font-mono">
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5 font-mono">
             ESC
           </kbd>
         </div>
@@ -202,11 +209,11 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
         {/* Results */}
         <div ref={listRef} className="max-h-72 overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <p className="px-4 py-8 text-sm text-gray-400 text-center">No results found</p>
+            <p className="px-4 py-8 text-sm text-gray-400 dark:text-gray-500 text-center">No results found</p>
           ) : (
             sections.map((section) => (
               <div key={section.name}>
-                <p className="px-4 pt-2 pb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                <p className="px-4 pt-2 pb-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                   {section.name}
                 </p>
                 {section.items.map((item) => {
@@ -220,13 +227,13 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
                       onMouseEnter={() => setActiveIndex(idx)}
                       className={cn(
                         "w-full flex items-center gap-3 px-4 py-2 text-sm text-left",
-                        isActive ? "bg-gray-100" : "hover:bg-gray-50",
+                        isActive ? "bg-gray-100 dark:bg-gray-700" : "hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800",
                       )}
                     >
                       {item.icon}
                       <span className="flex-1 truncate">
                         {item.sublabel && (
-                          <span className="text-gray-400">{item.sublabel}.</span>
+                          <span className="text-gray-400 dark:text-gray-500">{item.sublabel}.</span>
                         )}
                         {item.label}
                       </span>
@@ -239,15 +246,15 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
         </div>
 
         {/* Footer hint */}
-        <div className="border-t px-4 py-2 flex items-center gap-4 text-[10px] text-gray-400">
+        <div className="border-t px-4 py-2 flex items-center gap-4 text-[10px] text-gray-400 dark:text-gray-500">
           <span className="flex items-center gap-1">
-            <kbd className="bg-gray-100 rounded px-1 py-0.5 font-mono">↑↓</kbd> navigate
+            <kbd className="bg-gray-100 dark:bg-gray-700 rounded px-1 py-0.5 font-mono">↑↓</kbd> navigate
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="bg-gray-100 rounded px-1 py-0.5 font-mono">↵</kbd> select
+            <kbd className="bg-gray-100 dark:bg-gray-700 rounded px-1 py-0.5 font-mono">↵</kbd> select
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="bg-gray-100 rounded px-1 py-0.5 font-mono">esc</kbd> close
+            <kbd className="bg-gray-100 dark:bg-gray-700 rounded px-1 py-0.5 font-mono">esc</kbd> close
           </span>
         </div>
       </div>
@@ -260,11 +267,11 @@ export function CommandPaletteHint({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-4 py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+      className="w-full flex items-center gap-2 px-4 py-2 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 transition-colors"
     >
       <Search className="w-3.5 h-3.5" />
       <span className="flex-1 text-left">Search...</span>
-      <kbd className="flex items-center gap-0.5 text-[10px] bg-gray-100 rounded px-1.5 py-0.5 font-mono">
+      <kbd className="flex items-center gap-0.5 text-[10px] bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5 font-mono">
         <Command className="w-2.5 h-2.5" />K
       </kbd>
     </button>

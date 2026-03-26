@@ -222,6 +222,7 @@ describe("signInWithOAuth", () => {
 
     await expect(promise).rejects.toThrow("access denied by provider");
     await expect(promise).rejects.toBeInstanceOf(AYBError);
+    expect(es.closed).toBe(true);
   });
 
   it("SSE oauth event with missing tokens rejects promise", async () => {
@@ -246,6 +247,7 @@ describe("signInWithOAuth", () => {
     es.emit("oauth", { token: "tok" }); // Missing refreshToken.
 
     await expect(promise).rejects.toThrow("missing tokens");
+    expect(es.closed).toBe(true);
   });
 
   it("SSE connection failure rejects promise", async () => {

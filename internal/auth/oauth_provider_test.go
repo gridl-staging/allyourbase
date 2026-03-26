@@ -1,12 +1,30 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/testutil"
 )
+
+func assertFileUnder500Lines(t *testing.T, path string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+
+	lineCount := bytes.Count(data, []byte{'\n'})
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		lineCount++
+	}
+
+	if lineCount >= 500 {
+		t.Fatalf("%s has %d lines; want fewer than 500", path, lineCount)
+	}
+}
 
 func TestOAuthAccessTokenFormat(t *testing.T) {
 	t.Parallel()
@@ -79,3 +97,7 @@ func TestCreateAuthorizationCodeValidation(t *testing.T) {
 	}
 }
 
+func TestOAuthProviderGoUnder500Lines(t *testing.T) {
+	t.Parallel()
+	assertFileUnder500Lines(t, "oauth_provider.go")
+}

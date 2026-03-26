@@ -1,3 +1,4 @@
+// Package cli logs.go provides CLI commands for monitoring server logs and statistics, and rotating JWT secrets.
 package cli
 
 import (
@@ -7,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,6 +32,7 @@ func init() {
 	logsCmd.Flags().String("level", "", "Filter by log level (debug, info, warn, error)")
 }
 
+// runLogs retrieves server logs from the AYB admin API, supporting real-time streaming, log level filtering, and both JSON and text output.
 func runLogs(cmd *cobra.Command, args []string) error {
 	lines, _ := cmd.Flags().GetInt("lines")
 	follow, _ := cmd.Flags().GetBool("follow")
@@ -98,20 +99,9 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 // adminToken returns the admin token, checking (in order):
 //  1. AYB_ADMIN_TOKEN environment variable
-//  2. ~/.ayb/admin-token file (contains the admin password, exchanged for a session token)
+//  2. ~/.ayb/admin-token file (contains a bearer token, or a legacy password)
 func adminToken() string {
-	if v := os.Getenv("AYB_ADMIN_TOKEN"); v != "" {
-		return v
-	}
-	if tokenPath, err := aybAdminTokenPath(); err == nil {
-		if data, err := os.ReadFile(tokenPath); err == nil {
-			password := strings.TrimSpace(string(data))
-			if t, err := adminLogin(serverURL(), password); err == nil {
-				return t
-			}
-		}
-	}
-	return ""
+	return resolveCLIAdminToken("", serverURL())
 }
 
 var statsCmd = &cobra.Command{
@@ -126,6 +116,7 @@ Examples:
 	RunE: runStats,
 }
 
+// runStats retrieves and displays server statistics from the AYB admin API.
 func runStats(cmd *cobra.Command, args []string) error {
 	url := serverURL()
 	if url == "" {
@@ -223,6 +214,7 @@ func init() {
 	secretsCmd.AddCommand(secretsRotateCmd)
 }
 
+// runSecretsRotate rotates the JWT secret, invalidating all existing authentication tokens.
 func runSecretsRotate(cmd *cobra.Command, args []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 

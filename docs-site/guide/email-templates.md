@@ -1,4 +1,5 @@
 # Email Templates
+<!-- audited 2026-03-21 -->
 
 AYB supports configurable email templates for built-in auth emails and arbitrary app-specific email flows (for example, club invites and event reminders).
 

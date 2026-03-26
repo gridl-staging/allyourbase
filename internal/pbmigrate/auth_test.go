@@ -239,6 +239,162 @@ func TestParseAuthUsers(t *testing.T) {
 	})
 }
 
+func TestParseAuthUsers_DuplicateEmails(t *testing.T) {
+	t.Parallel()
+	schema := []PBField{
+		{Name: "email", Type: "email", System: false},
+		{Name: "passwordHash", Type: "text", System: false},
+		{Name: "verified", Type: "bool", System: false},
+	}
+
+	records := []PBRecord{
+		{
+			ID: "user1",
+			Data: map[string]interface{}{
+				"email":        "dupe@example.com",
+				"passwordHash": "$2a$10$validhash1",
+				"verified":     true,
+			},
+		},
+		{
+			ID: "user2",
+			Data: map[string]interface{}{
+				"email":        "unique@example.com",
+				"passwordHash": "$2a$10$validhash2",
+				"verified":     true,
+			},
+		},
+		{
+			ID: "user3",
+			Data: map[string]interface{}{
+				"email":        "dupe@example.com",
+				"passwordHash": "$2a$10$validhash3",
+				"verified":     false,
+			},
+		},
+	}
+
+	_, err := parseAuthUsers(records, schema)
+	testutil.ErrorContains(t, err, "duplicate email")
+}
+
+func TestParseAuthUsers_DuplicateEmailsCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	schema := []PBField{
+		{Name: "email", Type: "email", System: false},
+		{Name: "passwordHash", Type: "text", System: false},
+	}
+
+	records := []PBRecord{
+		{
+			ID: "user1",
+			Data: map[string]interface{}{
+				"email":        "User@Example.COM",
+				"passwordHash": "$2a$10$validhash1",
+			},
+		},
+		{
+			ID: "user2",
+			Data: map[string]interface{}{
+				"email":        "user@example.com",
+				"passwordHash": "$2a$10$validhash2",
+			},
+		},
+	}
+
+	_, err := parseAuthUsers(records, schema)
+	testutil.ErrorContains(t, err, "duplicate email")
+}
+
+func TestParseAuthUsers_EmptyPasswordHash(t *testing.T) {
+	t.Parallel()
+	schema := []PBField{
+		{Name: "email", Type: "email", System: false},
+		{Name: "passwordHash", Type: "text", System: false},
+	}
+
+	records := []PBRecord{
+		{
+			ID: "user1",
+			Data: map[string]interface{}{
+				"email":        "user@example.com",
+				"passwordHash": "",
+			},
+		},
+	}
+
+	_, err := parseAuthUsers(records, schema)
+	testutil.ErrorContains(t, err, "empty password hash")
+}
+
+func TestParseAuthUsers_WhitespaceOnlyPasswordHash(t *testing.T) {
+	t.Parallel()
+	schema := []PBField{
+		{Name: "email", Type: "email", System: false},
+		{Name: "passwordHash", Type: "text", System: false},
+	}
+
+	records := []PBRecord{
+		{
+			ID: "user1",
+			Data: map[string]interface{}{
+				"email":        "user@example.com",
+				"passwordHash": "   \t  ",
+			},
+		},
+	}
+
+	_, err := parseAuthUsers(records, schema)
+	testutil.ErrorContains(t, err, "empty password hash")
+}
+
+func TestParseAuthUsers_NilCustomFieldsPreserved(t *testing.T) {
+	t.Parallel()
+	schema := []PBField{
+		{Name: "email", Type: "email", System: false},
+		{Name: "passwordHash", Type: "text", System: false},
+		{Name: "verified", Type: "bool", System: false},
+		{Name: "name", Type: "text", System: false},
+		{Name: "avatar", Type: "file", System: false},
+		{Name: "bio", Type: "text", System: false},
+	}
+
+	// Record has "name" set but "avatar" is nil and "bio" is absent from Data entirely.
+	// Both should appear in CustomFields as nil to preserve SQL NULL semantics.
+	records := []PBRecord{
+		{
+			ID: "user1",
+			Data: map[string]interface{}{
+				"email":        "user@example.com",
+				"passwordHash": "$2a$10$validhash",
+				"verified":     true,
+				"name":         "Alice",
+				"avatar":       nil,
+				// "bio" intentionally absent
+			},
+		},
+	}
+
+	users, err := parseAuthUsers(records, schema)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, len(users))
+
+	user := users[0]
+	// All three custom fields must be present in the map
+	testutil.Equal(t, 3, len(user.CustomFields))
+	testutil.Equal(t, "Alice", user.CustomFields["name"])
+
+	// avatar was explicitly nil in the record — must be preserved as nil
+	_, avatarPresent := user.CustomFields["avatar"]
+	testutil.True(t, avatarPresent, "avatar key must be present in CustomFields")
+	testutil.Nil(t, user.CustomFields["avatar"])
+
+	// bio was absent from Data — must still appear as nil for SQL NULL
+	_, bioPresent := user.CustomFields["bio"]
+	testutil.True(t, bioPresent, "bio key must be present in CustomFields even when absent from source data")
+	testutil.Nil(t, user.CustomFields["bio"])
+}
+
 func TestIsStandardAuthField(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

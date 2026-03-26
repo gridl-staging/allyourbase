@@ -1,4 +1,5 @@
-import { test, expect } from "../fixtures";
+import type { Locator, Page } from "@playwright/test";
+import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: Functions Browser
@@ -13,16 +14,81 @@ import { test, expect } from "../fixtures";
  * - Cleanup: Drop test function
  */
 
+async function refreshSchemaIfPresent(page: Page): Promise<void> {
+  await page
+    .getByRole("button", { name: "Refresh schema" })
+    .click({ timeout: 2000 })
+    .catch(() => {});
+}
+
+async function openFunctionsBrowser(
+  page: Page,
+  sidebar: Locator,
+): Promise<void> {
+  const functionsButton = sidebar.getByRole("button", { name: /^Functions$/i });
+  await expect(functionsButton).toBeVisible({ timeout: 5000 });
+  await functionsButton.click();
+  await expect(page.getByRole("heading", { name: /Functions/i })).toBeVisible({
+    timeout: 5000,
+  });
+}
+
+async function isFunctionVisible(
+  page: Page,
+  functionName: string,
+): Promise<boolean> {
+  return page
+    .getByText(functionName)
+    .first()
+    .waitFor({ state: "visible", timeout: 3000 })
+    .then(
+      () => true,
+      () => false,
+    );
+}
+
+async function waitForFunctionToAppear(
+  page: Page,
+  sidebar: Locator,
+  functionName: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.reload();
+    await waitForDashboard(page);
+    await refreshSchemaIfPresent(page);
+    await openFunctionsBrowser(page, sidebar);
+
+    if (await isFunctionVisible(page, functionName)) {
+      return;
+    }
+  }
+}
+
 test.describe("Functions Browser (Full E2E)", () => {
+  const functionNames: string[] = [];
+
+  test.afterEach(async ({ request, adminToken }) => {
+    while (functionNames.length > 0) {
+      const functionName = functionNames.pop();
+      if (!functionName) continue;
+      await execSQL(
+        request,
+        adminToken,
+        `DROP FUNCTION IF EXISTS ${functionName}(integer, integer)`,
+      ).catch(() => {});
+    }
+  });
+
   test("browse, execute, and verify function results", async ({ page }) => {
     const runId = Date.now();
     const funcName = `test_add_${runId}`;
+    functionNames.push(funcName);
 
     // ============================================================
     // Setup: Create test function via SQL
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
@@ -31,37 +97,21 @@ test.describe("Functions Browser (Full E2E)", () => {
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
     await sqlInput.fill(
-      `CREATE OR REPLACE FUNCTION ${funcName}(a integer, b integer) RETURNS integer AS $$ SELECT a + b; $$ LANGUAGE SQL;`
+      `CREATE OR REPLACE FUNCTION ${funcName}(a integer, b integer) RETURNS integer AS $$ SELECT a + b; $$ LANGUAGE SQL;`,
     );
     await page.getByRole("button", { name: /run|execute/i }).click();
-    await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByText(/statement executed successfully/i),
+    ).toBeVisible({ timeout: 10000 });
 
     // Reload page and refresh schema to pick up the new function.
     // Retry up to 3 times in case the schema cache is still rebuilding.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await page.reload();
-      await expect(page.getByText("Allyourbase").first()).toBeVisible();
-
-      // Click refresh schema button
-      const refreshButton = page.getByRole("button", { name: "Refresh schema" });
-      if (await refreshButton.isVisible({ timeout: 2000 })) {
-        await refreshButton.click();
-      }
-
-      // Navigate to Functions
-      const functionsButton = sidebar.getByRole("button", { name: /^Functions$/i });
-      await expect(functionsButton).toBeVisible({ timeout: 5000 });
-      await functionsButton.click();
-      await expect(page.getByRole("heading", { name: /Functions/i })).toBeVisible({ timeout: 5000 });
-
-      // Check if function appeared
-      if (await page.getByText(funcName).first().isVisible({ timeout: 3000 })) {
-        break;
-      }
-    }
+    await waitForFunctionToAppear(page, sidebar, funcName);
 
     // Final assertion
-    await expect(page.getByText(funcName).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(funcName).first()).toBeVisible({
+      timeout: 5000,
+    });
 
     // ============================================================
     // EXPAND: Click function to see parameters
@@ -86,17 +136,10 @@ test.describe("Functions Browser (Full E2E)", () => {
     // VERIFY: Check results show 8 (3 + 5)
     // ============================================================
     // Verify the Result label appeared (execution completed)
-    await expect(page.getByText("Result").first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Result").first()).toBeVisible({
+      timeout: 5000,
+    });
     // Verify the result value — exact match avoids matching durations like "8ms"
     await expect(page.getByText("8", { exact: true }).first()).toBeVisible();
-
-    // ============================================================
-    // Cleanup: Drop test function via SQL
-    // ============================================================
-    await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
-    const cleanupSql = page.getByLabel("SQL query");
-    await expect(cleanupSql).toBeVisible({ timeout: 5000 });
-    await cleanupSql.fill(`DROP FUNCTION IF EXISTS ${funcName}(integer, integer);`);
-    await page.getByRole("button", { name: /run|execute/i }).click();
   });
 });

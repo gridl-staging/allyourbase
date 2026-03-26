@@ -1,3 +1,4 @@
+// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/analyze.go.
 package pbmigrate
 
 import (
@@ -8,8 +9,7 @@ import (
 	"github.com/allyourbase/ayb/internal/migrate"
 )
 
-// Analyze inspects the PocketBase source without modifying the target database.
-// It returns a report summarizing what the migration would do.
+// TODO: Document Analyze.
 func Analyze(sourcePath string) (*migrate.AnalysisReport, error) {
 	reader, err := NewReader(sourcePath)
 	if err != nil {
@@ -61,9 +61,14 @@ func Analyze(sourcePath string) (*migrate.AnalysisReport, error) {
 			report.Records += count
 		}
 
-		// Count RLS policies that would be generated
-		policies := countPolicies(coll)
+		// Count RLS policies that would be generated, surfacing any non-convertible
+		// rules as warnings so dry-run and verbose modes report them.
+		policies, rlsDiags := countPolicies(coll)
 		report.RLSPolicies += policies
+		for _, d := range rlsDiags {
+			report.Warnings = append(report.Warnings,
+				fmt.Sprintf("RLS: %s.%s rule %q: %s", d.Collection, d.Action, d.Rule, d.Message))
+		}
 	}
 
 	// Count storage files
@@ -88,21 +93,28 @@ func Analyze(sourcePath string) (*migrate.AnalysisReport, error) {
 	return report, nil
 }
 
-// countPolicies returns how many RLS policies would be generated for a collection.
-func countPolicies(coll PBCollection) int {
+// TODO: Document countPolicies.
+func countPolicies(coll PBCollection) (int, []RLSDiagnostic) {
 	if coll.System || coll.Type == "auth" || coll.Type == "view" {
-		return 0
+		return 0, nil
 	}
 	count := 0
-	// ViewRule is intentionally excluded: both ListRule and ViewRule map to SELECT
-	// in PostgreSQL, and GenerateRLSPolicies() uses only ListRule for the SELECT policy.
-	rules := []*string{coll.ListRule, coll.CreateRule, coll.UpdateRule, coll.DeleteRule}
-	for _, r := range rules {
-		if r != nil {
+	var diags []RLSDiagnostic
+	for _, a := range ruleActions(coll) {
+		cl := classifyRule(a.rule)
+		switch cl.Status {
+		case RuleStatusConvertible:
 			count++
+		case RuleStatusUnsupported:
+			diags = append(diags, RLSDiagnostic{
+				Collection: coll.Name,
+				Action:     a.name,
+				Rule:       cl.Rule,
+				Message:    cl.Diagnostic,
+			})
 		}
 	}
-	return count
+	return count, diags
 }
 
 func formatSize(bytes int64) string {

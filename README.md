@@ -6,21 +6,26 @@
 
 Open-source backend for PostgreSQL. Single binary. Auto-generated REST API, auth, realtime, storage, admin dashboard.
 
+![AYB Local API Demo](assets/readme/demo.gif)
+
 ## Quickstart
 
-Install and launch a demo app in three commands:
+Download the installer, then launch a demo app:
 
 ```bash
-curl -fsSL https://staging.allyourbase.io | sh
-ayb start
-ayb demo live-polls
+curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
+~/.ayb/bin/ayb start
+~/.ayb/bin/ayb demo live-polls
 ```
 
 Open http://localhost:5175 — you've got a real-time polling app with auth, RLS, SSE, and a REST API. No Docker. No config.
 
-The admin dashboard is at http://localhost:8090/admin — SQL editor, API explorer, schema browser, and user management.
+The admin dashboard is at http://localhost:8090/admin — SQL editor, API explorer, schema browser, and user management for core workflows.
 
 On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
+
+Managed PostgreSQL is the zero-config path. If you need extension-backed features such as `pgvector`, `pg_cron`, or PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes those extensions.
 
 Two demos ship in [`/examples`](examples/):
 
@@ -36,7 +41,7 @@ Two demos ship in [`/examples`](examples/):
 ## Features
 
 - **REST API** — CRUD for every table. Filter, sort, paginate, full-text search, FK expand.
-- **Auth** — email/password, JWT, OAuth (Google/GitHub), email verify, password reset
+- **Auth** — email/password, JWT, OAuth (Google, GitHub, Microsoft, Apple, and more built-in providers), email verify, password reset
 - **Realtime** — SSE subscriptions per table, filtered by RLS
 - **Row-Level Security** — JWT claims mapped to Postgres session vars. Write policies in SQL.
 - **Storage** — local disk or S3-compatible (R2, MinIO, DO Spaces, AWS)
@@ -44,7 +49,8 @@ Two demos ship in [`/examples`](examples/):
 - **RPC** — call Postgres functions via `POST /api/rpc/{function}`
 - **Type generation** — `ayb types typescript` emits types from your schema
 - **Embedded Postgres** — zero external dependencies for development
-- **MCP server** — `ayb mcp` gives AI tools (Claude Code, Cursor, Windsurf) direct access to your schema, records, SQL, and RLS policies. 11 tools, 2 resources, 3 prompts.
+- **MCP server** — `ayb mcp` gives AI tools (Claude Code, Cursor, Windsurf) direct access to your schema, records, SQL, and RLS policies. See the [MCP Server guide](https://allyourbase.io/guide/mcp) for current tools, resources, and prompts.
+13 tools, 2 resources, 3 prompts.
 
 Your data lives in standard PostgreSQL. No lock-in — take your database and go.
 
@@ -61,7 +67,7 @@ ayb sql "CREATE TABLE posts (
 )"
 ```
 
-Every table gets a full REST API automatically. With auth disabled (the default):
+Every table gets a full REST API automatically. For local development, AYB starts with auth disabled by default, so the API is open on `localhost`:
 
 ```bash
 # Create
@@ -72,6 +78,8 @@ curl -X POST http://localhost:8090/api/collections/posts \
 # List (with sort, pagination)
 curl 'http://localhost:8090/api/collections/posts?sort=-created_at&perPage=10'
 ```
+
+Before exposing AYB beyond `localhost`, enable auth (`auth.enabled = true`) and rely on JWTs plus RLS policies for the routes you publish.
 
 With auth enabled (`auth.enabled = true` in `ayb.toml`), include a JWT:
 
@@ -164,7 +172,8 @@ ayb types typescript     Generate TypeScript types
 ayb mcp                  Start MCP server for AI tools
 ```
 
-28 commands total. Run `ayb --help` or `ayb <command> --help` for the full list.
+Run `ayb --help` or `ayb <command> --help` for the full command list.
+32 commands total.
 
 ## Migrate from PocketBase or Supabase
 
@@ -200,23 +209,19 @@ Supabase storage files: include `--storage-export <dir>` only if you have an exp
 
 Local-dev caveat (does not affect customer cloud/self-hosted migrations): on macOS + Colima, `supabase start` may fail on a Docker socket mount for Logflare/Vector. Workaround: `supabase start -x logflare,vector`.
 
-## Install (Staging) options
+## Install (Staging)
 
 ```bash
-# Homebrew
-brew install gridlhq/tap/ayb
-
-# Docker
-docker run -p 8090:8090 ghcr.io/gridlhq/allyourbase
-
-# Go
-go install github.com/allyourbase/ayb/cmd/ayb@latest
+# Install script (recommended)
+curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 
 # From source
-git clone https://github.com/gridlhq/allyourbase.git && cd allyourbase && make build
+git clone https://github.com/gridlhq-staging/allyourbase.git && cd allyourbase && make build
 
 # Specific version
-curl -fsSL https://staging.allyourbase.io | sh -s -- v0.1.0
+curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh v0.0.6-beta
 ```
 
 ## vs. PocketBase vs. Supabase
@@ -224,7 +229,7 @@ curl -fsSL https://staging.allyourbase.io | sh -s -- v0.1.0
 | | PocketBase | Supabase (self-hosted) | Allyourbase |
 |---|---|---|---|
 | Database | SQLite | PostgreSQL | PostgreSQL |
-| Deployment | Single binary | 10+ Docker containers | Single binary |
+| Deployment | Single binary | Multi-container stack | Single binary |
 | Config | One file | Dozens of env vars | One file (or none) |
 | Row-level security | No | Yes | Yes |
 | Docker required | No | Yes | No |
@@ -234,8 +239,7 @@ curl -fsSL https://staging.allyourbase.io | sh -s -- v0.1.0
 
 ## Roadmap
 
-- **Migration tools** — PocketBase, Supabase, and Firebase migration commands are available now. Ongoing work is focused on CLI polish and live-instance validation coverage.
-- **Fuzz testing** — auth token parsing, JWT validation, and request deserialization boundaries are candidates for Go fuzz corpus coverage (`go test -fuzz`). Currently covered by integration tests but not fuzz-hardened.
+**→ [Full Project Roadmap](ROADMAP.md)** — feature status and planned work; see CHANGELOG.md for release history.
 
 ## License
 

@@ -1,3 +1,4 @@
+// Package jobs Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar21_01_go_backend_test_hardening_and_resilience/allyourbase_dev/internal/jobs/service.go.
 package jobs
 
 import (
@@ -117,6 +118,7 @@ func (s *Service) workerLoop(ctx context.Context, workerNum int) {
 	}
 }
 
+// TODO: Document Service.pollAndProcess.
 func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	job, err := s.store.Claim(ctx, workerID, s.cfg.LeaseDuration)
 	if err != nil {
@@ -162,9 +164,27 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	// Stop lease renewal before updating final state.
 	renewCancel()
 
+	// If the handler context expired (ShutdownTimeout) but the handler did not
+	// propagate the cancellation error, treat the job as timed-out rather than
+	// completed — the handler's nil return is unreliable when its context has
+	// been cancelled.
+	if jobErr == nil && handlerCtx.Err() != nil {
+		jobErr = handlerCtx.Err()
+	}
+
+	// If the handler timed out, the handler context is already cancelled and
+	// cannot be used for terminal state persistence. Use a short-lived fresh
+	// context so failed/completed state is still durably recorded.
+	persistCtx := handlerCtx
+	persistCancel := func() {}
+	if handlerCtx.Err() != nil {
+		persistCtx, persistCancel = context.WithTimeout(context.Background(), 5*time.Second)
+	}
+	defer persistCancel()
+
 	if jobErr != nil {
 		backoff := ComputeBackoff(job.Attempts)
-		_, failErr := s.store.Fail(handlerCtx, job.ID, jobErr.Error(), backoff)
+		_, failErr := s.store.Fail(persistCtx, job.ID, jobErr.Error(), backoff)
 		if failErr != nil {
 			s.logger.Error("failed to record job failure",
 				"job_id", job.ID, "error", failErr)
@@ -175,7 +195,7 @@ func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 		return
 	}
 
-	_, completeErr := s.store.Complete(handlerCtx, job.ID)
+	_, completeErr := s.store.Complete(persistCtx, job.ID)
 	if completeErr != nil {
 		s.logger.Error("failed to complete job",
 			"job_id", job.ID, "error", completeErr)
@@ -227,6 +247,7 @@ func (s *Service) schedulerLoop(ctx context.Context) {
 	}
 }
 
+// Processes all due schedules by computing their next run times from cron expressions and enqueuing corresponding jobs.
 func (s *Service) schedulerTick(ctx context.Context) {
 	schedules, err := s.store.DueSchedules(ctx)
 	if err != nil {
@@ -266,6 +287,7 @@ func (s *Service) schedulerTick(ctx context.Context) {
 	}
 }
 
+// Periodically recovers stalled jobs whose leases have expired, moving them back to the ready state for retry.
 func (s *Service) recoveryLoop(ctx context.Context) {
 	defer s.wg.Done()
 	// Run recovery at the lease duration interval (minimum 30s).
@@ -355,6 +377,12 @@ func (s *Service) CreateSchedule(ctx context.Context, sched *Schedule) (*Schedul
 	return s.store.CreateSchedule(ctx, sched)
 }
 
+// UpsertSchedule inserts or updates a schedule by name (idempotent).
+// Use this for registering recurring schedules that should exist exactly once.
+func (s *Service) UpsertSchedule(ctx context.Context, sched *Schedule) (*Schedule, error) {
+	return s.store.UpsertSchedule(ctx, sched)
+}
+
 // GetSchedule delegates to the underlying store.
 func (s *Service) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
 	return s.store.GetSchedule(ctx, id)
@@ -400,6 +428,22 @@ func (s *Service) SetScheduleEnabled(ctx context.Context, id string, enabled boo
 
 // RegisterDefaultSchedules inserts the built-in schedule definitions (idempotent).
 func (s *Service) RegisterDefaultSchedules(ctx context.Context) error {
+	return s.RegisterDefaultSchedulesWithAuditRetention(ctx, 90)
+}
+
+// RegisterDefaultSchedulesWithAuditRetention inserts built-in schedules and uses
+// the provided audit retention days in the audit_log_retention schedule payload.
+// Optionally accepts request_log retention days as a second argument for the
+// request_log_retention schedule payload.
+func (s *Service) RegisterDefaultSchedulesWithAuditRetention(ctx context.Context, auditRetentionDays int, requestLogRetentionDays ...int) error {
+	if auditRetentionDays <= 0 {
+		auditRetentionDays = 90
+	}
+	requestLogRetention := 7
+	if len(requestLogRetentionDays) > 0 && requestLogRetentionDays[0] > 0 {
+		requestLogRetention = requestLogRetentionDays[0]
+	}
+
 	defaults := []Schedule{
 		{
 			Name:        "session_cleanup_hourly",
@@ -430,6 +474,32 @@ func (s *Service) RegisterDefaultSchedules(ctx context.Context) error {
 			Name:        "expired_auth_cleanup_daily",
 			JobType:     "expired_auth_cleanup",
 			CronExpr:    "0 5 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			MaxAttempts: 3,
+		},
+		{
+			Name:        resumableUploadCleanupScheduleName,
+			JobType:     resumableUploadCleanupJobType,
+			CronExpr:    resumableUploadCleanupCronExpr,
+			Timezone:    "UTC",
+			Enabled:     true,
+			MaxAttempts: 3,
+		},
+		{
+			Name:        "audit_log_retention_daily",
+			JobType:     "audit_log_retention",
+			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, auditRetentionDays)),
+			CronExpr:    "0 2 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			MaxAttempts: 3,
+		},
+		{
+			Name:        "request_log_retention_daily",
+			JobType:     "request_log_retention",
+			Payload:     json.RawMessage(fmt.Sprintf(`{"retention_days":%d}`, requestLogRetention)),
+			CronExpr:    "0 6 * * *",
 			Timezone:    "UTC",
 			Enabled:     true,
 			MaxAttempts: 3,

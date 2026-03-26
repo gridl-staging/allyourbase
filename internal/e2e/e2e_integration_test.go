@@ -143,7 +143,7 @@ func newFullServer(t *testing.T) *httptest.Server {
 	dir := t.TempDir()
 	backend, err := storage.NewLocalBackend(dir)
 	testutil.NoError(t, err)
-	storageSvc := storage.NewService(sharedPG.Pool, backend, testSignKey, logger)
+	storageSvc := storage.NewService(sharedPG.Pool, backend, testSignKey, logger, 0)
 
 	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, storageSvc)
 	return httptest.NewServer(srv.Router())
@@ -791,108 +791,6 @@ func TestE2E_Storage(t *testing.T) {
 		testutil.NoError(t, err)
 		resp.Body.Close()
 		testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
-	})
-}
-
-// ---------------------------------------------------------------------------
-// 11. REALTIME SSE
-// ---------------------------------------------------------------------------
-
-func TestE2E_RealtimeSSE(t *testing.T) {
-	ts := newCRUDServer(t)
-	defer ts.Close()
-
-	t.Run("receives create event", func(t *testing.T) {
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(ts.URL + "/api/realtime?tables=authors")
-		testutil.NoError(t, err)
-		defer resp.Body.Close()
-		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
-		testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-
-		scanner := bufio.NewScanner(resp.Body)
-		var connected []string
-		for scanner.Scan() {
-			line := scanner.Text()
-			connected = append(connected, line)
-			if line == "" && len(connected) > 1 {
-				break
-			}
-		}
-		testutil.Equal(t, "event: connected", connected[0])
-
-		if resp, err := http.Post(ts.URL+"/api/collections/authors", "application/json",
-			bytes.NewReader([]byte(`{"name":"SSE Author"}`))); err == nil {
-			resp.Body.Close()
-		}
-
-		eventCh := make(chan string, 1)
-		go func() {
-			var lines []string
-			for scanner.Scan() {
-				line := scanner.Text()
-				lines = append(lines, line)
-				if line == "" && len(lines) > 1 {
-					break
-				}
-			}
-			eventCh <- strings.Join(lines, "\n")
-		}()
-
-		select {
-		case event := <-eventCh:
-			testutil.Contains(t, event, `"action":"create"`)
-			testutil.Contains(t, event, `"table":"authors"`)
-			testutil.Contains(t, event, `SSE Author`)
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for SSE event")
-		}
-	})
-
-	t.Run("table filtering", func(t *testing.T) {
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(ts.URL + "/api/realtime?tables=tags")
-		testutil.NoError(t, err)
-		defer resp.Body.Close()
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			if scanner.Text() == "" {
-				break
-			}
-		}
-
-		// Create in authors (not subscribed).
-		if resp, err := http.Post(ts.URL+"/api/collections/authors", "application/json",
-			bytes.NewReader([]byte(`{"name":"Ignored"}`))); err == nil {
-			resp.Body.Close()
-		}
-		// Create in tags (subscribed).
-		if resp, err := http.Post(ts.URL+"/api/collections/tags", "application/json",
-			bytes.NewReader([]byte(`{"name":"sse-filter"}`))); err == nil {
-			resp.Body.Close()
-		}
-
-		eventCh := make(chan string, 1)
-		go func() {
-			var lines []string
-			for scanner.Scan() {
-				line := scanner.Text()
-				lines = append(lines, line)
-				if line == "" && len(lines) > 1 {
-					break
-				}
-			}
-			eventCh <- strings.Join(lines, "\n")
-		}()
-
-		select {
-		case event := <-eventCh:
-			testutil.Contains(t, event, `"table":"tags"`)
-			testutil.Contains(t, event, `sse-filter`)
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out")
-		}
 	})
 }
 

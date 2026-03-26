@@ -191,3 +191,101 @@ func TestInvalidAppIDErrorSentinel(t *testing.T) {
 	testutil.True(t, ErrInvalidAppID != ErrInvalidScope, "invalid app id != invalid scope")
 	testutil.Contains(t, ErrInvalidAppID.Error(), "not found")
 }
+
+// --- dual-read helper (appTenantID) ---
+
+func TestAppTenantID_TenantNativePath(t *testing.T) {
+	t.Parallel()
+
+	tid := "tenant-uuid-123"
+	app := &App{
+		ID:          "app-1",
+		OwnerUserID: "owner-1",
+		TenantID:    &tid,
+	}
+
+	id, legacy := AppTenantIDForTest(app)
+	testutil.Equal(t, tid, id)
+	testutil.True(t, !legacy, "expected legacy=false when TenantID is set")
+}
+
+func TestAppTenantID_LegacyFallback(t *testing.T) {
+	t.Parallel()
+
+	app := &App{
+		ID:          "app-2",
+		OwnerUserID: "owner-999",
+		TenantID:    nil, // not migrated
+	}
+
+	id, legacy := AppTenantIDForTest(app)
+	testutil.Equal(t, "owner-999", id)
+	testutil.True(t, legacy, "expected legacy=true when TenantID is nil")
+}
+
+func TestAppTenantID_EmptyStringTenantID(t *testing.T) {
+	t.Parallel()
+
+	empty := ""
+	app := &App{
+		ID:          "app-3",
+		OwnerUserID: "owner-3",
+		TenantID:    &empty, // pointer to empty string is still "set"
+	}
+
+	id, legacy := AppTenantIDForTest(app)
+	testutil.Equal(t, "", id)
+	testutil.True(t, !legacy, "expected legacy=false: TenantID pointer is non-nil")
+}
+
+func TestAppTenantID_TenantIDTakesPriorityOverOwner(t *testing.T) {
+	t.Parallel()
+
+	tid := "correct-tenant"
+	app := &App{
+		ID:          "app-4",
+		OwnerUserID: "owner-4",
+		TenantID:    &tid,
+	}
+
+	id, legacy := AppTenantIDForTest(app)
+	testutil.Equal(t, "correct-tenant", id)
+	testutil.True(t, !legacy, "TenantID takes priority over OwnerUserID")
+	// OwnerUserID must NOT be returned.
+	testutil.True(t, id != app.OwnerUserID, "should not return OwnerUserID when TenantID is set")
+}
+
+func TestAppJSONSerializationWithTenantID(t *testing.T) {
+	t.Parallel()
+
+	tid := "tenant-abc"
+	app := App{
+		ID:       "app-5",
+		TenantID: &tid,
+	}
+
+	data, err := json.Marshal(app)
+	testutil.NoError(t, err)
+
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	testutil.Equal(t, "tenant-abc", m["tenantId"].(string))
+}
+
+func TestAppJSONSerializationWithNilTenantID(t *testing.T) {
+	t.Parallel()
+
+	app := App{
+		ID:       "app-6",
+		TenantID: nil,
+	}
+
+	data, err := json.Marshal(app)
+	testutil.NoError(t, err)
+
+	var m map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &m))
+	// nil TenantID → field omitted from JSON (omitempty).
+	_, hasTenantID := m["tenantId"]
+	testutil.True(t, !hasTenantID, "tenantId should be omitted when nil")
+}

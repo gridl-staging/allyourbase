@@ -16,16 +16,6 @@ func colorEnabledFd(fd uintptr) bool {
 	return ui.ColorEnabledFd(fd)
 }
 
-// styled wraps text with ANSI codes if color is enabled.
-// Returns plain text if color is false.
-// Retained for backward compatibility; new code should use ui.Style* directly.
-func styled(text, code string, color bool) string {
-	if !color {
-		return text
-	}
-	return code + text + "\033[0m"
-}
-
 // The functions below use a forced-ANSI renderer so they always produce escape
 // codes when color=true, even in non-TTY environments (the caller already
 // made the TTY decision via the color bool parameter).

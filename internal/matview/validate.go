@@ -3,7 +3,8 @@ package matview
 import (
 	"fmt"
 	"regexp"
-	"strings"
+
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -25,10 +26,6 @@ func validateRefreshMode(mode RefreshMode) error {
 	}
 }
 
-func quoteIdent(id string) string {
-	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
-}
-
 // BuildRefreshSQL builds a safe REFRESH MATERIALIZED VIEW statement.
 func BuildRefreshSQL(schemaName, viewName string, mode RefreshMode) (string, error) {
 	if err := ValidateIdentifier(schemaName); err != nil {
@@ -41,7 +38,7 @@ func BuildRefreshSQL(schemaName, viewName string, mode RefreshMode) (string, err
 		return "", err
 	}
 
-	qualified := quoteIdent(schemaName) + "." + quoteIdent(viewName)
+	qualified := sqlutil.QuoteQualifiedName(schemaName, viewName)
 	if mode == RefreshModeConcurrent {
 		return "REFRESH MATERIALIZED VIEW CONCURRENTLY " + qualified, nil
 	}

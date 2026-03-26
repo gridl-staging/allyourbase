@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/audit"
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -89,4 +91,36 @@ func TestRequireAdminOrUserAuthAdminBypassesRateLimit(t *testing.T) {
 		// Admin requests should NOT have rate limit headers.
 		testutil.Equal(t, "", w.Header().Get("X-App-RateLimit-Limit"))
 	}
+}
+
+func TestRequireAdminOrUserAuthAdminFastPathCarriesAuditContext(t *testing.T) {
+	t.Parallel()
+
+	secret := "middleware-test-secret"
+	authSvc := auth.NewService(nil, secret, time.Hour, 24*time.Hour, 8, testutil.DiscardLogger())
+	adminAuth := newAdminAuth("test-password")
+	adminToken := adminAuth.token()
+	auditExec := &auditCaptureExecer{}
+	auditLogger := audit.NewAuditLogger(config.AuditConfig{Enabled: true, AllTables: true}, auditExec)
+
+	s := &Server{adminAuth: adminAuth}
+	h := s.requireAdminOrUserAuth(authSvc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := auditLogger.LogMutation(r.Context(), audit.AuditEntry{
+			TableName: "_ayb_restore_jobs",
+			Operation: "INSERT",
+			NewValues: map[string]string{"result": "success"},
+		})
+		testutil.NoError(t, err)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/posts", nil)
+	req.RemoteAddr = "198.51.100.88:1234"
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.True(t, auditExec.args[1] != nil, "expected principal-backed api_key_id argument")
+	assertAuditIPArg(t, auditExec.args[7], "198.51.100.88")
 }

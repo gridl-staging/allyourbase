@@ -18,7 +18,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { formatDate } from "./shared/format";
+import { useAppToast } from "./ToastProvider";
 
 type ModalState =
   | { kind: "none" }
@@ -48,11 +49,6 @@ function isCronValid(expr: string): boolean {
   return expr.trim().split(/\s+/).length === 5;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "-";
-  return new Date(iso).toLocaleString();
-}
-
 export function Schedules() {
   const [data, setData] = useState<ScheduleListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +59,7 @@ export function Schedules() {
   const [cronError, setCronError] = useState<string | null>(null);
   const [payloadError, setPayloadError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const isFormModal = modal.kind === "create" || modal.kind === "edit";
   const modalTitle = modal.kind === "edit" ? "Edit Schedule" : "Create Schedule";
@@ -191,7 +187,7 @@ export function Schedules() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading schedules...
       </div>
@@ -223,7 +219,7 @@ export function Schedules() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Job Schedules</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Configure recurring jobs using cron expressions and timezones
           </p>
         </div>
@@ -237,38 +233,38 @@ export function Schedules() {
       </div>
 
       {data && data.items.length === 0 ? (
-        <div className="text-center py-12 border rounded-lg bg-gray-50 text-gray-500 text-sm">
+        <div className="text-center py-12 border rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm">
           No schedules configured yet
         </div>
       ) : data ? (
         <div className="border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-800 border-b">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Job Type</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Cron</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Last Run</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Next Run</th>
-                <th className="text-center px-4 py-2 font-medium text-gray-600">Enabled</th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600">Actions</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Name</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Job Type</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Cron</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Last Run</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Next Run</th>
+                <th className="text-center px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Enabled</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.items.map((schedule) => (
-                <tr key={schedule.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr key={schedule.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{schedule.name}</span>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-600">{schedule.jobType}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-600 dark:text-gray-300">{schedule.jobType}</td>
                   <td className="px-4 py-2.5">
-                    <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">
+                    <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-200">
                       {schedule.cronExpr}
                     </code>
-                    <div className="text-[10px] text-gray-400 mt-0.5">{schedule.timezone}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{schedule.timezone}</div>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{formatDate(schedule.lastRunAt)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{formatDate(schedule.nextRunAt)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">{formatDate(schedule.lastRunAt)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">{formatDate(schedule.nextRunAt)}</td>
                   <td className="px-4 py-2.5 text-center">
                     <button
                       onClick={() => handleToggle(schedule)}
@@ -278,7 +274,7 @@ export function Schedules() {
                         "inline-flex items-center gap-1 px-2 py-1 rounded text-xs",
                         schedule.enabled
                           ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200",
+                          : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700",
                       )}
                     >
                       {schedule.enabled ? (
@@ -294,14 +290,14 @@ export function Schedules() {
                       <button
                         onClick={() => openEdit(schedule)}
                         aria-label={`Edit schedule ${schedule.id}`}
-                        className="p-1 text-gray-400 hover:text-blue-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setModal({ kind: "delete", schedule })}
                         aria-label={`Delete schedule ${schedule.id}`}
-                        className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -316,13 +312,13 @@ export function Schedules() {
 
       {isFormModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-lg bg-white shadow-xl border">
+          <div className="w-full max-w-xl rounded-lg bg-white dark:bg-gray-800 shadow-xl border">
             <div className="px-5 py-4 border-b">
               <h2 className="text-base font-semibold">{modalTitle}</h2>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-3">
               <div>
-                <label htmlFor="schedule-name" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="schedule-name" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Name
                 </label>
                 <input
@@ -331,12 +327,12 @@ export function Schedules() {
                   value={form.name}
                   disabled={modal.kind === "edit"}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                  className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-50 dark:bg-gray-800"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="schedule-job-type" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="schedule-job-type" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Job Type
                 </label>
                 <input
@@ -345,12 +341,12 @@ export function Schedules() {
                   value={form.jobType}
                   disabled={modal.kind === "edit"}
                   onChange={(e) => setForm((prev) => ({ ...prev, jobType: e.target.value }))}
-                  className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                  className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-50 dark:bg-gray-800"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="schedule-cron" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="schedule-cron" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Cron Expression
                 </label>
                 <input
@@ -360,14 +356,14 @@ export function Schedules() {
                   onChange={(e) => setForm((prev) => ({ ...prev, cronExpr: e.target.value }))}
                   className={cn(
                     "w-full border rounded px-3 py-2 text-sm",
-                    cronError ? "border-red-300" : "border-gray-300",
+                    cronError ? "border-red-300" : "border-gray-300 dark:border-gray-600",
                   )}
                   required
                 />
                 {cronError && <p className="text-xs text-red-600 mt-1">{cronError}</p>}
               </div>
               <div>
-                <label htmlFor="schedule-timezone" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="schedule-timezone" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Timezone
                 </label>
                 <input
@@ -380,7 +376,7 @@ export function Schedules() {
                 />
               </div>
               <div>
-                <label htmlFor="schedule-payload" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="schedule-payload" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Payload JSON
                 </label>
                 <textarea
@@ -390,12 +386,12 @@ export function Schedules() {
                   onChange={(e) => setForm((prev) => ({ ...prev, payload: e.target.value }))}
                   className={cn(
                     "w-full border rounded px-3 py-2 text-sm font-mono min-h-[90px]",
-                    payloadError ? "border-red-300" : "border-gray-300",
+                    payloadError ? "border-red-300" : "border-gray-300 dark:border-gray-600",
                   )}
                 />
                 {payloadError && <p className="text-xs text-red-600 mt-1">{payloadError}</p>}
               </div>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                 <input
                   type="checkbox"
                   checked={form.enabled}
@@ -407,7 +403,7 @@ export function Schedules() {
                 <button
                   type="button"
                   onClick={() => setModal({ kind: "none" })}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -426,18 +422,18 @@ export function Schedules() {
 
       {modal.kind === "delete" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white shadow-xl border">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl border">
             <div className="px-5 py-4 border-b">
               <h2 className="text-base font-semibold">Delete schedule?</h2>
             </div>
             <div className="p-5">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 This will permanently remove <span className="font-medium">{modal.schedule.name}</span>.
               </p>
               <div className="pt-4 flex justify-end gap-2">
                 <button
                   onClick={() => setModal({ kind: "none" })}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -454,7 +450,6 @@ export function Schedules() {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

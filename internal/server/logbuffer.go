@@ -15,23 +15,27 @@ type LogEntry struct {
 	Attrs   map[string]any `json:"attrs,omitempty"`
 }
 
+type logBufferState struct {
+	mu      sync.Mutex
+	entries []LogEntry
+	pos     int
+	full    bool
+}
+
 // LogBuffer is a ring-buffer slog.Handler that captures recent log entries
 // while forwarding them to a wrapped handler.
 type LogBuffer struct {
-	inner   slog.Handler
-	mu      sync.Mutex
-	entries []LogEntry
-	maxSize int
-	pos     int
-	full    bool
+	inner slog.Handler
+	state *logBufferState
 }
 
 // NewLogBuffer creates a LogBuffer wrapping the given handler, retaining up to maxSize entries.
 func NewLogBuffer(inner slog.Handler, maxSize int) *LogBuffer {
 	return &LogBuffer{
-		inner:   inner,
-		entries: make([]LogEntry, maxSize),
-		maxSize: maxSize,
+		inner: inner,
+		state: &logBufferState{
+			entries: make([]LogEntry, maxSize),
+		},
 	}
 }
 
@@ -56,14 +60,16 @@ func (lb *LogBuffer) Handle(ctx context.Context, r slog.Record) error {
 		})
 	}
 
-	lb.mu.Lock()
-	lb.entries[lb.pos] = entry
-	lb.pos++
-	if lb.pos >= lb.maxSize {
-		lb.pos = 0
-		lb.full = true
+	lb.state.mu.Lock()
+	if len(lb.state.entries) > 0 {
+		lb.state.entries[lb.state.pos] = entry
+		lb.state.pos++
+		if lb.state.pos >= len(lb.state.entries) {
+			lb.state.pos = 0
+			lb.state.full = true
+		}
 	}
-	lb.mu.Unlock()
+	lb.state.mu.Unlock()
 
 	return lb.inner.Handle(ctx, r)
 }
@@ -71,39 +77,34 @@ func (lb *LogBuffer) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs delegates to the inner handler.
 func (lb *LogBuffer) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &LogBuffer{
-		inner:   lb.inner.WithAttrs(attrs),
-		entries: lb.entries,
-		maxSize: lb.maxSize,
-		pos:     lb.pos,
-		full:    lb.full,
+		inner: lb.inner.WithAttrs(attrs),
+		state: lb.state,
 	}
 }
 
 // WithGroup delegates to the inner handler.
 func (lb *LogBuffer) WithGroup(name string) slog.Handler {
 	return &LogBuffer{
-		inner:   lb.inner.WithGroup(name),
-		entries: lb.entries,
-		maxSize: lb.maxSize,
-		pos:     lb.pos,
-		full:    lb.full,
+		inner: lb.inner.WithGroup(name),
+		state: lb.state,
 	}
 }
 
 // Entries returns the buffered log entries in chronological order.
 func (lb *LogBuffer) Entries() []LogEntry {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
+	lb.state.mu.Lock()
+	defer lb.state.mu.Unlock()
 
-	if !lb.full {
-		result := make([]LogEntry, lb.pos)
-		copy(result, lb.entries[:lb.pos])
+	if !lb.state.full {
+		result := make([]LogEntry, lb.state.pos)
+		copy(result, lb.state.entries[:lb.state.pos])
 		return result
 	}
 
 	// Ring buffer is full: entries from pos..end, then 0..pos.
-	result := make([]LogEntry, lb.maxSize)
-	copy(result, lb.entries[lb.pos:])
-	copy(result[lb.maxSize-lb.pos:], lb.entries[:lb.pos])
+	size := len(lb.state.entries)
+	result := make([]LogEntry, size)
+	copy(result, lb.state.entries[lb.state.pos:])
+	copy(result[size-lb.state.pos:], lb.state.entries[:lb.state.pos])
 	return result
 }

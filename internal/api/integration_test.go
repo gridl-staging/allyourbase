@@ -5,13 +5,18 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
@@ -87,6 +92,13 @@ func setupTestServer(t *testing.T, ctx context.Context) (*server.Server, *testut
 
 func doRequest(t *testing.T, srv *server.Server, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	return doRequestWithClaims(t, srv, method, path, body, nil)
+}
+
+// doRequestWithClaims performs an HTTP request with JWT claims injected into the
+// request context. Used by RLS tests to simulate authenticated users.
+func doRequestWithClaims(t *testing.T, srv *server.Server, method, path string, body any, claims *auth.Claims) *httptest.ResponseRecorder {
+	t.Helper()
 	var reqBody io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -95,6 +107,10 @@ func doRequest(t *testing.T, srv *server.Server, method, path string, body any) 
 	req := httptest.NewRequest(method, path, reqBody)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if claims != nil {
+		ctx := auth.ContextWithClaims(req.Context(), claims)
+		req = req.WithContext(ctx)
 	}
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
@@ -1280,4 +1296,890 @@ func TestRPCFunctionReturningNULL(t *testing.T) {
 
 	// A function returning NULL should produce a JSON null response.
 	testutil.Equal(t, "null\n", w.Body.String())
+}
+
+// --- Aggregate query tests ---
+
+func setupAggregateTestServer(t *testing.T, ctx context.Context) (*server.Server, *testutil.PGContainer) {
+	t.Helper()
+
+	resetAndSeedDB(t, ctx)
+
+	// Add products table with numeric columns for aggregate testing.
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE products (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			price NUMERIC NOT NULL,
+			quantity INTEGER NOT NULL,
+			category TEXT NOT NULL,
+			active BOOLEAN DEFAULT true
+		);
+		INSERT INTO products (name, price, quantity, category, active) VALUES
+			('Widget A', 10.50, 100, 'electronics', true),
+			('Widget B', 25.00, 50,  'electronics', true),
+			('Gadget C', 5.75,  200, 'toys',        true),
+			('Gadget D', 15.00, 75,  'toys',        false),
+			('Doohickey', 100.00, 10, 'electronics', false);
+	`)
+	if err != nil {
+		t.Fatalf("creating products table: %v", err)
+	}
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+	return srv, sharedPG
+}
+
+func jsonResults(t *testing.T, body map[string]any) []map[string]any {
+	t.Helper()
+	raw, ok := body["results"].([]any)
+	if !ok {
+		t.Fatalf("expected results array, got %T", body["results"])
+	}
+	results := make([]map[string]any, len(raw))
+	for i, v := range raw {
+		results[i] = v.(map[string]any)
+	}
+	return results
+}
+
+func TestAggregateCount(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 1, len(results))
+	testutil.Equal(t, 5.0, jsonNum(t, results[0]["count"]))
+}
+
+func TestAggregateSumAvgGroupBy(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=sum(price),avg(price)&group=category", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 2, len(results)) // electronics, toys
+
+	// Build a map by category for deterministic checking.
+	byCat := make(map[string]map[string]any)
+	for _, r := range results {
+		cat := jsonStr(t, r["category"])
+		byCat[cat] = r
+	}
+
+	// electronics: 10.50 + 25.00 + 100.00 = 135.50, avg = 45.1666...
+	elec := byCat["electronics"]
+	testutil.NotNil(t, elec)
+	sumPrice, _ := elec["sum_price"].(float64)
+	testutil.True(t, sumPrice > 135.0 && sumPrice < 136.0, "expected sum_price ~135.5")
+
+	// toys: 5.75 + 15.00 = 20.75, avg = 10.375
+	toys := byCat["toys"]
+	testutil.NotNil(t, toys)
+	toysSum, _ := toys["sum_price"].(float64)
+	testutil.True(t, toysSum > 20.0 && toysSum < 21.0, "expected toys sum_price ~20.75")
+}
+
+func TestAggregateWithFilter(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count&filter=category%3D'electronics'", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 1, len(results))
+	testutil.Equal(t, 3.0, jsonNum(t, results[0]["count"])) // 3 electronics
+}
+
+func TestAggregateMinMax(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=min(price),max(price)", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 1, len(results))
+	minPrice, _ := results[0]["min_price"].(float64)
+	maxPrice, _ := results[0]["max_price"].(float64)
+	testutil.True(t, minPrice > 5.0 && minPrice < 6.0, "expected min_price ~5.75")
+	testutil.True(t, maxPrice > 99.0 && maxPrice < 101.0, "expected max_price ~100.0")
+}
+
+func TestAggregateCountDistinct(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count_distinct(category)", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 1, len(results))
+	testutil.Equal(t, 2.0, jsonNum(t, results[0]["count_distinct_category"])) // electronics, toys
+}
+
+func TestAggregateResponseHasQueryDurationHeader(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	header := w.Header().Get("X-Query-Duration-Ms")
+	if header == "" {
+		t.Fatalf("expected X-Query-Duration-Ms header")
+	}
+
+	ms, err := strconv.ParseInt(header, 10, 64)
+	testutil.NoError(t, err)
+	testutil.True(t, ms >= 0)
+}
+
+func TestAggregateInvalidExpressionIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	// Unknown function.
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=median(price)", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	body := parseJSON(t, w)
+	testutil.Contains(t, jsonStr(t, body["message"]), "unknown aggregate function")
+
+	// Invalid column.
+	w = doRequest(t, srv, "GET", "/api/collections/products/?aggregate=sum(nonexistent)", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	body = parseJSON(t, w)
+	testutil.Contains(t, jsonStr(t, body["message"]), "unknown column")
+
+	// Type mismatch: sum on text column.
+	w = doRequest(t, srv, "GET", "/api/collections/products/?aggregate=sum(name)", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	body = parseJSON(t, w)
+	testutil.Contains(t, jsonStr(t, body["message"]), "numeric")
+}
+
+func TestAggregateMultipleGroupColumns(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count&group=category,active", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	// electronics: 2 active + 1 inactive = 2 groups
+	// toys: 1 active + 1 inactive = 2 groups
+	// Total: 4 groups
+	testutil.Equal(t, 4, len(results))
+}
+
+func TestAggregateCountWithFilterActiveOnly(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/products/?aggregate=count&filter=active%3Dtrue", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	body := parseJSON(t, w)
+	results := jsonResults(t, body)
+	testutil.Equal(t, 1, len(results))
+	testutil.Equal(t, 3.0, jsonNum(t, results[0]["count"])) // 3 active products
+}
+
+func TestAggregateCollectionNotFound(t *testing.T) {
+	ctx := context.Background()
+	srv, _ := setupAggregateTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/nonexistent/?aggregate=count", nil)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+}
+
+// --- Cursor (keyset) pagination tests ---
+
+func setupCursorTestServer(t *testing.T, ctx context.Context) *server.Server {
+	t.Helper()
+
+	resetAndSeedDB(t, ctx)
+
+	// Create a table with 30 rows for cursor pagination testing.
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE items (
+			id SERIAL PRIMARY KEY,
+			title TEXT NOT NULL,
+			category TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("creating items table: %v", err)
+	}
+
+	// Insert 30 rows with distinct timestamps.
+	for i := 1; i <= 30; i++ {
+		_, err := sharedPG.Pool.Exec(ctx,
+			`INSERT INTO items (title, category, created_at) VALUES ($1, $2, $3)`,
+			fmt.Sprintf("Item %02d", i),
+			map[bool]string{true: "A", false: "B"}[i%3 != 0], // 20 A's, 10 B's
+			fmt.Sprintf("2024-01-%02dT00:00:00Z", i),
+		)
+		if err != nil {
+			t.Fatalf("inserting item %d: %v", i, err)
+		}
+	}
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	return server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+}
+
+func TestCursorPaginationForward(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	// Collect all items across multiple cursor pages.
+	var allIDs []float64
+	nextCursor := ""
+	pageCount := 0
+
+	for {
+		url := "/api/collections/items/?cursor=" + nextCursor + "&perPage=7&sort=-created_at"
+		w := doRequest(t, srv, "GET", url, nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+
+		if len(items) == 0 && nextCursor == "" {
+			t.Fatal("first page returned zero items")
+		}
+
+		for _, item := range items {
+			allIDs = append(allIDs, jsonNum(t, item["id"]))
+		}
+
+		cursor, ok := body["nextCursor"].(string)
+		if !ok || cursor == "" {
+			break
+		}
+		nextCursor = cursor
+		pageCount++
+
+		if pageCount > 10 {
+			t.Fatal("too many pages — possible infinite loop")
+		}
+	}
+
+	// Should have collected all 30 items.
+	if len(allIDs) != 30 {
+		t.Fatalf("expected 30 items total, got %d", len(allIDs))
+	}
+
+	// No duplicates.
+	seen := make(map[float64]bool)
+	for _, id := range allIDs {
+		if seen[id] {
+			t.Fatalf("duplicate ID %.0f", id)
+		}
+		seen[id] = true
+	}
+
+	// Verify descending order (created_at DESC → higher IDs first).
+	for i := 1; i < len(allIDs); i++ {
+		if allIDs[i] >= allIDs[i-1] {
+			t.Fatalf("items not in descending order at index %d: %.0f >= %.0f", i, allIDs[i], allIDs[i-1])
+		}
+	}
+}
+
+func TestCursorPaginationWithFilter(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	// Paginate only category A items.
+	var allIDs []float64
+	nextCursor := ""
+
+	for {
+		url := "/api/collections/items/?cursor=" + nextCursor + "&perPage=5&sort=id&filter=" + "category%3D'A'"
+		w := doRequest(t, srv, "GET", url, nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+
+		for _, item := range items {
+			allIDs = append(allIDs, jsonNum(t, item["id"]))
+			cat := jsonStr(t, item["category"])
+			if cat != "A" {
+				t.Fatalf("expected category A, got %s", cat)
+			}
+		}
+
+		cursor, ok := body["nextCursor"].(string)
+		if !ok || cursor == "" {
+			break
+		}
+		nextCursor = cursor
+	}
+
+	// 20 of 30 items are category A.
+	if len(allIDs) != 20 {
+		t.Fatalf("expected 20 category A items, got %d", len(allIDs))
+	}
+}
+
+func TestCursorPaginationWithSearch(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	// Search for "Item 0" (matches Item 01..09).
+	var allTitles []string
+	nextCursor := ""
+
+	for {
+		url := "/api/collections/items/?cursor=" + nextCursor + "&perPage=3&sort=id&search=Item"
+		w := doRequest(t, srv, "GET", url, nil)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+
+		body := parseJSON(t, w)
+		items := jsonItems(t, body)
+
+		for _, item := range items {
+			allTitles = append(allTitles, jsonStr(t, item["title"]))
+		}
+
+		cursor, ok := body["nextCursor"].(string)
+		if !ok || cursor == "" {
+			break
+		}
+		nextCursor = cursor
+	}
+
+	// "Item" matches all 30 items.
+	if len(allTitles) != 30 {
+		t.Fatalf("expected 30 search results, got %d: %v", len(allTitles), allTitles)
+	}
+}
+
+func TestCursorMutualExclusionIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/items/?cursor=abc&page=2", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCursorInvalidIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupCursorTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/items/?cursor=not-valid-base64!!!", nil)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	// Should not be a 500.
+	body := parseJSON(t, w)
+	msg := jsonStr(t, body["message"])
+	if msg == "internal error" {
+		t.Fatal("expected user-friendly error, got 'internal error'")
+	}
+}
+
+// --- Export tests ---
+
+// setupExportTestServer seeds a posts table with known data including CSV edge cases.
+func setupExportTestServerWithAPILimits(t *testing.T, ctx context.Context, apiCfg *config.APIConfig) *server.Server {
+	t.Helper()
+
+	_, err := sharedPG.Pool.Exec(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+	if err != nil {
+		t.Fatalf("resetting schema: %v", err)
+	}
+
+	_, err = sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE posts (
+			id SERIAL PRIMARY KEY,
+			title TEXT NOT NULL,
+			body TEXT,
+			status TEXT DEFAULT 'draft'
+		);
+		INSERT INTO posts (title, body, status) VALUES
+			('First Post', 'Hello world', 'published'),
+			('Second Post', 'Another post', 'draft'),
+			('Third Post', 'By Bob', 'published'),
+			('Comma, in title', 'body with "quotes"', 'published'),
+			('Newline
+in title', 'normal body', 'draft');
+	`)
+	if err != nil {
+		t.Fatalf("creating export test schema: %v", err)
+	}
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	if apiCfg != nil {
+		cfg.API = *apiCfg
+	}
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+	return srv
+}
+
+func setupExportTestServer(t *testing.T, ctx context.Context) *server.Server {
+	return setupExportTestServerWithAPILimits(t, ctx, nil)
+}
+
+func TestExportCSVIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Verify content type.
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/csv") {
+		t.Fatalf("expected text/csv content type, got %s", ct)
+	}
+
+	// Verify content disposition.
+	cd := w.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, "posts.csv") {
+		t.Fatalf("expected posts.csv in Content-Disposition, got %s", cd)
+	}
+
+	// Parse the CSV and verify.
+	reader := csv.NewReader(strings.NewReader(w.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parsing CSV: %v", err)
+	}
+
+	// Header + 5 data rows.
+	if len(records) != 6 {
+		t.Fatalf("expected 6 CSV rows (1 header + 5 data), got %d", len(records))
+	}
+
+	// Verify header contains expected column names.
+	header := records[0]
+	headerStr := strings.Join(header, ",")
+	if !strings.Contains(headerStr, "id") || !strings.Contains(headerStr, "title") {
+		t.Fatalf("expected id and title in header: %v", header)
+	}
+}
+
+func TestExportJSONIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.json", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Verify content type.
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected application/json content type, got %s", ct)
+	}
+
+	// Verify content disposition.
+	cd := w.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, "posts.json") {
+		t.Fatalf("expected posts.json in Content-Disposition, got %s", cd)
+	}
+
+	// Parse the JSON array.
+	var items []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("parsing JSON array: %v\nbody: %s", err, w.Body.String())
+	}
+
+	if len(items) != 5 {
+		t.Fatalf("expected 5 JSON items, got %d", len(items))
+	}
+
+	// Verify first item has expected fields.
+	titles := make(map[string]bool)
+	for _, item := range items {
+		title, ok := item["title"].(string)
+		if !ok {
+			t.Fatalf("expected title string, got %T", item["title"])
+		}
+		titles[title] = true
+	}
+	if !titles["First Post"] || !titles["Second Post"] || !titles["Third Post"] {
+		t.Fatalf("missing expected titles in JSON export: %v", titles)
+	}
+}
+
+func TestExportCSVFilteredIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv?filter=status%3D'published'", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	reader := csv.NewReader(strings.NewReader(w.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parsing filtered CSV: %v", err)
+	}
+
+	// Header + 3 published rows (First Post, Third Post, Comma in title).
+	if len(records) != 4 {
+		t.Fatalf("expected 4 CSV rows (1 header + 3 published), got %d\nbody:\n%s", len(records), w.Body.String())
+	}
+}
+
+func TestExportCSVEdgeCasesIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv?sort=id", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Parse the CSV — encoding/csv handles RFC 4180 quoting automatically.
+	reader := csv.NewReader(strings.NewReader(w.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parsing CSV with edge cases: %v", err)
+	}
+
+	// Find the title column index.
+	header := records[0]
+	titleIdx := -1
+	for i, col := range header {
+		if col == "title" {
+			titleIdx = i
+			break
+		}
+	}
+	if titleIdx == -1 {
+		t.Fatalf("title column not found in header: %v", header)
+	}
+
+	// Verify edge case values are correctly parsed.
+	foundComma := false
+	foundNewline := false
+	for _, row := range records[1:] {
+		title := row[titleIdx]
+		if strings.Contains(title, "Comma, in title") {
+			foundComma = true
+		}
+		if strings.Contains(title, "Newline\nin title") {
+			foundNewline = true
+		}
+	}
+	if !foundComma {
+		t.Fatal("CSV did not correctly handle embedded comma in title")
+	}
+	if !foundNewline {
+		t.Fatal("CSV did not correctly handle embedded newline in title")
+	}
+}
+
+func TestExportCSVBodyWithQuotesIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv?sort=id", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	reader := csv.NewReader(strings.NewReader(w.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parsing CSV: %v", err)
+	}
+
+	// Find body column index.
+	header := records[0]
+	bodyIdx := -1
+	for i, col := range header {
+		if col == "body" {
+			bodyIdx = i
+			break
+		}
+	}
+	if bodyIdx == -1 {
+		t.Fatalf("body column not found in header: %v", header)
+	}
+
+	// Row 4 (0-indexed data row 3) has body with double quotes.
+	foundQuotes := false
+	for _, row := range records[1:] {
+		if strings.Contains(row[bodyIdx], `"quotes"`) {
+			foundQuotes = true
+			break
+		}
+	}
+	if !foundQuotes {
+		t.Fatal("CSV did not correctly handle embedded double quotes in body")
+	}
+}
+
+func TestExportNonexistentTableIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	w := doRequest(t, srv, "GET", "/api/collections/nonexistent/export.csv", nil)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+
+	w = doRequest(t, srv, "GET", "/api/collections/nonexistent/export.json", nil)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+}
+
+func TestExportJSONEmptyResultIntegration(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServer(t, ctx)
+
+	// Filter that matches no rows.
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.json?filter=status%3D'archived'", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Should return a valid empty JSON array.
+	var items []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("parsing empty JSON array: %v\nbody: %s", err, w.Body.String())
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected 0 items for non-matching filter, got %d", len(items))
+	}
+}
+
+func TestExportCSVRespectsExportMaxRowsLimit(t *testing.T) {
+	ctx := context.Background()
+	srv := setupExportTestServerWithAPILimits(t, ctx, &config.APIConfig{ExportMaxRows: 2})
+
+	w := doRequest(t, srv, "GET", "/api/collections/posts/export.csv", nil)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	reader := csv.NewReader(strings.NewReader(w.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parsing CSV: %v", err)
+	}
+
+	if len(records) != 3 {
+		t.Fatalf("expected 3 CSV rows (1 header + 2 data) with export limit=2, got %d", len(records))
+	}
+}
+
+// --- Import integration tests ---
+
+func doImportRequest(t *testing.T, srv *server.Server, path, contentType, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	return w
+}
+
+func setupImportTestServerWithAPILimits(t *testing.T, ctx context.Context, apiCfg *config.APIConfig) *server.Server {
+	t.Helper()
+	resetAndSeedDB(t, ctx)
+
+	// Create a dedicated import_items table with PK and unique constraints.
+	_, err := sharedPG.Pool.Exec(ctx, `
+		CREATE TABLE import_items (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			category TEXT DEFAULT 'general'
+		);
+		INSERT INTO import_items (id, name, category) VALUES
+			(100, 'Existing A', 'alpha'),
+			(200, 'Existing B', 'beta');
+	`)
+	if err != nil {
+		t.Fatalf("creating import_items table: %v", err)
+	}
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+	cfg := config.Default()
+	if apiCfg != nil {
+		cfg.API = *apiCfg
+	}
+	return server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+}
+
+func setupImportTestServer(t *testing.T, ctx context.Context) *server.Server {
+	return setupImportTestServerWithAPILimits(t, ctx, nil)
+}
+
+func TestImportCSVFullModeSuccess(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	csvBody := "id,name,category\n1,Item One,cat1\n2,Item Two,cat2\n3,Item Three,cat3\n"
+	w := doImportRequest(t, srv, "/api/collections/import_items/import", "text/csv", csvBody)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	result := parseJSON(t, w)
+	testutil.Equal(t, float64(3), jsonNum(t, result["processed"]))
+	testutil.Equal(t, float64(3), jsonNum(t, result["inserted"]))
+	testutil.Equal(t, float64(0), jsonNum(t, result["failed"]))
+
+	// Verify data in DB.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM import_items WHERE id IN (1,2,3)").Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, count)
+}
+
+func TestImportJSONFullModeSuccess(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	jsonBody := `[{"id":10,"name":"JSON One","category":"j1"},{"id":11,"name":"JSON Two","category":"j2"}]`
+	w := doImportRequest(t, srv, "/api/collections/import_items/import", "application/json", jsonBody)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	result := parseJSON(t, w)
+	testutil.Equal(t, float64(2), jsonNum(t, result["processed"]))
+	testutil.Equal(t, float64(2), jsonNum(t, result["inserted"]))
+
+	// Verify data.
+	var name string
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT name FROM import_items WHERE id = 10").Scan(&name)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "JSON One", name)
+}
+
+func TestImportOnConflictSkip(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	// id=100 already exists. With skip, it should be skipped.
+	jsonBody := `[{"id":100,"name":"Should Skip","category":"new"},{"id":300,"name":"New Item","category":"new"}]`
+	w := doImportRequest(t, srv, "/api/collections/import_items/import?on_conflict=skip", "application/json", jsonBody)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	result := parseJSON(t, w)
+	testutil.Equal(t, float64(2), jsonNum(t, result["processed"]))
+	testutil.Equal(t, float64(1), jsonNum(t, result["inserted"]))
+	testutil.Equal(t, float64(1), jsonNum(t, result["skipped"]))
+
+	// Verify existing row was NOT updated.
+	var name string
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT name FROM import_items WHERE id = 100").Scan(&name)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "Existing A", name)
+
+	// Verify new row was inserted.
+	err = sharedPG.Pool.QueryRow(ctx, "SELECT name FROM import_items WHERE id = 300").Scan(&name)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "New Item", name)
+}
+
+func TestImportOnConflictUpdate(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	// id=100 already exists. With update, it should be updated.
+	jsonBody := `[{"id":100,"name":"Updated A","category":"updated"},{"id":400,"name":"Brand New","category":"new"}]`
+	w := doImportRequest(t, srv, "/api/collections/import_items/import?on_conflict=update", "application/json", jsonBody)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	result := parseJSON(t, w)
+	testutil.Equal(t, float64(2), jsonNum(t, result["processed"]))
+	testutil.Equal(t, float64(2), jsonNum(t, result["inserted"]))
+
+	// Verify existing row WAS updated.
+	var name, category string
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT name, category FROM import_items WHERE id = 100").Scan(&name, &category)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "Updated A", name)
+	testutil.Equal(t, "updated", category)
+
+	// Verify new row was inserted.
+	err = sharedPG.Pool.QueryRow(ctx, "SELECT name FROM import_items WHERE id = 400").Scan(&name)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "Brand New", name)
+}
+
+func TestImportPartialModeWithErrors(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	// id=100 already exists (unique violation in full insert mode).
+	// In partial mode, the duplicate row should fail, and the rest should succeed.
+	jsonBody := `[{"id":500,"name":"Good One","category":"ok"},{"id":100,"name":"Dup","category":"dup"},{"id":501,"name":"Good Two","category":"ok"}]`
+	w := doImportRequest(t, srv, "/api/collections/import_items/import?mode=partial", "application/json", jsonBody)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	result := parseJSON(t, w)
+	testutil.Equal(t, float64(3), jsonNum(t, result["processed"]))
+	testutil.Equal(t, float64(2), jsonNum(t, result["inserted"]))
+	testutil.Equal(t, float64(1), jsonNum(t, result["failed"]))
+
+	// Verify valid rows were committed.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM import_items WHERE id IN (500, 501)").Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+}
+
+func TestImportFullModeRollbackOnError(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServer(t, ctx)
+
+	// First row is valid, second row is a duplicate of existing id=100.
+	// In full mode, ALL rows should be rolled back.
+	jsonBody := `[{"id":600,"name":"Should Rollback","category":"test"},{"id":100,"name":"Dup","category":"dup"}]`
+	w := doImportRequest(t, srv, "/api/collections/import_items/import", "application/json", jsonBody)
+	// Expect conflict or error status.
+	testutil.True(t, w.Code >= 400, "expected error status, got %d", w.Code)
+
+	// Verify the first row was NOT committed (rollback).
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM import_items WHERE id = 600").Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, count)
+}
+
+func TestImportOversizedBody413(t *testing.T) {
+	ctx := context.Background()
+	srv := setupImportTestServerWithAPILimits(t, ctx, &config.APIConfig{ImportMaxSizeMB: 1})
+
+	// Generate a body larger than the configured import_max_size_mb (1MB).
+	// Use a simple repeating pattern.
+	bigBody := strings.Repeat(`{"id":1,"name":"x","category":"y"},`, 500000) // ~17MB
+	bigBody = "[" + bigBody[:len(bigBody)-1] + "]"
+
+	w := doImportRequest(t, srv, "/api/collections/import_items/import", "application/json", bigBody)
+	testutil.StatusCode(t, http.StatusRequestEntityTooLarge, w.Code)
+
+	// Verify no rows were written.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM import_items WHERE id = 1").Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, count)
 }

@@ -1,3 +1,4 @@
+// Package cli uninstall.go implements the uninstall command for removing AYB from a system, handling cleanup of binaries, cached files, and shell configurations with optional data preservation or purge.
 package cli
 
 import (
@@ -28,6 +29,7 @@ func init() {
 	uninstallCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 }
 
+// runUninstall removes AYB from the system, deleting the binary, cached Postgres binaries, runtime directory, and shell PATH entries. It requires the server to be stopped and prompts for confirmation when the --purge flag is specified to delete the data directory. By default the data directory is preserved. Output is formatted as JSON when the --json flag is provided.
 func runUninstall(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	purge, _ := cmd.Flags().GetBool("purge")

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 // textColumnTypes are PostgreSQL type names that should be included in full-text search.
@@ -61,7 +62,7 @@ func buildSearchSQL(tbl *schema.Table, searchTerm string, argOffset int) (whereS
 	// Build: coalesce("col1", '') || ' ' || coalesce("col2", '') || ...
 	parts := make([]string, len(cols))
 	for i, col := range cols {
-		parts[i] = fmt.Sprintf("coalesce(%s, '')", quoteIdent(col))
+		parts[i] = fmt.Sprintf("coalesce(%s, '')", sqlutil.QuoteIdent(col))
 	}
 	docExpr := strings.Join(parts, " || ' ' || ")
 

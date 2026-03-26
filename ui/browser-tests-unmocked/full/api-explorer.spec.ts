@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures";
+import { test, expect, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: API Explorer
@@ -17,7 +17,7 @@ test.describe("API Explorer (Full E2E)", () => {
     // Navigate to API Explorer
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
     const explorerButton = sidebar.getByRole("button", { name: /^API Explorer$/i });

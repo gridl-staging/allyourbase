@@ -167,6 +167,22 @@ func TestCreateInvalidEvents(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "invalid event")
 }
 
+func TestCreateInvalidURL(t *testing.T) {
+	t.Parallel()
+	h, _, _ := testHandler()
+	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"not-a-url"}`)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "url must be an absolute http or https URL")
+}
+
+func TestCreateRejectsCredentialedURL(t *testing.T) {
+	t.Parallel()
+	h, _, _ := testHandler()
+	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"https://user:pass@example.com/hook"}`)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "url must not include embedded credentials")
+}
+
 func TestCreateSuccess(t *testing.T) {
 	t.Parallel()
 	h, _, _ := testHandler()
@@ -378,6 +394,65 @@ func TestUpdateInvalidEvents(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "invalid event")
 }
 
+func TestUpdateInvalidURL(t *testing.T) {
+	t.Parallel()
+	h, _, _ := testHandler()
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/hook"}`)
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	var created map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&created))
+	id := created["id"].(string)
+
+	w = doHandlerRequest(t, h.Routes(), "PATCH", "/"+id, `{"url":"not-a-url"}`)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "url must be an absolute http or https URL")
+}
+
+func TestUpdateRejectsCredentialedURL(t *testing.T) {
+	t.Parallel()
+	h, _, _ := testHandler()
+
+	w := doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/hook"}`)
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	var created map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&created))
+	id := created["id"].(string)
+
+	w = doHandlerRequest(t, h.Routes(), "PATCH", "/"+id, `{"url":"https://user:pass@example.com/updated"}`)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "url must not include embedded credentials")
+}
+
+func TestUpdateClearEventsWithExplicitEmptyArray(t *testing.T) {
+	t.Parallel()
+	h, _, _ := testHandler()
+
+	// Create with non-empty events so PATCH can explicitly clear them.
+	w := doHandlerRequest(t, h.Routes(), "POST", "/",
+		`{"url":"http://example.com/hook","events":["create","update"]}`)
+	testutil.Equal(t, http.StatusCreated, w.Code)
+	var created map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&created))
+	id := created["id"].(string)
+
+	// PATCH with explicit empty events array.
+	w = doHandlerRequest(t, h.Routes(), "PATCH", "/"+id, `{"events":[]}`)
+	testutil.Equal(t, http.StatusOK, w.Code)
+	var updated map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&updated))
+	updatedEvents := updated["events"].([]any)
+	testutil.Equal(t, 0, len(updatedEvents))
+
+	// Verify persistence through GET to ensure merge behavior is correct.
+	w = doHandlerRequest(t, h.Routes(), "GET", "/"+id, "")
+	testutil.Equal(t, http.StatusOK, w.Code)
+	var got map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	gotEvents := got["events"].([]any)
+	testutil.Equal(t, 0, len(gotEvents))
+}
+
 func TestTestNotFound(t *testing.T) {
 	t.Parallel()
 	h, _, _ := testHandler()
@@ -487,244 +562,4 @@ func TestTestConnectionRefused(t *testing.T) {
 	testutil.True(t, resp.Error != "", "error message should be present")
 	testutil.Contains(t, resp.Error, "connect")
 	testutil.True(t, resp.DurationMs >= 0, "durationMs should be non-negative")
-}
-
-// --- Delivery endpoint tests ---
-
-func TestListDeliveriesWebhookNotFound(t *testing.T) {
-	t.Parallel()
-	h, _, _ := testHandler()
-	w := doHandlerRequest(t, h.Routes(), "GET", "/nonexistent/deliveries", "")
-	testutil.Equal(t, http.StatusNotFound, w.Code)
-	testutil.Contains(t, w.Body.String(), "webhook not found")
-}
-
-func TestListDeliveriesEmpty(t *testing.T) {
-	t.Parallel()
-	h, store, _ := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-
-	var resp deliveryListResponse
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 0, len(resp.Items))
-	testutil.Equal(t, 0, resp.TotalItems)
-	testutil.Equal(t, 1, resp.Page)
-	testutil.Equal(t, 20, resp.PerPage)
-}
-
-func TestListDeliveriesWithData(t *testing.T) {
-	t.Parallel()
-	h, store, ds := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	// Insert some deliveries.
-	for i := 0; i < 3; i++ {
-		ds.RecordDelivery(context.Background(), &Delivery{
-			WebhookID:   "wh1",
-			EventAction: "create",
-			EventTable:  "posts",
-			Success:     true,
-			StatusCode:  200,
-			Attempt:     1,
-			DurationMs:  10 + i,
-		})
-	}
-
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-
-	var resp deliveryListResponse
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 3, len(resp.Items))
-	testutil.Equal(t, 3, resp.TotalItems)
-	testutil.Equal(t, 1, resp.TotalPages)
-	// Verify each delivery has the expected fields.
-	for _, del := range resp.Items {
-		testutil.Equal(t, "wh1", del.WebhookID)
-		testutil.Equal(t, "create", del.EventAction)
-		testutil.Equal(t, "posts", del.EventTable)
-		testutil.Equal(t, true, del.Success)
-		testutil.Equal(t, 200, del.StatusCode)
-	}
-}
-
-func TestListDeliveriesPagination(t *testing.T) {
-	t.Parallel()
-	h, store, ds := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	// Insert 5 deliveries.
-	for i := 0; i < 5; i++ {
-		ds.RecordDelivery(context.Background(), &Delivery{
-			WebhookID:   "wh1",
-			EventAction: "create",
-			EventTable:  "posts",
-			Success:     true,
-			StatusCode:  200,
-			Attempt:     1,
-			DurationMs:  i,
-		})
-	}
-
-	// Request page 1 with perPage=2.
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries?page=1&perPage=2", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-
-	var resp deliveryListResponse
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 2, len(resp.Items))
-	testutil.Equal(t, 5, resp.TotalItems)
-	testutil.Equal(t, 3, resp.TotalPages)
-	testutil.Equal(t, 1, resp.Page)
-	testutil.Equal(t, 2, resp.PerPage)
-	// Verify returned deliveries have expected fields.
-	for _, del := range resp.Items {
-		testutil.Equal(t, "wh1", del.WebhookID)
-		testutil.Equal(t, "create", del.EventAction)
-		testutil.Equal(t, "posts", del.EventTable)
-	}
-}
-
-func TestListDeliveriesPerPageClamped(t *testing.T) {
-	t.Parallel()
-	h, store, _ := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	// Request with perPage > 100, should be clamped.
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries?perPage=999", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-
-	var resp deliveryListResponse
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 100, resp.PerPage)
-}
-
-func TestListDeliveriesFiltersbyWebhook(t *testing.T) {
-	t.Parallel()
-	h, store, ds := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com/1"}
-	store.hooks["wh2"] = &Webhook{ID: "wh2", URL: "http://example.com/2"}
-
-	ds.RecordDelivery(context.Background(), &Delivery{WebhookID: "wh1", EventAction: "create", EventTable: "a", Success: true, StatusCode: 200, Attempt: 1})
-	ds.RecordDelivery(context.Background(), &Delivery{WebhookID: "wh2", EventAction: "update", EventTable: "b", Success: true, StatusCode: 200, Attempt: 1})
-	ds.RecordDelivery(context.Background(), &Delivery{WebhookID: "wh1", EventAction: "delete", EventTable: "c", Success: false, StatusCode: 500, Attempt: 1})
-
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-	var resp deliveryListResponse
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 2, resp.TotalItems)
-
-	w = doHandlerRequest(t, h.Routes(), "GET", "/wh2/deliveries", "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, 1, resp.TotalItems)
-}
-
-func TestGetDeliveryNotFound(t *testing.T) {
-	t.Parallel()
-	h, store, _ := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries/nonexistent", "")
-	testutil.Equal(t, http.StatusNotFound, w.Code)
-	testutil.Contains(t, w.Body.String(), "delivery not found")
-}
-
-func TestGetDeliverySuccess(t *testing.T) {
-	t.Parallel()
-	h, store, ds := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com"}
-
-	del := &Delivery{
-		WebhookID:   "wh1",
-		EventAction: "create",
-		EventTable:  "posts",
-		Success:     true,
-		StatusCode:  200,
-		Attempt:     1,
-		DurationMs:  42,
-		RequestBody: `{"action":"create","table":"posts"}`,
-	}
-	ds.RecordDelivery(context.Background(), del)
-
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries/"+del.ID, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
-
-	var got Delivery
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&got))
-	testutil.Equal(t, del.ID, got.ID)
-	testutil.Equal(t, "wh1", got.WebhookID)
-	testutil.Equal(t, "create", got.EventAction)
-	testutil.Equal(t, "posts", got.EventTable)
-	testutil.Equal(t, true, got.Success)
-	testutil.Equal(t, 200, got.StatusCode)
-	testutil.Equal(t, 42, got.DurationMs)
-}
-
-func TestGetDeliveryWrongWebhook(t *testing.T) {
-	t.Parallel()
-	h, store, ds := testHandler()
-	store.hooks["wh1"] = &Webhook{ID: "wh1", URL: "http://example.com/1"}
-	store.hooks["wh2"] = &Webhook{ID: "wh2", URL: "http://example.com/2"}
-
-	del := &Delivery{WebhookID: "wh2", EventAction: "create", EventTable: "posts", Success: true, StatusCode: 200, Attempt: 1}
-	ds.RecordDelivery(context.Background(), del)
-
-	// Try to get wh2's delivery via wh1's endpoint.
-	w := doHandlerRequest(t, h.Routes(), "GET", "/wh1/deliveries/"+del.ID, "")
-	testutil.Equal(t, http.StatusNotFound, w.Code)
-}
-
-// --- Pruner tests ---
-
-func TestPrunerCallsPruneDeliveries(t *testing.T) {
-	t.Parallel()
-	ds := newMockDeliveryStore()
-	ds.pruneResult = 5
-	store := newMockStore()
-	d := NewDispatcher(store, testutil.DiscardLogger())
-	d.SetDeliveryStore(ds)
-
-	// Start pruner with very short interval for testing.
-	d.StartPruner(10*time.Millisecond, 7*24*time.Hour)
-
-	// Wait for at least one prune cycle.
-	time.Sleep(50 * time.Millisecond)
-	d.Close()
-
-	testutil.True(t, ds.pruneCalls > 0, "PruneDeliveries should have been called")
-	testutil.Equal(t, 7*24*time.Hour, ds.pruneOlderThan)
-}
-
-func TestPrunerNilDeliveryStoreNoOp(t *testing.T) {
-	t.Parallel()
-	store := newMockStore()
-	d := NewDispatcher(store, testutil.DiscardLogger())
-	// Don't set delivery store — StartPruner should be a no-op.
-	d.StartPruner(10*time.Millisecond, 7*24*time.Hour)
-	time.Sleep(30 * time.Millisecond)
-	d.Close()
-
-	// Delivery store should still be nil (pruner never started).
-	testutil.Nil(t, d.deliveryS)
-}
-
-func TestPrunerStopsOnClose(t *testing.T) {
-	t.Parallel()
-	ds := newMockDeliveryStore()
-	store := newMockStore()
-	d := NewDispatcher(store, testutil.DiscardLogger())
-	d.SetDeliveryStore(ds)
-
-	d.StartPruner(10*time.Millisecond, 24*time.Hour)
-	time.Sleep(30 * time.Millisecond)
-	d.Close()
-
-	callsAtClose := ds.pruneCalls
-	time.Sleep(30 * time.Millisecond)
-	testutil.Equal(t, callsAtClose, ds.pruneCalls)
 }

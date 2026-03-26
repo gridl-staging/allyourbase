@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +23,22 @@ type mockLister struct {
 
 func (m *mockLister) ListEnabled(_ context.Context) ([]Webhook, error) {
 	return m.hooks, m.err
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read(_ []byte) (int, error) {
+	return 0, fmt.Errorf("synthetic response read failure")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
 }
 
 // fastBackoff is used by test dispatchers — short delays, no global mutation.
@@ -143,7 +160,85 @@ func TestDeliverExhaustsRetries(t *testing.T) {
 	d := testDispatcher(lister)
 
 	d.processEvent(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{}})
-	testutil.Equal(t, int32(maxRetries), attempts.Load())
+	testutil.Equal(t, int32(maxDeliveryAttempts), attempts.Load())
+}
+
+func TestDeliverRetriesWhenResponseBodyReadFails(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	lister := &mockLister{hooks: []Webhook{{
+		ID: "wh1", URL: "http://example.test/webhook", Events: []string{"create"}, Enabled: true,
+	}}}
+	d := testDispatcher(lister)
+	d.client = &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			attempts.Add(1)
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Body:       failingReadCloser{},
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+	ds := newMockDeliveryStore()
+	d.deliveryS = ds
+
+	d.processEvent(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{}})
+
+	testutil.Equal(t, int32(maxDeliveryAttempts), attempts.Load())
+	testutil.Equal(t, maxDeliveryAttempts, len(ds.deliveries))
+	for _, del := range ds.deliveries {
+		testutil.Equal(t, false, del.Success)
+		testutil.Contains(t, del.Error, "synthetic response read failure")
+	}
+}
+
+func TestDeliverUsesConfiguredBackoffOrder(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		attempts []time.Time
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts = append(attempts, time.Now())
+		mu.Unlock()
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	lister := &mockLister{hooks: []Webhook{{
+		ID: "wh1", URL: srv.URL, Events: []string{"create"}, Enabled: true,
+	}}}
+	d := testDispatcher(lister)
+	d.backoff = [maxRetries]time.Duration{
+		10 * time.Millisecond,
+		60 * time.Millisecond,
+		120 * time.Millisecond,
+	}
+
+	d.processEvent(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{}})
+
+	mu.Lock()
+	defer mu.Unlock()
+	testutil.Equal(t, maxDeliveryAttempts, len(attempts))
+	if len(attempts) < maxDeliveryAttempts {
+		t.Fatalf("recorded %d attempts; need %d to evaluate configured backoff schedule", len(attempts), maxDeliveryAttempts)
+	}
+
+	firstDelay := attempts[1].Sub(attempts[0])
+	secondDelay := attempts[2].Sub(attempts[1])
+	thirdDelay := attempts[3].Sub(attempts[2])
+	if firstDelay < 5*time.Millisecond || firstDelay > 50*time.Millisecond {
+		t.Fatalf("first retry delay = %v; want first configured backoff (~10ms)", firstDelay)
+	}
+	if secondDelay < 40*time.Millisecond || secondDelay > 120*time.Millisecond {
+		t.Fatalf("second retry delay = %v; want second configured backoff (~60ms)", secondDelay)
+	}
+	if thirdDelay < 80*time.Millisecond || thirdDelay > 220*time.Millisecond {
+		t.Fatalf("third retry delay = %v; want third configured backoff (~120ms)", thirdDelay)
+	}
 }
 
 func TestEventFilteringByTable(t *testing.T) {
@@ -278,7 +373,7 @@ func TestDeliverConnectionError(t *testing.T) {
 	d.processEvent(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{}})
 
 	// All retries should be recorded as failed deliveries.
-	testutil.Equal(t, maxRetries, len(ds.deliveries))
+	testutil.Equal(t, maxDeliveryAttempts, len(ds.deliveries))
 	for _, del := range ds.deliveries {
 		testutil.Equal(t, false, del.Success)
 		testutil.Equal(t, 0, del.StatusCode)

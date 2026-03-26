@@ -112,6 +112,19 @@ func TestAybHome(t *testing.T) {
 	testutil.True(t, info.IsDir(), "should be a directory")
 }
 
+func TestResolveAYBHomeUsesOverride(t *testing.T) {
+	t.Parallel()
+	baseDir := filepath.Join(t.TempDir(), "custom-ayb")
+
+	home, err := resolveAYBHome(baseDir)
+	testutil.NoError(t, err)
+	testutil.Equal(t, baseDir, home)
+
+	info, err := os.Stat(home)
+	testutil.NoError(t, err)
+	testutil.True(t, info.IsDir(), "override should be created as a directory")
+}
+
 func TestReadPostmasterPID(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "postmaster.pid")

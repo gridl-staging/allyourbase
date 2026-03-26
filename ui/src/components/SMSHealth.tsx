@@ -12,22 +12,22 @@ const WINDOW_LABELS: { key: keyof Pick<SMSHealthResponse, "today" | "last_7d" | 
 function StatsCard({ windowKey, label, stats }: { windowKey: string; label: string; stats: SMSWindowStats }) {
   return (
     <div data-testid={`sms-stats-${windowKey}`} className="border rounded-lg p-4">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">{label}</h3>
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">{label}</h3>
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-gray-500">Sent</span>
+          <span className="text-gray-500 dark:text-gray-400">Sent</span>
           <span className="font-medium">{stats.sent}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Confirmed</span>
+          <span className="text-gray-500 dark:text-gray-400">Confirmed</span>
           <span className="font-medium text-green-600">{stats.confirmed}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-500">Failed</span>
+          <span className="text-gray-500 dark:text-gray-400">Failed</span>
           <span className="font-medium text-red-600">{stats.failed}</span>
         </div>
         <div className="flex justify-between border-t pt-2">
-          <span className="text-gray-500">Conversion Rate</span>
+          <span className="text-gray-500 dark:text-gray-400">Conversion Rate</span>
           <span className="font-medium">{stats.conversion_rate.toFixed(1)}%</span>
         </div>
       </div>
@@ -59,7 +59,7 @@ export function SMSHealth() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading...
       </div>

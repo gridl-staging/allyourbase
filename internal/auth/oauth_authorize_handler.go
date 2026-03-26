@@ -1,3 +1,4 @@
+// Package auth This file implements OAuth authorization and consent endpoints for handling the OAuth authorization code flow.
 package auth
 
 import (
@@ -66,6 +67,7 @@ type oauthConsentPromptResponse struct {
 	AllowedTables       []string `json:"allowed_tables,omitempty"`
 }
 
+// handleOAuthAuthorize handles the OAuth authorization request. It validates the request parameters, checks whether the authenticated user has already consented to the requested scope, and either returns a consent prompt for user approval or directly issues an authorization code via redirect.
 func (h *Handler) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -135,6 +137,7 @@ func (h *Handler) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURI, http.StatusFound)
 }
 
+// handleOAuthConsent handles the user's consent decision. It accepts an approve or deny decision, re-validates the authorization request, saves consent if approved, and returns a redirect containing either the authorization code or an access denied error.
 func (h *Handler) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -223,6 +226,7 @@ func (h *Handler) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURI, http.StatusFound)
 }
 
+// validateOAuthAuthorizeRequest validates an OAuth authorization request. It checks that all required parameters are present, validates parameter values, retrieves the OAuth client, verifies it is not revoked, and confirms the redirect_uri and scope are valid for the client.
 func (h *Handler) validateOAuthAuthorizeRequest(ctx context.Context, req oauthAuthorizeRequest) (*OAuthClient, *OAuthError, int, error) {
 	if req.ResponseType != "code" {
 		return nil, NewOAuthError(OAuthErrInvalidRequest, "response_type must be code"), http.StatusBadRequest, nil
@@ -281,6 +285,7 @@ func parseOAuthAuthorizeRequest(r *http.Request) oauthAuthorizeRequest {
 	}
 }
 
+// parseAllowedTables parses table names from query parameter values, splitting each value on commas, trimming whitespace, and deduplicating results. It returns nil if no valid table names are found.
 func parseAllowedTables(raw []string) []string {
 	if len(raw) == 0 {
 		return nil

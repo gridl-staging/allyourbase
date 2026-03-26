@@ -48,7 +48,7 @@ export function SMSMessages() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading...
       </div>
@@ -85,7 +85,7 @@ export function SMSMessages() {
             Send SMS
           </button>
         </div>
-        <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+        <div className="flex flex-col items-center justify-center h-48 text-gray-400 dark:text-gray-500">
           <MessageSquare className="w-8 h-8 mb-2" />
           No messages sent yet
         </div>
@@ -114,7 +114,7 @@ export function SMSMessages() {
 
       <table data-testid="sms-messages-table" className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-gray-500">
+          <tr className="border-b text-left text-gray-500 dark:text-gray-400">
             <th className="pb-2 font-medium">To</th>
             <th className="pb-2 font-medium">Body</th>
             <th className="pb-2 font-medium">Provider</th>
@@ -165,7 +165,7 @@ export function SMSMessages() {
           >
             Prev
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-600 dark:text-gray-300">
             Page {page} of {totalPages}
           </span>
           <button

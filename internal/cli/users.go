@@ -1,3 +1,4 @@
+// Package cli provides user management commands for the AYB server, including listing and deleting users.
 package cli
 
 import (
@@ -42,6 +43,7 @@ func init() {
 	usersCmd.AddCommand(usersDeleteCmd)
 }
 
+// runUsersList lists registered users from the AYB server, supporting pagination, email search, and output in json, csv, or table format.
 func runUsersList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	search, _ := cmd.Flags().GetString("search")

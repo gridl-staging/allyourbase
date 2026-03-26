@@ -1,8 +1,0 @@
-./analyze.go
-./auth.go
-./files.go
-./migrator.go
-./reader.go
-./rls.go
-./typemap.go
-./types.go

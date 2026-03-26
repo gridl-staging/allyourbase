@@ -1,3 +1,4 @@
+// Package sms This file implements the PlivoProvider type, which sends SMS messages via the Plivo REST API.
 package sms
 
 import (
@@ -34,6 +35,7 @@ func NewPlivoProvider(authID, authToken, fromNumber, baseURL string) *PlivoProvi
 	}
 }
 
+// Send sends an SMS message via the Plivo REST API. It constructs an HTTP POST request with the recipient number and message body, authenticates using basic auth, and returns the message UUID assigned by Plivo along with a queued status. Returns an error if the request fails or if the API returns a non-2xx status code.
 func (p *PlivoProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := fmt.Sprintf("%s/v1/Account/%s/Message/", p.baseURL, p.authID)
 

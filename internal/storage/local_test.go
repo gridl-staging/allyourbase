@@ -152,3 +152,23 @@ func TestNewLocalBackendCreatesDir(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.True(t, info.IsDir(), "root should be a directory")
 }
+
+func TestLocalBackendRejectsTraversalName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	b, err := NewLocalBackend(dir)
+	testutil.NoError(t, err)
+
+	_, err = b.Put(context.Background(), "images", "../escape.txt", bytes.NewReader([]byte("x")))
+	testutil.ErrorContains(t, err, "invalid object name")
+}
+
+func TestLocalBackendRejectsInvalidBucket(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	b, err := NewLocalBackend(dir)
+	testutil.NoError(t, err)
+
+	_, err = b.Put(context.Background(), "bad/bucket", "file.txt", bytes.NewReader([]byte("x")))
+	testutil.ErrorContains(t, err, "invalid bucket")
+}

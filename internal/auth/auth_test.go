@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/hex"
 	"strings"
 	"sync"
@@ -31,6 +32,34 @@ func TestHashAndVerifyPassword(t *testing.T) {
 	ok, err := verifyPassword(hash, "mypassword123")
 	testutil.NoError(t, err)
 	testutil.True(t, ok, "correct password should verify")
+}
+
+func TestNewService_InitializesMFAFailureTracker(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, testSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	userID := "user-lockout-init"
+
+	for i := 0; i < emailMFALockoutCount; i++ {
+		svc.RecordMFAFailure(userID)
+	}
+
+	testutil.True(t, svc.IsMFALocked(userID), "new service should enforce MFA lockout without extra init")
+}
+
+func TestLogin_NilPoolReturnsErrorNotPanic(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, testSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Login panicked with nil pool: %v", r)
+		}
+	}()
+
+	_, _, _, err := svc.Login(context.Background(), "a@b.com", "pw")
+	testutil.True(t, err != nil, "expected error when pool is nil")
+	testutil.Contains(t, err.Error(), "database pool is not configured")
 }
 
 func TestVerifyPasswordWrong(t *testing.T) {
@@ -116,7 +145,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		Email: "test@example.com",
 	}
 
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 	testutil.True(t, len(token) > 0, "token should not be empty")
 
@@ -141,7 +170,7 @@ func TestValidateTokenExpired(t *testing.T) {
 	}
 
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	_, err = svc.ValidateToken(token)
@@ -156,7 +185,7 @@ func TestValidateTokenTampered(t *testing.T) {
 	}
 
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Tamper with the token by replacing the signature.
@@ -192,10 +221,52 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 	svc2 := &Service{jwtSecret: []byte("different-secret-that-is-also-32-chars-long!!")}
 
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	token, err := svc1.generateToken(user)
+	token, err := svc1.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	_, err = svc2.ValidateToken(token)
+	testutil.ErrorContains(t, err, "invalid token")
+}
+
+func TestValidateTokenTooLarge(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		jwtSecret: []byte(testSecret),
+		tokenDur:  time.Hour,
+	}
+
+	oversized := strings.Repeat("a", maxJWTTokenLength+1)
+	_, err := svc.ValidateToken(oversized)
+	testutil.ErrorContains(t, err, "token too large")
+}
+
+func TestValidateTokenWithoutJWTSecret(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{}
+	_, err := svc.ValidateToken("header.payload.signature")
+	testutil.ErrorContains(t, err, "jwt secret is not configured")
+}
+
+func TestGenerateTokenWithoutJWTSecret(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{tokenDur: time.Hour}
+	_, err := svc.generateToken(context.Background(), &User{ID: "test-id", Email: "test@example.com"})
+	testutil.ErrorContains(t, err, "jwt secret is not configured")
+}
+
+func TestValidateTokenAtSizeLimitFallsThroughToJWTValidation(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{
+		jwtSecret: []byte(testSecret),
+		tokenDur:  time.Hour,
+	}
+
+	atLimit := strings.Repeat("a", maxJWTTokenLength)
+	_, err := svc.ValidateToken(atLimit)
 	testutil.ErrorContains(t, err, "invalid token")
 }
 
@@ -212,11 +283,13 @@ func TestValidateEmail(t *testing.T) {
 		{"no at", "userexample.com", "invalid email format"},
 		{"no domain dot", "user@example", "invalid email format"},
 		{"at at start", "@example.com", "invalid email format"},
+		{"newline injection", "user@example.com\nBcc:evil@example.com", "invalid email format"},
+		{"carriage return injection", "user@example.com\rBcc:evil@example.com", "invalid email format"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateEmail(tt.email)
+			err := validateAuthEmail(tt.email)
 			if tt.wantErr == "" {
 				testutil.NoError(t, err)
 			} else {
@@ -296,7 +369,7 @@ func TestRotateJWTSecretChangesSecret(t *testing.T) {
 
 	// Issue a token with the old secret.
 	user := &User{ID: "test-id", Email: "test@example.com"}
-	oldToken, err := svc.generateToken(user)
+	oldToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Validate works before rotation.
@@ -317,7 +390,7 @@ func TestRotateJWTSecretChangesSecret(t *testing.T) {
 	testutil.ErrorContains(t, err, "invalid token")
 
 	// New token should validate.
-	newToken, err := svc.generateToken(user)
+	newToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 	claims, err := svc.ValidateToken(newToken)
 	testutil.NoError(t, err)
@@ -347,7 +420,7 @@ func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
 	const workers = 8
 
 	// Issue a token before the goroutines start so validators have something to work with.
-	initialToken, err := svc.generateToken(user)
+	initialToken, err := svc.generateToken(context.Background(), user)
 	testutil.NoError(t, err)
 
 	// Goroutines that continuously rotate the secret.
@@ -369,7 +442,7 @@ func TestRotateJWTSecretConcurrentSafe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
-				tok, err := svc.generateToken(user)
+				tok, err := svc.generateToken(context.Background(), user)
 				if err == nil && tok != "" {
 					_, _ = svc.ValidateToken(tok)
 				}
@@ -442,7 +515,7 @@ func TestValidateTokenBoundaryConditions(t *testing.T) {
 			}
 
 			user := &User{ID: "test-id", Email: "test@example.com"}
-			token, err := svc.generateToken(user)
+			token, err := svc.generateToken(context.Background(), user)
 			testutil.NoError(t, err)
 
 			if tt.waitBefore > 0 {

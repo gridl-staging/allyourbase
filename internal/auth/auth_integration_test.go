@@ -5,12 +5,15 @@ package auth_test
 import (
 	"bytes"
 	"context"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -132,6 +135,24 @@ func TestRegisterSuccess(t *testing.T) {
 	testutil.True(t, resp.RefreshToken != "", "should return a refresh token")
 	testutil.Equal(t, "alice@example.com", resp.User["email"].(string))
 	testutil.True(t, resp.User["id"].(string) != "", "should have user id")
+
+	claims, err := newAuthService().ValidateToken(resp.Token)
+	if err != nil {
+		t.Fatalf("validating register token: %v", err)
+	}
+	testutil.True(t, claims.TenantID != "", "register token should include tenant id")
+
+	var role string
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT role
+		   FROM _ayb_tenant_memberships
+		  WHERE tenant_id = $1 AND user_id = $2`,
+		claims.TenantID, resp.User["id"].(string),
+	).Scan(&role)
+	if err != nil {
+		t.Fatalf("querying tenant membership: %v", err)
+	}
+	testutil.Equal(t, "owner", role)
 }
 
 func TestRegisterDuplicateEmail(t *testing.T) {
@@ -184,6 +205,98 @@ func TestLoginSuccess(t *testing.T) {
 	testutil.True(t, resp.Token != "", "should return a token")
 	testutil.True(t, resp.RefreshToken != "", "should return a refresh token")
 	testutil.Equal(t, "login@example.com", resp.User["email"].(string))
+
+	claims, err := newAuthService().ValidateToken(resp.Token)
+	if err != nil {
+		t.Fatalf("validating login token: %v", err)
+	}
+	testutil.True(t, claims.TenantID != "", "login token should include tenant id")
+}
+
+func TestLoginBackfillsDefaultTenantForLegacyUser(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	svc := newAuthService()
+	user, err := auth.CreateUser(ctx, sharedPG.Pool, "legacy-no-tenant@example.com", "password123", 8)
+	if err != nil {
+		t.Fatalf("creating legacy user: %v", err)
+	}
+
+	returnedUser, accessToken, refreshToken, err := svc.Login(ctx, "legacy-no-tenant@example.com", "password123")
+	if err != nil {
+		t.Fatalf("logging in legacy user: %v", err)
+	}
+	testutil.Equal(t, user.ID, returnedUser.ID)
+	testutil.True(t, accessToken != "", "login should return access token")
+	testutil.True(t, refreshToken != "", "login should return refresh token")
+
+	claims, err := svc.ValidateToken(accessToken)
+	if err != nil {
+		t.Fatalf("validating login token: %v", err)
+	}
+	testutil.True(t, claims.TenantID != "", "legacy login should backfill tenant id")
+
+	var membershipCount int
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		   FROM _ayb_tenant_memberships
+		  WHERE tenant_id = $1 AND user_id = $2`,
+		claims.TenantID, user.ID,
+	).Scan(&membershipCount)
+	if err != nil {
+		t.Fatalf("counting tenant memberships: %v", err)
+	}
+	testutil.Equal(t, 1, membershipCount)
+}
+
+func TestRefreshTokenPreservesTenantID(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "refresh-tenant@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	initial := parseAuthResp(t, w)
+	initialClaims, err := newAuthService().ValidateToken(initial.Token)
+	if err != nil {
+		t.Fatalf("validating initial token: %v", err)
+	}
+
+	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
+		"refreshToken": initial.RefreshToken,
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	refreshed := parseAuthResp(t, w)
+	refreshedClaims, err := newAuthService().ValidateToken(refreshed.Token)
+	if err != nil {
+		t.Fatalf("validating refreshed token: %v", err)
+	}
+	testutil.Equal(t, initialClaims.TenantID, refreshedClaims.TenantID)
+}
+
+func TestAuthMetricsRecordedForRegisterAndLogin(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "metrics-auth@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	w = doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "metrics-auth@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	metrics := doJSON(t, srv, "GET", "/metrics", nil, "")
+	testutil.StatusCode(t, http.StatusOK, metrics.Code)
+	body := metrics.Body.String()
+	testutil.Contains(t, body, "ayb_auth_signups_total 1")
+	testutil.Contains(t, body, "ayb_auth_logins_total 1")
 }
 
 func TestLoginWrongPassword(t *testing.T) {
@@ -810,6 +923,100 @@ func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
 		"refreshToken": resp.RefreshToken,
 	}, "")
 	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRefreshTokenPreservesAAL2(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+
+	// Register a user (gets AAL1 session).
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "aal2refresh@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	resp := parseAuthResp(t, w)
+
+	// Simulate MFA completion: update session to AAL2 with AMR.
+	tokenHash := auth.HashTokenForTest(resp.RefreshToken)
+	_, err := sharedPG.Pool.Exec(ctx,
+		`UPDATE _ayb_sessions SET aal = 'aal2', amr = 'password,totp' WHERE token_hash = $1`,
+		tokenHash,
+	)
+	testutil.NoError(t, err)
+
+	// Refresh should produce a token with AAL2 preserved.
+	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
+		"refreshToken": resp.RefreshToken,
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	refreshResp := parseAuthResp(t, w)
+
+	// Parse the new access token and verify AAL2 + AMR are preserved.
+	authSvc := auth.NewService(sharedPG.Pool, testJWTSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	claims, err := authSvc.ValidateToken(refreshResp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, 2, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
+	testutil.Equal(t, "totp", claims.AMR[1])
+}
+
+func TestRefreshTokenDoesNotElevateAAL(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+
+	// Register a user (gets AAL1 session by default).
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "aal1refresh@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	resp := parseAuthResp(t, w)
+
+	// Refresh — should stay AAL1.
+	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
+		"refreshToken": resp.RefreshToken,
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	refreshResp := parseAuthResp(t, w)
+
+	authSvc := auth.NewService(sharedPG.Pool, testJWTSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	claims, err := authSvc.ValidateToken(refreshResp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal1", claims.AAL)
+}
+
+func TestRefreshTokenPreservesAMRAtAAL1(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+
+	// Register a user (gets AAL1 session by default).
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "aal1amrrefresh@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	resp := parseAuthResp(t, w)
+
+	// Simulate first-factor AMR tracking on the session.
+	tokenHash := auth.HashTokenForTest(resp.RefreshToken)
+	_, err := sharedPG.Pool.Exec(ctx,
+		`UPDATE _ayb_sessions SET aal = 'aal1', amr = 'password' WHERE token_hash = $1`,
+		tokenHash,
+	)
+	testutil.NoError(t, err)
+
+	// Refresh should preserve AMR even when AAL remains aal1.
+	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
+		"refreshToken": resp.RefreshToken,
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	refreshResp := parseAuthResp(t, w)
+
+	authSvc := auth.NewService(sharedPG.Pool, testJWTSecret, time.Hour, 7*24*time.Hour, 8, testutil.DiscardLogger())
+	claims, err := authSvc.ValidateToken(refreshResp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal1", claims.AAL)
+	testutil.Equal(t, 1, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
 }
 
 // --- Verification token tests ---
@@ -1929,7 +2136,7 @@ func TestVerifySMSMFA_Success(t *testing.T) {
 	code := capture.LastCode()
 
 	// Verify with correct code should issue full tokens.
-	returnedUser, accessToken, refreshToken, err := svc.VerifySMSMFA(ctx, user.ID, code)
+	returnedUser, accessToken, refreshToken, err := svc.VerifySMSMFA(ctx, user.ID, code, "password")
 	testutil.NoError(t, err)
 	testutil.Equal(t, user.ID, returnedUser.ID)
 	testutil.True(t, accessToken != "", "should return access token")
@@ -1940,6 +2147,10 @@ func TestVerifySMSMFA_Success(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.False(t, claims.MFAPending, "verified token should not have MFAPending")
 	testutil.Equal(t, user.ID, claims.Subject)
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, 2, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
+	testutil.Equal(t, "sms_otp", claims.AMR[1])
 }
 
 func TestVerifySMSMFA_WrongCode(t *testing.T) {
@@ -1950,7 +2161,7 @@ func TestVerifySMSMFA_WrongCode(t *testing.T) {
 
 	testutil.NoError(t, svc.ChallengeSMSMFA(ctx, user.ID))
 
-	_, _, _, err := svc.VerifySMSMFA(ctx, user.ID, "000000")
+	_, _, _, err := svc.VerifySMSMFA(ctx, user.ID, "000000", "password")
 	testutil.True(t, err != nil, "expected error for wrong code")
 	testutil.True(t, errors.Is(err, auth.ErrInvalidSMSCode),
 		"expected ErrInvalidSMSCode, got %v", err)
@@ -2039,7 +2250,7 @@ func TestLogin_WithMFA_FullFlowEndToEnd(t *testing.T) {
 	code := capture.LastCode()
 
 	// Verify -> get full tokens.
-	verifiedUser, fullToken, fullRefresh, err := svc.VerifySMSMFA(ctx, user.ID, code)
+	verifiedUser, fullToken, fullRefresh, err := svc.VerifySMSMFA(ctx, user.ID, code, "password")
 	testutil.NoError(t, err)
 	testutil.Equal(t, user.ID, verifiedUser.ID)
 	testutil.True(t, fullToken != "", "should return full access token")
@@ -2049,6 +2260,7 @@ func TestLogin_WithMFA_FullFlowEndToEnd(t *testing.T) {
 	fullClaims, err := svc.ValidateToken(fullToken)
 	testutil.NoError(t, err)
 	testutil.False(t, fullClaims.MFAPending, "full token should not be MFA pending")
+	testutil.Equal(t, "aal2", fullClaims.AAL)
 }
 
 func TestLogin_WithoutMFA_ReturnsNormalTokens(t *testing.T) {
@@ -2595,4 +2807,1772 @@ func TestAdminSMSHealth_RequiresAdminAuth(t *testing.T) {
 	// No auth → 401.
 	w := doJSON(t, srv, "GET", "/api/admin/sms/health", nil, "")
 	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+}
+
+// --- TOTP MFA Integration Tests ---
+
+func setupTOTPService(t *testing.T) *auth.Service {
+	t.Helper()
+	resetAndMigrate(t, t.Context())
+	svc := newAuthService()
+	// Set up AES-256-GCM encryption key for TOTP secrets.
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	if err := svc.SetEncryptionKey(key); err != nil {
+		t.Fatalf("setting encryption key: %v", err)
+	}
+	return svc
+}
+
+// registerNamedUser registers a user with a custom email and returns the user ID.
+func registerNamedUser(t *testing.T, svc *auth.Service, email string) string {
+	t.Helper()
+	user, _, _, err := svc.Register(t.Context(), email, "password123")
+	if err != nil {
+		t.Fatalf("registering user: %v", err)
+	}
+	return user.ID
+}
+
+func TestTOTP_EnrollAndConfirm(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp@example.com")
+
+	// Enroll TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp@example.com", "TestApp")
+	testutil.NoError(t, err)
+	testutil.True(t, enrollment.FactorID != "", "should return factor ID")
+	testutil.True(t, enrollment.URI != "", "should return otpauth URI")
+	testutil.True(t, enrollment.Secret != "", "should return base32 secret")
+	testutil.Contains(t, enrollment.URI, "otpauth://totp/")
+	testutil.Contains(t, enrollment.URI, "TestApp")
+
+	// Decode secret and generate a valid TOTP code.
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+
+	// Confirm with wrong code should fail.
+	err = svc.ConfirmTOTPEnrollment(ctx, userID, "000000")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPInvalidCode), "wrong code should fail")
+
+	// Confirm with valid code should succeed.
+	err = svc.ConfirmTOTPEnrollment(ctx, userID, code)
+	testutil.NoError(t, err)
+
+	// Factor should now be enabled.
+	hasTOTP, err := svc.HasTOTPMFA(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.True(t, hasTOTP, "user should have TOTP enabled after confirm")
+}
+
+func TestTOTP_EnrollRejectsAlreadyEnrolled(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-dupe@example.com")
+
+	// Enroll and confirm TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp-dupe@example.com", "TestApp")
+	testutil.NoError(t, err)
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	testutil.NoError(t, svc.ConfirmTOTPEnrollment(ctx, userID, code))
+
+	// Second enrollment should fail.
+	_, err = svc.EnrollTOTP(ctx, userID, "totp-dupe@example.com", "TestApp")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPAlreadyEnrolled), "duplicate enroll should be rejected")
+}
+
+func TestTOTP_ChallengeAndVerify(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-cv@example.com")
+
+	// Enroll + confirm TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp-cv@example.com", "TestApp")
+	testutil.NoError(t, err)
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	testutil.NoError(t, svc.ConfirmTOTPEnrollment(ctx, userID, code))
+
+	// Create challenge.
+	challengeID, err := svc.CreateTOTPChallenge(ctx, userID, "127.0.0.1")
+	testutil.NoError(t, err)
+	testutil.True(t, challengeID != "", "should return challenge ID")
+
+	// Verify with wrong code.
+	_, _, _, err = svc.VerifyTOTPChallenge(ctx, userID, challengeID, "000000", "password")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPInvalidCode), "wrong code should fail")
+
+	// Verify with valid code (generate fresh for current step).
+	step = time.Now().Unix() / auth.TOTPPeriodForTest
+	validCode := auth.GenerateTOTPCodeForTest(secret, step)
+
+	// The challenge was already used for a failed attempt but that's fine — it's single-use only on success.
+	// Actually, per the code, wrong code doesn't mark challenge as used. Let me verify.
+	user, accessToken, refreshToken, err := svc.VerifyTOTPChallenge(ctx, userID, challengeID, validCode, "password")
+	testutil.NoError(t, err)
+	testutil.True(t, accessToken != "", "should return access token")
+	testutil.True(t, refreshToken != "", "should return refresh token")
+	testutil.NotNil(t, user)
+	testutil.Equal(t, userID, user.ID)
+}
+
+func TestTOTP_ChallengeRejectsSingleUse(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-single@example.com")
+
+	// Enroll + confirm TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp-single@example.com", "TestApp")
+	testutil.NoError(t, err)
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	testutil.NoError(t, svc.ConfirmTOTPEnrollment(ctx, userID, code))
+
+	// Create and verify challenge.
+	challengeID, err := svc.CreateTOTPChallenge(ctx, userID, "127.0.0.1")
+	testutil.NoError(t, err)
+	step = time.Now().Unix() / auth.TOTPPeriodForTest
+	validCode := auth.GenerateTOTPCodeForTest(secret, step)
+	_, _, _, err = svc.VerifyTOTPChallenge(ctx, userID, challengeID, validCode, "password")
+	testutil.NoError(t, err)
+
+	// Re-using the same challenge should fail.
+	step = time.Now().Unix() / auth.TOTPPeriodForTest
+	anotherCode := auth.GenerateTOTPCodeForTest(secret, step)
+	_, _, _, err = svc.VerifyTOTPChallenge(ctx, userID, challengeID, anotherCode, "password")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPChallengeUsed), "reused challenge should be rejected")
+}
+
+func TestTOTP_ReplayProtection(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-replay@example.com")
+
+	// Enroll + confirm TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp-replay@example.com", "TestApp")
+	testutil.NoError(t, err)
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	testutil.NoError(t, svc.ConfirmTOTPEnrollment(ctx, userID, code))
+
+	// First challenge + verify succeeds.
+	chal1, err := svc.CreateTOTPChallenge(ctx, userID, "127.0.0.1")
+	testutil.NoError(t, err)
+	step = time.Now().Unix() / auth.TOTPPeriodForTest
+	code1 := auth.GenerateTOTPCodeForTest(secret, step)
+	_, _, _, err = svc.VerifyTOTPChallenge(ctx, userID, chal1, code1, "password")
+	testutil.NoError(t, err)
+
+	// Second challenge with same code (same time step) should be rejected as replay.
+	chal2, err := svc.CreateTOTPChallenge(ctx, userID, "127.0.0.1")
+	testutil.NoError(t, err)
+	_, _, _, err = svc.VerifyTOTPChallenge(ctx, userID, chal2, code1, "password")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPReplay), "replayed code should be rejected")
+}
+
+func TestTOTP_ChallengeRequiresEnrolledFactor(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-nonenrolled@example.com")
+
+	// No TOTP enrolled — challenge should fail.
+	_, err := svc.CreateTOTPChallenge(ctx, userID, "127.0.0.1")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPNotEnrolled), "challenge without enrollment should fail")
+}
+
+func TestTOTP_ConfirmWithoutEnrollment(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-noconfirm@example.com")
+
+	// Confirm without enrollment should fail.
+	err := svc.ConfirmTOTPEnrollment(ctx, userID, "123456")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPNotEnrolled), "confirm without enrollment should fail")
+}
+
+func TestTOTP_CleanupUnverifiedEnrollments(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-cleanup@example.com")
+
+	// Start enrollment but don't confirm.
+	_, err := svc.EnrollTOTP(ctx, userID, "totp-cleanup@example.com", "TestApp")
+	testutil.NoError(t, err)
+
+	// Cleanup with 0 TTL should delete it.
+	err = svc.CleanupUnverifiedTOTPEnrollments(ctx, 0)
+	testutil.NoError(t, err)
+
+	// Factor should be gone — enrollment should succeed again (not get "already enrolled").
+	_, err = svc.EnrollTOTP(ctx, userID, "totp-cleanup@example.com", "TestApp")
+	testutil.NoError(t, err)
+}
+
+func TestTOTP_MFAFactors(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "totp-factors@example.com")
+
+	// No factors initially.
+	factors, err := svc.GetUserMFAFactors(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, factors, 0)
+
+	// Enroll + confirm TOTP.
+	enrollment, err := svc.EnrollTOTP(ctx, userID, "totp-factors@example.com", "TestApp")
+	testutil.NoError(t, err)
+	secret, err := base32Decode(enrollment.Secret)
+	testutil.NoError(t, err)
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	testutil.NoError(t, svc.ConfirmTOTPEnrollment(ctx, userID, code))
+
+	// Should now have 1 TOTP factor.
+	factors, err = svc.GetUserMFAFactors(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, factors, 1)
+	testutil.Equal(t, "totp", factors[0].Method)
+}
+
+// base32Decode decodes a base32 string (no padding) to bytes.
+func base32Decode(s string) ([]byte, error) {
+	return base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(s)
+}
+
+// --- Backup Code Integration Tests ---
+
+func TestBackupCodes_GenerateAndVerify(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup@example.com")
+
+	// Generate codes.
+	codes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, codes, 10)
+
+	// All codes should be in xxxxx-xxxxx format.
+	for _, code := range codes {
+		testutil.Equal(t, 11, len(code))
+		testutil.Contains(t, code, "-")
+	}
+
+	// Count should be 10.
+	count, err := svc.GetBackupCodeCount(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 10, count)
+
+	// Verify the first code.
+	err = svc.VerifyBackupCode(ctx, userID, codes[0])
+	testutil.NoError(t, err)
+
+	// Count should now be 9.
+	count, err = svc.GetBackupCodeCount(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 9, count)
+}
+
+func TestBackupCodes_SingleUse(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup-single@example.com")
+
+	codes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+
+	// Use code once — should work.
+	err = svc.VerifyBackupCode(ctx, userID, codes[0])
+	testutil.NoError(t, err)
+
+	// Use same code again — should fail.
+	err = svc.VerifyBackupCode(ctx, userID, codes[0])
+	testutil.True(t, errors.Is(err, auth.ErrBackupCodeInvalid), "reused backup code should be rejected")
+}
+
+func TestBackupCodes_InvalidCode(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup-invalid@example.com")
+
+	_, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+
+	// Invalid code should fail.
+	err = svc.VerifyBackupCode(ctx, userID, "zzzzz-zzzzz")
+	testutil.True(t, errors.Is(err, auth.ErrBackupCodeInvalid), "invalid code should be rejected")
+}
+
+func TestBackupCodes_RegenerateInvalidatesOld(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup-regen@example.com")
+
+	// Generate first set.
+	oldCodes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+
+	// Regenerate (GenerateBackupCodes deletes old codes first).
+	newCodes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, newCodes, 10)
+
+	// Old codes should no longer work.
+	err = svc.VerifyBackupCode(ctx, userID, oldCodes[0])
+	testutil.True(t, errors.Is(err, auth.ErrBackupCodeInvalid), "old codes should be invalidated")
+
+	// New codes should work.
+	err = svc.VerifyBackupCode(ctx, userID, newCodes[0])
+	testutil.NoError(t, err)
+}
+
+func TestBackupCodes_CaseInsensitive(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup-case@example.com")
+
+	codes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+
+	// Verify with uppercase version.
+	upper := strings.ToUpper(codes[0])
+	err = svc.VerifyBackupCode(ctx, userID, upper)
+	testutil.NoError(t, err)
+}
+
+func TestBackupCodes_VerifyMFA_IssuesAAL2Tokens(t *testing.T) {
+	svc := setupTOTPService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "backup-mfa@example.com")
+
+	codes, err := svc.GenerateBackupCodes(ctx, userID)
+	testutil.NoError(t, err)
+
+	// VerifyBackupCodeMFA should issue AAL2 tokens.
+	user, accessToken, refreshToken, err := svc.VerifyBackupCodeMFA(ctx, userID, codes[0], "password")
+	testutil.NoError(t, err)
+	testutil.True(t, accessToken != "", "should return access token")
+	testutil.True(t, refreshToken != "", "should return refresh token")
+	testutil.NotNil(t, user)
+	testutil.Equal(t, userID, user.ID)
+
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.False(t, claims.MFAPending, "verified token should not be MFA pending")
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, 2, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
+	testutil.Equal(t, "backup_code", claims.AMR[1])
+}
+
+// --- Email MFA Integration Tests ---
+
+func setupEmailMFAService(t *testing.T) *auth.Service {
+	t.Helper()
+	resetAndMigrate(t, t.Context())
+	svc := newAuthService()
+	// No mailer — email sending is a no-op, but challenge/verify flow still works.
+	return svc
+}
+
+type captureEmailMailer struct {
+	mu    sync.Mutex
+	calls []mailer.Message
+}
+
+func (m *captureEmailMailer) Send(_ context.Context, msg *mailer.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if msg == nil {
+		return nil
+	}
+	m.calls = append(m.calls, *msg)
+	return nil
+}
+
+func (m *captureEmailMailer) LastCode() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.calls) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(m.calls[len(m.calls)-1].Text)
+}
+
+type codeOnlyTemplateRenderer struct{}
+
+func (codeOnlyTemplateRenderer) RenderWithFallback(_ context.Context, _ string, vars map[string]string) (string, string, string, error) {
+	code := strings.TrimSpace(vars["Code"])
+	return "Test MFA code", code, code, nil
+}
+
+func setupEmailMFAServiceWithCapture(t *testing.T) (*auth.Service, *captureEmailMailer) {
+	t.Helper()
+	resetAndMigrate(t, t.Context())
+	svc := newAuthService()
+	capture := &captureEmailMailer{}
+	svc.SetMailer(capture, "TestApp", "http://localhost:8090/api")
+	svc.SetEmailTemplateService(codeOnlyTemplateRenderer{})
+	return svc, capture
+}
+
+func TestEmailMFA_EnrollAndConfirm(t *testing.T) {
+	svc, capture := setupEmailMFAServiceWithCapture(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "emailmfa@example.com")
+
+	// Enroll email MFA.
+	err := svc.EnrollEmailMFA(ctx, userID, "emailmfa@example.com")
+	testutil.NoError(t, err)
+
+	// Retrieve the code from the challenge row directly (no mailer in test).
+	var challengeID string
+	var codeHash string
+	err = svc.DB().QueryRow(ctx,
+		`SELECT c.id, c.otp_code_hash FROM _ayb_mfa_challenges c
+		 JOIN _ayb_user_mfa f ON f.id = c.factor_id
+		 WHERE f.user_id = $1 AND f.method = 'email'
+		 ORDER BY c.created_at DESC LIMIT 1`, userID,
+	).Scan(&challengeID, &codeHash)
+	testutil.NoError(t, err)
+	testutil.True(t, codeHash != "", "should have stored code hash")
+
+	// Wrong code should fail.
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, "000000")
+	testutil.True(t, errors.Is(err, auth.ErrEmailMFAInvalidCode), "wrong code should fail")
+
+	// Verify wrong-code attempt incremented attempt_count.
+	var attemptCount int
+	err = svc.DB().QueryRow(ctx,
+		`SELECT attempt_count FROM _ayb_mfa_challenges WHERE id = $1`, challengeID,
+	).Scan(&attemptCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, attemptCount)
+
+	// Confirm with the real code captured from email.
+	code := capture.LastCode()
+	testutil.True(t, code != "", "should capture enrollment code")
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, code)
+	testutil.NoError(t, err)
+
+	// Factor should now be enabled.
+	var enabled bool
+	err = svc.DB().QueryRow(ctx,
+		`SELECT enabled FROM _ayb_user_mfa WHERE user_id = $1 AND method = 'email'`, userID,
+	).Scan(&enabled)
+	testutil.NoError(t, err)
+	testutil.True(t, enabled, "email MFA factor should be enabled after confirmation")
+}
+
+func TestEmailMFA_AttemptCountProgression(t *testing.T) {
+	svc := setupEmailMFAService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "emailmfa-attempts@example.com")
+
+	err := svc.EnrollEmailMFA(ctx, userID, "emailmfa-attempts@example.com")
+	testutil.NoError(t, err)
+
+	// Make 5 wrong attempts — should increment attempt_count to 5.
+	for i := 0; i < 5; i++ {
+		err = svc.ConfirmEmailMFAEnrollment(ctx, userID, "000000")
+		testutil.True(t, errors.Is(err, auth.ErrEmailMFAInvalidCode), "wrong code should fail")
+	}
+
+	// 6th attempt should still fail (code invalidated after 5 failures).
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, "000000")
+	testutil.True(t, errors.Is(err, auth.ErrEmailMFAInvalidCode), "should reject after max attempts")
+
+	// Verify attempt_count in DB is 5 (should stop incrementing at max).
+	var challengeID string
+	var attemptCount int
+	err = svc.DB().QueryRow(ctx,
+		`SELECT c.id, c.attempt_count FROM _ayb_mfa_challenges c
+		 JOIN _ayb_user_mfa f ON f.id = c.factor_id
+		 WHERE f.user_id = $1 AND f.method = 'email'
+		 ORDER BY c.created_at DESC LIMIT 1`, userID,
+	).Scan(&challengeID, &attemptCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 5, attemptCount)
+}
+
+func TestEmailMFA_ChallengeRateLimit(t *testing.T) {
+	svc := setupEmailMFAService(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "emailmfa-rate@example.com")
+
+	// Enroll and confirm email MFA by directly inserting an enabled factor.
+	_, err := svc.DB().Exec(ctx,
+		`INSERT INTO _ayb_user_mfa (user_id, method, enabled, enrolled_at)
+		 VALUES ($1, 'email', true, NOW())`, userID)
+	testutil.NoError(t, err)
+
+	// Create 3 challenges (the max per 10 min).
+	for i := 0; i < 3; i++ {
+		_, err = svc.ChallengeEmailMFA(ctx, userID, "emailmfa-rate@example.com")
+		testutil.NoError(t, err)
+	}
+
+	// 4th challenge should be rate-limited.
+	_, err = svc.ChallengeEmailMFA(ctx, userID, "emailmfa-rate@example.com")
+	testutil.True(t, errors.Is(err, auth.ErrEmailMFARateLimit), "4th challenge should be rate limited")
+}
+
+func TestEmailMFA_VerifyRejectsUnverifiedEnrollmentChallenge(t *testing.T) {
+	svc, capture := setupEmailMFAServiceWithCapture(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "emailmfa-unverified@example.com")
+
+	// Enrollment creates an unverified factor plus challenge code.
+	err := svc.EnrollEmailMFA(ctx, userID, "emailmfa-unverified@example.com")
+	testutil.NoError(t, err)
+
+	code := capture.LastCode()
+	testutil.True(t, code != "", "should capture enrollment code")
+
+	var challengeID string
+	err = svc.DB().QueryRow(ctx,
+		`SELECT c.id FROM _ayb_mfa_challenges c
+		 JOIN _ayb_user_mfa f ON f.id = c.factor_id
+		 WHERE f.user_id = $1 AND f.method = 'email'
+		 ORDER BY c.created_at DESC LIMIT 1`,
+		userID,
+	).Scan(&challengeID)
+	testutil.NoError(t, err)
+
+	user, accessToken, refreshToken, err := svc.VerifyEmailMFA(ctx, userID, challengeID, code, "password")
+	testutil.True(t, errors.Is(err, auth.ErrTOTPChallengeNotFound), "verify should reject enrollment challenge from unverified factor")
+	testutil.Nil(t, user)
+	testutil.Equal(t, "", accessToken)
+	testutil.Equal(t, "", refreshToken)
+}
+
+func TestEmailMFA_ChallengeAndVerifyIssuesAAL2Tokens(t *testing.T) {
+	svc, capture := setupEmailMFAServiceWithCapture(t)
+	ctx := t.Context()
+
+	email := "emailmfa-verify@example.com"
+	userID := registerNamedUser(t, svc, email)
+
+	// Enroll + confirm factor first.
+	err := svc.EnrollEmailMFA(ctx, userID, email)
+	testutil.NoError(t, err)
+	enrollCode := capture.LastCode()
+	testutil.True(t, enrollCode != "", "should capture enrollment code")
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, enrollCode)
+	testutil.NoError(t, err)
+
+	// Create verify challenge for enabled factor.
+	challengeID, err := svc.ChallengeEmailMFA(ctx, userID, email)
+	testutil.NoError(t, err)
+	testutil.True(t, challengeID != "", "should return challenge ID")
+	verifyCode := capture.LastCode()
+	testutil.True(t, verifyCode != "", "should capture challenge code")
+
+	user, accessToken, refreshToken, err := svc.VerifyEmailMFA(ctx, userID, challengeID, verifyCode, "password")
+	testutil.NoError(t, err)
+	testutil.NotNil(t, user)
+	testutil.Equal(t, userID, user.ID)
+	testutil.True(t, accessToken != "", "should return access token")
+	testutil.True(t, refreshToken != "", "should return refresh token")
+
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.False(t, claims.MFAPending, "verified token should not be MFA pending")
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, 2, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
+	testutil.Equal(t, "email_otp", claims.AMR[1])
+}
+
+// --- Anonymous Auth Integration Tests ---
+
+func TestAnonymous_CreateUser(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	user, accessToken, refreshToken, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	testutil.NotNil(t, user)
+	testutil.True(t, user.IsAnonymous, "user should be anonymous")
+	testutil.Equal(t, "", user.Email)
+	testutil.True(t, accessToken != "", "should return access token")
+	testutil.True(t, refreshToken != "", "should return refresh token")
+
+	// Token should have is_anonymous claim.
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.True(t, claims.IsAnonymous, "JWT should have is_anonymous=true")
+	testutil.Equal(t, "aal1", claims.AAL)
+}
+
+func TestAnonymous_LinkEmail_PreservesUserID(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Create anonymous user.
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	originalID := anonUser.ID
+
+	// Link email.
+	linkedUser, accessToken, _, err := svc.LinkEmail(ctx, originalID, "linked@example.com", "password123")
+	testutil.NoError(t, err)
+	testutil.Equal(t, originalID, linkedUser.ID)
+	testutil.False(t, linkedUser.IsAnonymous, "user should no longer be anonymous")
+	testutil.Equal(t, "linked@example.com", linkedUser.Email)
+	testutil.NotNil(t, linkedUser.LinkedAt)
+
+	// New token should not have is_anonymous.
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.False(t, claims.IsAnonymous, "linked user JWT should have is_anonymous=false")
+}
+
+func TestAnonymous_LinkEmail_Conflict(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Register a normal user with this email first.
+	_, _, _, err := svc.Register(ctx, "taken@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Create anonymous user and try to link with the same email.
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+
+	_, _, _, err = svc.LinkEmail(ctx, anonUser.ID, "taken@example.com", "password123")
+	testutil.True(t, errors.Is(err, auth.ErrLinkConflict), "should fail with link conflict")
+}
+
+func TestAnonymous_LinkEmail_NotAnonymous(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Register a normal user.
+	user, _, _, err := svc.Register(ctx, "normal@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Try to link — should fail because user is not anonymous.
+	_, _, _, err = svc.LinkEmail(ctx, user.ID, "other@example.com", "password123")
+	testutil.True(t, errors.Is(err, auth.ErrNotAnonymous), "should reject non-anonymous user")
+}
+
+func TestAnonymous_LinkEmail_DoubleLink(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+
+	// First link succeeds.
+	_, _, _, err = svc.LinkEmail(ctx, anonUser.ID, "first@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Second link fails — user is no longer anonymous.
+	_, _, _, err = svc.LinkEmail(ctx, anonUser.ID, "second@example.com", "password123")
+	testutil.True(t, errors.Is(err, auth.ErrNotAnonymous), "double-link should fail")
+}
+
+func TestAnonymous_LinkOAuth(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	originalID := anonUser.ID
+
+	info := &auth.OAuthUserInfo{
+		ProviderUserID: "github-12345",
+		Email:          "oauth@example.com",
+		Name:           "OAuth User",
+	}
+	linkedUser, accessToken, _, err := svc.LinkOAuth(ctx, originalID, "github", info)
+	testutil.NoError(t, err)
+	testutil.Equal(t, originalID, linkedUser.ID)
+	testutil.False(t, linkedUser.IsAnonymous, "should no longer be anonymous")
+	testutil.Equal(t, "oauth@example.com", linkedUser.Email)
+
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.False(t, claims.IsAnonymous, "linked user JWT should not be anonymous")
+}
+
+func TestAnonymous_LinkOAuth_Conflict(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Create first anonymous user and link with a GitHub identity.
+	anon1, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	_, _, _, err = svc.LinkOAuth(ctx, anon1.ID, "github", &auth.OAuthUserInfo{
+		ProviderUserID: "github-99",
+		Email:          "first-oauth@example.com",
+		Name:           "First",
+	})
+	testutil.NoError(t, err)
+
+	// Create second anonymous user and try to link with the same GitHub identity.
+	anon2, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	_, _, _, err = svc.LinkOAuth(ctx, anon2.ID, "github", &auth.OAuthUserInfo{
+		ProviderUserID: "github-99",
+		Email:          "second-oauth@example.com",
+		Name:           "Second",
+	})
+	testutil.True(t, errors.Is(err, auth.ErrOAuthLinkConflict), "duplicate provider identity should conflict")
+}
+
+func TestAnonymous_Cleanup(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Create two anonymous users.
+	_, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	_, _, _, err = svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+
+	// Cleanup with zero TTL should delete all (they were just created, but 0 TTL means cutoff is now).
+	// Actually, zero TTL means cutoff = now, so users created_at < now should be caught.
+	// Wait briefly to ensure created_at is before the cutoff.
+	time.Sleep(10 * time.Millisecond)
+
+	count, err := svc.CleanupAnonymousUsers(ctx, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, int64(2), count)
+
+	// Create one more, link it, then cleanup — linked user should survive.
+	anon, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	_, _, _, err = svc.LinkEmail(ctx, anon.ID, "survivor@example.com", "password123")
+	testutil.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+	count, err = svc.CleanupAnonymousUsers(ctx, 0)
+	testutil.NoError(t, err)
+	testutil.Equal(t, int64(0), count)
+}
+
+func TestAnonymous_LoginAfterLink(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Create anonymous user and link with email.
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	_, _, _, err = svc.LinkEmail(ctx, anonUser.ID, "logintest@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Should be able to login with email/password now.
+	user, accessToken, _, err := svc.Login(ctx, "logintest@example.com", "password123")
+	testutil.NoError(t, err)
+	testutil.Equal(t, anonUser.ID, user.ID)
+	testutil.False(t, user.IsAnonymous, "logged-in linked user should not be anonymous")
+
+	claims, err := svc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.False(t, claims.IsAnonymous, "login token should not be anonymous")
+	testutil.Equal(t, "aal1", claims.AAL)
+}
+
+func setupAnonymousService(t *testing.T) *auth.Service {
+	t.Helper()
+	resetAndMigrate(t, t.Context())
+	return newAuthService()
+}
+
+// --- Anonymous Auth API (HTTP Handler) Tests ---
+
+func setupAnonymousServer(t *testing.T) *server.Server {
+	t.Helper()
+	ctx := t.Context()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	cfg.Auth.AnonymousAuthEnabled = true
+	cfg.Auth.TOTPEnabled = true
+	cfg.Auth.EmailMFAEnabled = true
+
+	authSvc := newAuthService()
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	if err := authSvc.SetEncryptionKey(key); err != nil {
+		t.Fatalf("setting encryption key: %v", err)
+	}
+	return server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+}
+
+func TestAnonymousAPI_SignIn(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	resp := parseAuthResp(t, w)
+	testutil.True(t, resp.Token != "", "should return access token")
+	testutil.True(t, resp.RefreshToken != "", "should return refresh token")
+	testutil.True(t, resp.User["is_anonymous"] == true, "user should be anonymous")
+}
+
+func TestAnonymousAPI_Disabled(t *testing.T) {
+	ctx := t.Context()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	// AnonymousAuthEnabled defaults to false.
+
+	authSvc := newAuthService()
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "not enabled")
+}
+
+func TestAnonymousAPI_LinkEmail_Success(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	// Create anonymous user.
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	anonResp := parseAuthResp(t, w)
+	anonID := anonResp.User["id"].(string)
+
+	// Link email.
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "apilink@example.com", "password": "password123",
+	}, anonResp.Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	linkResp := parseAuthResp(t, w)
+	testutil.Equal(t, anonID, linkResp.User["id"].(string))
+	testutil.True(t, linkResp.User["is_anonymous"] == false || linkResp.User["is_anonymous"] == nil,
+		"linked user should not be anonymous")
+}
+
+func TestAnonymousAPI_LinkEmail_Conflict(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	// Register a normal user first.
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "existing@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	// Create anonymous user.
+	w = doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	anonResp := parseAuthResp(t, w)
+
+	// Link with existing email — should get 409.
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "existing@example.com", "password": "password123",
+	}, anonResp.Token)
+	testutil.StatusCode(t, http.StatusConflict, w.Code)
+	testutil.Contains(t, w.Body.String(), "already belongs")
+}
+
+func TestAnonymousAPI_MFAEnrollBlocked(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	// Create anonymous user.
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	anonResp := parseAuthResp(t, w)
+
+	// Try TOTP enroll — should be blocked for anonymous user.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/enroll", nil, anonResp.Token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "link your account")
+
+	// Try email MFA enroll — should also be blocked.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, anonResp.Token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "link your account")
+}
+
+func TestAnonymousAPI_LinkThenLogin(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	// Create anonymous user and link email.
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	anonResp := parseAuthResp(t, w)
+	originalID := anonResp.User["id"].(string)
+
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "linklogin@example.com", "password": "password123",
+	}, anonResp.Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Login with the linked credentials.
+	w = doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "linklogin@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	loginResp := parseAuthResp(t, w)
+	testutil.Equal(t, originalID, loginResp.User["id"].(string))
+}
+
+func TestAnonymousAPI_LinkEmail_MissingFields(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	w := doJSON(t, srv, "POST", "/api/auth/anonymous", nil, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	anonResp := parseAuthResp(t, w)
+
+	// Missing email.
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"password": "password123",
+	}, anonResp.Token)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+
+	// Missing password.
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "test@example.com",
+	}, anonResp.Token)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAnonymousAPI_LinkEmail_NotAuthenticated(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	w := doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "test@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAnonymousAPI_LinkEmail_NotAnonymous(t *testing.T) {
+	srv := setupAnonymousServer(t)
+
+	// Register a normal user.
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": "normal@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	normalResp := parseAuthResp(t, w)
+
+	// Try to link as a non-anonymous user — should get 403.
+	w = doJSON(t, srv, "POST", "/api/auth/link/email", map[string]string{
+		"email": "other@example.com", "password": "password123",
+	}, normalResp.Token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "only anonymous")
+}
+
+// =======================================================================
+// TOTP MFA API Tests (HTTP-level)
+// =======================================================================
+
+// setupMFAAPIServer creates a server with TOTP, email MFA, anonymous auth, and a
+// capture mailer for email MFA tests.
+func setupMFAAPIServer(t *testing.T) (*server.Server, *auth.Service, *captureEmailMailer) {
+	t.Helper()
+	ctx := t.Context()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	cfg.Auth.TOTPEnabled = true
+	cfg.Auth.EmailMFAEnabled = true
+	cfg.Auth.AnonymousAuthEnabled = true
+	cfg.Auth.RateLimit = 500 // high limit for tests
+
+	authSvc := newAuthService()
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	if err := authSvc.SetEncryptionKey(key); err != nil {
+		t.Fatalf("setting encryption key: %v", err)
+	}
+
+	capture := &captureEmailMailer{}
+	authSvc.SetMailer(capture, "TestApp", "http://localhost:8090/api")
+	authSvc.SetEmailTemplateService(codeOnlyTemplateRenderer{})
+
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+	return srv, authSvc, capture
+}
+
+// enrollTOTPViaAPI enrolls and confirms TOTP for a user via HTTP. Returns
+// the decoded TOTP secret bytes so the caller can generate codes.
+func enrollTOTPViaAPI(t *testing.T, srv *server.Server, authSvc *auth.Service, token string) []byte {
+	t.Helper()
+
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/enroll", nil, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var enrollResp struct {
+		FactorID string `json:"factor_id"`
+		URI      string `json:"uri"`
+		Secret   string `json:"secret"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &enrollResp))
+	testutil.True(t, enrollResp.Secret != "", "should return base32 secret")
+
+	secret, err := base32Decode(enrollResp.Secret)
+	testutil.NoError(t, err)
+
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/enroll/confirm", map[string]string{
+		"code": code,
+	}, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	return secret
+}
+
+func TestTOTPAPI_EnrollConfirmChallengeVerify_HappyPath(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "totp-api-happy@example.com")
+
+	// Enroll + confirm TOTP via API.
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// Login to get MFA pending token.
+	w := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
+		"email": "totp-api-happy@example.com", "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var loginResp map[string]any
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &loginResp))
+	testutil.Equal(t, true, loginResp["mfa_pending"].(bool))
+	pendingToken := loginResp["mfa_token"].(string)
+
+	// Get factors.
+	w = doJSON(t, srv, "GET", "/api/auth/mfa/factors", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var factorsResp struct {
+		Factors []map[string]any `json:"factors"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &factorsResp))
+	testutil.True(t, len(factorsResp.Factors) >= 1, "should have at least one factor")
+	testutil.Equal(t, "totp", factorsResp.Factors[0]["method"])
+
+	// Challenge.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	testutil.True(t, chalResp.ChallengeID != "", "should return challenge ID")
+
+	// Verify with valid code.
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	resp := parseAuthResp(t, w)
+	testutil.True(t, resp.Token != "", "should return access token")
+	testutil.True(t, resp.RefreshToken != "", "should return refresh token")
+
+	// Verify the token has AAL2.
+	claims, err := authSvc.ValidateToken(resp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, 2, len(claims.AMR))
+	testutil.Equal(t, "password", claims.AMR[0])
+	testutil.Equal(t, "totp", claims.AMR[1])
+}
+
+func TestTOTPAPI_ReplayRejection(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "totp-api-replay@example.com")
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// Login to get MFA pending token.
+	pendingToken := loginAndGetPendingToken(t, srv, "totp-api-replay@example.com")
+
+	// Challenge and verify.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Second login — get a new pending token.
+	pendingToken2 := loginAndGetPendingToken(t, srv, "totp-api-replay@example.com")
+
+	// New challenge, but same TOTP code (same time step) — should be rejected as replay.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken2)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp2 struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp2))
+
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp2.ChallengeID,
+		"code":         code, // same code — replay
+	}, pendingToken2)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+	testutil.Contains(t, w.Body.String(), "already used")
+}
+
+func TestTOTPAPI_ChallengeAlreadyVerified(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "totp-api-used@example.com")
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	pendingToken := loginAndGetPendingToken(t, srv, "totp-api-used@example.com")
+
+	// Challenge.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+
+	// Verify — success.
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Re-use same challenge — should fail with 409 Conflict.
+	step2 := time.Now().Unix()/auth.TOTPPeriodForTest + 1
+	code2 := auth.GenerateTOTPCodeForTest(secret, step2)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code2,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusConflict, w.Code)
+	testutil.Contains(t, w.Body.String(), "already verified")
+}
+
+func TestTOTPAPI_WrongCode(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "totp-api-wrong@example.com")
+	enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	pendingToken := loginAndGetPendingToken(t, srv, "totp-api-wrong@example.com")
+
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         "000000",
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid TOTP code")
+}
+
+func TestTOTPAPI_EnrollAlreadyEnrolled(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "totp-api-dupe@example.com")
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// After enrollment, user has an existing MFA factor. AAL2 is required
+	// before the duplicate-enrollment check runs. AAL1 token → 403 (need AAL2).
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/enroll", nil, token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "AAL2")
+
+	// Get an AAL2 token and re-try — now should get 409 Conflict.
+	pendingToken := loginAndGetPendingToken(t, srv, "totp-api-dupe@example.com")
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	aal2Token := parseAuthResp(t, w).Token
+
+	// With AAL2 token, should get 409 for duplicate enrollment.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/enroll", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusConflict, w.Code)
+	testutil.Contains(t, w.Body.String(), "already enrolled")
+}
+
+func TestTOTPAPI_Disabled(t *testing.T) {
+	ctx := t.Context()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	// TOTPEnabled defaults to false.
+
+	authSvc := newAuthService()
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+	token := registerAndGetToken(t, srv, "totp-disabled@example.com")
+
+	for _, ep := range []string{
+		"/api/auth/mfa/totp/enroll",
+		"/api/auth/mfa/totp/enroll/confirm",
+		"/api/auth/mfa/totp/challenge",
+		"/api/auth/mfa/totp/verify",
+	} {
+		w := doJSON(t, srv, "POST", ep, map[string]string{}, token)
+		testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	}
+}
+
+// =======================================================================
+// Backup Code API Tests (HTTP-level)
+// =======================================================================
+
+func TestBackupCodeAPI_GenerateVerifyReuse(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "backup-api@example.com")
+
+	// Enroll TOTP first (need MFA to get AAL2 for backup generation).
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// Login -> MFA -> get AAL2 token.
+	pendingToken := loginAndGetPendingToken(t, srv, "backup-api@example.com")
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	aal2Resp := parseAuthResp(t, w)
+	aal2Token := aal2Resp.Token
+
+	// Generate backup codes (requires AAL2).
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/generate", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var genResp struct {
+		Codes []string `json:"codes"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &genResp))
+	testutil.Equal(t, 10, len(genResp.Codes))
+
+	// Check count.
+	w = doJSON(t, srv, "GET", "/api/auth/mfa/backup/count", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var countResp struct {
+		Remaining int `json:"remaining"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &countResp))
+	testutil.Equal(t, 10, countResp.Remaining)
+
+	// Login again to get fresh pending token for backup verify.
+	pendingToken2 := loginAndGetPendingToken(t, srv, "backup-api@example.com")
+
+	// Verify with backup code.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/verify", map[string]string{
+		"code": genResp.Codes[0],
+	}, pendingToken2)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	backupResp := parseAuthResp(t, w)
+	testutil.True(t, backupResp.Token != "", "should return access token")
+
+	claims, err := authSvc.ValidateToken(backupResp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, "backup_code", claims.AMR[1])
+
+	// Reuse same backup code — should fail.
+	pendingToken3 := loginAndGetPendingToken(t, srv, "backup-api@example.com")
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/verify", map[string]string{
+		"code": genResp.Codes[0],
+	}, pendingToken3)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid or already used")
+}
+
+func TestBackupCodeAPI_GenerateRequiresAAL2(t *testing.T) {
+	srv, _, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "backup-api-aal1@example.com")
+
+	// AAL1 token → should be rejected.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/backup/generate", nil, token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "insufficient_aal")
+}
+
+func TestBackupCodeAPI_RegenerateInvalidatesOld(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "backup-api-regen@example.com")
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// Get AAL2 token.
+	pendingToken := loginAndGetPendingToken(t, srv, "backup-api-regen@example.com")
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	aal2Token := parseAuthResp(t, w).Token
+
+	// Generate first set.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/generate", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var firstCodes struct {
+		Codes []string `json:"codes"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &firstCodes))
+
+	// Regenerate.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/regenerate", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var newCodes struct {
+		Codes []string `json:"codes"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &newCodes))
+	testutil.Equal(t, 10, len(newCodes.Codes))
+
+	// Old code should no longer work.
+	pendingToken2 := loginAndGetPendingToken(t, srv, "backup-api-regen@example.com")
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/verify", map[string]string{
+		"code": firstCodes.Codes[0],
+	}, pendingToken2)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+
+	// New code should work.
+	pendingToken3 := loginAndGetPendingToken(t, srv, "backup-api-regen@example.com")
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/verify", map[string]string{
+		"code": newCodes.Codes[0],
+	}, pendingToken3)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+}
+
+// =======================================================================
+// Email MFA API Tests (HTTP-level)
+// =======================================================================
+
+func TestEmailMFAAPI_EnrollConfirmChallengeVerify(t *testing.T) {
+	srv, authSvc, capture := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "emailmfa-api@example.com")
+
+	// Enroll email MFA.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	enrollCode := capture.LastCode()
+	testutil.True(t, enrollCode != "", "should send enrollment code via email")
+
+	// Confirm enrollment.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll/confirm", map[string]string{
+		"code": enrollCode,
+	}, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	// Login to get MFA pending token.
+	pendingToken := loginAndGetPendingToken(t, srv, "emailmfa-api@example.com")
+
+	// Challenge.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	testutil.True(t, chalResp.ChallengeID != "", "should return challenge ID")
+
+	verifyCode := capture.LastCode()
+	testutil.True(t, verifyCode != "", "should send challenge code via email")
+
+	// Verify.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         verifyCode,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	resp := parseAuthResp(t, w)
+	testutil.True(t, resp.Token != "", "should return access token")
+
+	claims, err := authSvc.ValidateToken(resp.Token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "aal2", claims.AAL)
+	testutil.Equal(t, "email_otp", claims.AMR[1])
+}
+
+func TestEmailMFAAPI_WrongCode(t *testing.T) {
+	srv, _, capture := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "emailmfa-api-wrong@example.com")
+
+	// Enroll + confirm.
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, token)
+	enrollCode := capture.LastCode()
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll/confirm", map[string]string{
+		"code": enrollCode,
+	}, token)
+
+	// Login -> challenge.
+	pendingToken := loginAndGetPendingToken(t, srv, "emailmfa-api-wrong@example.com")
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/email/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+
+	// Verify with wrong code.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         "000000",
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid email MFA code")
+}
+
+func TestEmailMFAAPI_ChallengeRateLimit(t *testing.T) {
+	srv, _, capture := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "emailmfa-api-ratelimit@example.com")
+
+	// Enroll + confirm. Enrollment creates 1 challenge (the enrollment code).
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, token)
+	enrollCode := capture.LastCode()
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll/confirm", map[string]string{
+		"code": enrollCode,
+	}, token)
+
+	pendingToken := loginAndGetPendingToken(t, srv, "emailmfa-api-ratelimit@example.com")
+
+	// Enrollment already consumed 1 of the 3 challenges in the rate-limit window.
+	// Issue 2 more challenges (reaching the max of 3).
+	for i := 0; i < 2; i++ {
+		w := doJSON(t, srv, "POST", "/api/auth/mfa/email/challenge", nil, pendingToken)
+		testutil.StatusCode(t, http.StatusOK, w.Code)
+	}
+
+	// Next challenge should be rate-limited.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/email/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusTooManyRequests, w.Code)
+	testutil.Contains(t, w.Body.String(), "too many email challenges")
+}
+
+func TestEmailMFAAPI_Disabled(t *testing.T) {
+	ctx := t.Context()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	// EmailMFAEnabled defaults to false.
+
+	authSvc := newAuthService()
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+	token := registerAndGetToken(t, srv, "emailmfa-disabled@example.com")
+
+	for _, ep := range []string{
+		"/api/auth/mfa/email/enroll",
+		"/api/auth/mfa/email/enroll/confirm",
+		"/api/auth/mfa/email/challenge",
+		"/api/auth/mfa/email/verify",
+	} {
+		w := doJSON(t, srv, "POST", ep, map[string]string{}, token)
+		testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	}
+}
+
+// =======================================================================
+// AAL Enforcement API Tests
+// =======================================================================
+
+func TestAALEnforcement_ProtectedRouteRejectsAAL1(t *testing.T) {
+	srv, authSvc, _ := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "aal-enforce@example.com")
+	secret := enrollTOTPViaAPI(t, srv, authSvc, token)
+
+	// AAL1 token should be rejected on backup/generate (AAL2-protected).
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/backup/generate", nil, token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "insufficient_aal")
+
+	// AAL1 token should be rejected on backup/regenerate (AAL2-protected).
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/regenerate", nil, token)
+	testutil.StatusCode(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "insufficient_aal")
+
+	// Get AAL2 token.
+	pendingToken := loginAndGetPendingToken(t, srv, "aal-enforce@example.com")
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	step := time.Now().Unix() / auth.TOTPPeriodForTest
+	code := auth.GenerateTOTPCodeForTest(secret, step)
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/totp/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         code,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	aal2Token := parseAuthResp(t, w).Token
+
+	// AAL2 token should be accepted on backup/generate.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/backup/generate", nil, aal2Token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+}
+
+// =======================================================================
+// Email MFA Code Expiry Test
+// =======================================================================
+
+func TestEmailMFA_CodeExpiry_EnrollConfirmExpired(t *testing.T) {
+	svc, capture := setupEmailMFAServiceWithCapture(t)
+	ctx := t.Context()
+
+	userID := registerNamedUser(t, svc, "emailmfa-expiry@example.com")
+
+	// Enroll email MFA.
+	err := svc.EnrollEmailMFA(ctx, userID, "emailmfa-expiry@example.com")
+	testutil.NoError(t, err)
+
+	code := capture.LastCode()
+	testutil.True(t, code != "", "should capture enrollment code")
+
+	// Expire the challenge by setting expires_at to the past.
+	_, err = svc.DB().Exec(ctx,
+		`UPDATE _ayb_mfa_challenges SET expires_at = NOW() - INTERVAL '1 hour'
+		 WHERE factor_id IN (SELECT id FROM _ayb_user_mfa WHERE user_id = $1 AND method = 'email')`,
+		userID,
+	)
+	testutil.NoError(t, err)
+
+	// Confirm with valid code should fail with expired error.
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, code)
+	testutil.True(t, errors.Is(err, auth.ErrEmailMFAExpired), "expired code should return ErrEmailMFAExpired")
+}
+
+func TestEmailMFA_CodeExpiry_VerifyChallengeExpired(t *testing.T) {
+	svc, capture := setupEmailMFAServiceWithCapture(t)
+	ctx := t.Context()
+
+	email := "emailmfa-verify-expiry@example.com"
+	userID := registerNamedUser(t, svc, email)
+
+	// Enroll + confirm factor.
+	err := svc.EnrollEmailMFA(ctx, userID, email)
+	testutil.NoError(t, err)
+	enrollCode := capture.LastCode()
+	err = svc.ConfirmEmailMFAEnrollment(ctx, userID, enrollCode)
+	testutil.NoError(t, err)
+
+	// Create verification challenge.
+	challengeID, err := svc.ChallengeEmailMFA(ctx, userID, email)
+	testutil.NoError(t, err)
+	verifyCode := capture.LastCode()
+
+	// Expire the challenge.
+	_, err = svc.DB().Exec(ctx,
+		`UPDATE _ayb_mfa_challenges SET expires_at = NOW() - INTERVAL '1 hour' WHERE id = $1`,
+		challengeID,
+	)
+	testutil.NoError(t, err)
+
+	// Verify should fail with expired error.
+	_, _, _, err = svc.VerifyEmailMFA(ctx, userID, challengeID, verifyCode, "password")
+	testutil.True(t, errors.Is(err, auth.ErrEmailMFAExpired), "expired challenge should return ErrEmailMFAExpired")
+}
+
+func TestEmailMFAAPI_ExpiredChallenge(t *testing.T) {
+	srv, _, capture := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "emailmfa-api-expiry@example.com")
+
+	// Enroll + confirm.
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, token)
+	enrollCode := capture.LastCode()
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll/confirm", map[string]string{
+		"code": enrollCode,
+	}, token)
+
+	// Login → challenge.
+	pendingToken := loginAndGetPendingToken(t, srv, "emailmfa-api-expiry@example.com")
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/email/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var chalResp struct {
+		ChallengeID string `json:"challenge_id"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &chalResp))
+	verifyCode := capture.LastCode()
+
+	// Expire the challenge directly in DB.
+	_, err := sharedPG.Pool.Exec(t.Context(),
+		`UPDATE _ayb_mfa_challenges SET expires_at = NOW() - INTERVAL '1 hour' WHERE id = $1`,
+		chalResp.ChallengeID,
+	)
+	testutil.NoError(t, err)
+
+	// Verify should return 410 Gone.
+	w = doJSON(t, srv, "POST", "/api/auth/mfa/email/verify", map[string]string{
+		"challenge_id": chalResp.ChallengeID,
+		"code":         verifyCode,
+	}, pendingToken)
+	testutil.StatusCode(t, http.StatusGone, w.Code)
+	testutil.Contains(t, w.Body.String(), "expired")
+}
+
+// =======================================================================
+// Wrong Factor Type Error Tests
+// =======================================================================
+
+func TestWrongFactorType_TOTPChallengeWithoutEnrollment(t *testing.T) {
+	srv, _, capture := setupMFAAPIServer(t)
+	token, _ := registerForMFA(t, srv, "wrong-factor@example.com")
+
+	// Enroll email MFA (not TOTP).
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll", nil, token)
+	enrollCode := capture.LastCode()
+	doJSON(t, srv, "POST", "/api/auth/mfa/email/enroll/confirm", map[string]string{
+		"code": enrollCode,
+	}, token)
+
+	// Login → pending token.
+	pendingToken := loginAndGetPendingToken(t, srv, "wrong-factor@example.com")
+
+	// Try TOTP challenge with no TOTP enrolled → should fail.
+	w := doJSON(t, srv, "POST", "/api/auth/mfa/totp/challenge", nil, pendingToken)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "no TOTP factor enrolled")
+}
+
+// --- ListUsers Integration Tests ---
+
+func TestListUsers_IncludesAnonymousUsersWithNullEmail(t *testing.T) {
+	svc := setupAnonymousService(t)
+	ctx := t.Context()
+
+	// Create a regular user with email.
+	_, _, _, err := svc.Register(ctx, "regular@example.com", "password123!")
+	testutil.NoError(t, err)
+
+	// Create an anonymous user (email will be NULL in the DB).
+	anonUser, _, _, err := svc.CreateAnonymousUser(ctx)
+	testutil.NoError(t, err)
+	testutil.True(t, anonUser.IsAnonymous, "user should be anonymous")
+
+	// ListUsers must succeed even when anonymous users with NULL email exist.
+	result, err := svc.ListUsers(ctx, 1, 20, "")
+	testutil.NoError(t, err)
+	testutil.True(t, result.TotalItems == 2, fmt.Sprintf("expected 2 users, got %d", result.TotalItems))
+	testutil.True(t, len(result.Items) == 2, fmt.Sprintf("expected 2 items, got %d", len(result.Items)))
+
+	// Verify we can find both users in the results.
+	var foundAnon, foundRegular bool
+	for _, u := range result.Items {
+		if u.ID == anonUser.ID {
+			foundAnon = true
+			testutil.True(t, u.Email == "", "anonymous user email should be empty string")
+		}
+		if u.Email == "regular@example.com" {
+			foundRegular = true
+		}
+	}
+	testutil.True(t, foundAnon, "anonymous user should appear in list")
+	testutil.True(t, foundRegular, "regular user should appear in list")
 }

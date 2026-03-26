@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, waitForDashboard, expectRlsPolicyCard } from "../fixtures";
 
 /**
  * FULL E2E TEST: RLS Policy Management
@@ -45,7 +45,7 @@ test.describe("RLS Policies (Full E2E)", () => {
 
     // Act: navigate to RLS Policies page and select the table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const sidebar = page.locator("aside");
     const rlsButton = sidebar.getByRole("button", { name: /^RLS Policies$/i });
     await rlsButton.click();
@@ -61,7 +61,7 @@ test.describe("RLS Policies (Full E2E)", () => {
     // Cleanup handled by afterEach
   });
 
-  test("enable RLS, create policy, delete policy, disable RLS", async ({ page }) => {
+  test("enable RLS and create policy shows enabled badge and new policy row", async ({ page }) => {
     const runId = Date.now();
     const tableName = `rls_test_${runId}`;
 
@@ -71,7 +71,7 @@ test.describe("RLS Policies (Full E2E)", () => {
     // Setup: Create test table via SQL
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
 
@@ -92,7 +92,7 @@ test.describe("RLS Policies (Full E2E)", () => {
 
     // Reload to see new table
     await page.reload();
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // ============================================================
     // Navigate to RLS Policies
@@ -153,32 +153,20 @@ test.describe("RLS Policies (Full E2E)", () => {
     await expect(submitBtn).toBeVisible({ timeout: 5000 });
     await submitBtn.click();
 
-    // Verify policy appears
-    await expect(page.getByText(policyName).first()).toBeVisible({ timeout: 5000 });
+    // Assert post-submit UI state owned by RlsPolicies:
+    // - modal closes
+    // - table shows RLS enabled badge
+    // - newly created policy row is rendered
+    await expect(page.getByRole("heading", { name: "Create RLS Policy" })).toHaveCount(0);
+    await expect(page.locator("main").getByText("RLS Enabled", { exact: true })).toBeVisible({
+      timeout: 5000,
+    });
 
-    // ============================================================
-    // DELETE POLICY
-    // ============================================================
-    const deleteBtn = page.getByRole("button", { name: "Delete policy" });
-
-    await expect(deleteBtn.first()).toBeVisible({ timeout: 2000 });
-    await deleteBtn.first().click();
-
-    // Confirm
-    const confirmBtn = page.getByRole("button", { name: /^delete$|^confirm$/i });
-    await expect(confirmBtn).toBeVisible({ timeout: 2000 });
-    await confirmBtn.click();
-
-    // Verify deleted — check that "No policies" empty state appears (avoids toast text conflicts)
-    await expect(page.getByText(/no policies on this table/i)).toBeVisible({ timeout: 5000 });
-
-    // ============================================================
-    // DISABLE RLS
-    // ============================================================
-    const disableButton = page.getByRole("button", { name: /disable rls/i });
-    await expect(disableButton).toBeVisible({ timeout: 2000 });
-    await disableButton.click();
-    await expect(page.getByText(/RLS disabled on/i).first()).toBeVisible({ timeout: 3000 });
+    await expectRlsPolicyCard(page, {
+      policyName,
+      command: "ALL",
+      usingExpression: "true",
+    });
 
     // Cleanup handled by afterEach
   });

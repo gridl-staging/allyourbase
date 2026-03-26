@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures";
+import { test, expect, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Admin Dashboard - SQL Query Execution
@@ -10,7 +10,7 @@ test.describe("Smoke: Admin SQL Query", () => {
   test("admin can execute SQL query and view results", async ({ page }) => {
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Step 2: Navigate to SQL Editor via sidebar
     await page.locator("aside").getByRole("button", { name: /^SQL Editor$/i }).click();

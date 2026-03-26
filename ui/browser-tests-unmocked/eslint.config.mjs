@@ -1,6 +1,6 @@
 // ESLint flat config for browser-tests-unmocked
 // Enforces human-like interaction patterns in spec files.
-// See _dev/BROWSER_TESTING_STANDARDS.md for rationale.
+// See _dev/BROWSER_TESTING_STANDARDS_3.md for rationale.
 import playwright from "eslint-plugin-playwright";
 import tseslint from "typescript-eslint";
 

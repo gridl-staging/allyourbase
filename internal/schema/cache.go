@@ -1,3 +1,4 @@
+// Package schema CacheHolder provides thread-safe access to an immutable schema cache with lock-free reads and atomic updates. It coordinates initialization, reloading, and testing of schema metadata.
 package schema
 
 import (
@@ -21,6 +22,7 @@ type CacheHolder struct {
 	logger    *slog.Logger
 	ready     chan struct{} // closed after the first successful load
 	readyOnce sync.Once     // ensures ready is closed exactly once
+	readyInit sync.Once     // ensures ready channel is created exactly once
 }
 
 // NewCacheHolder creates a CacheHolder. Call Load() to perform the initial introspection.
@@ -32,8 +34,19 @@ func NewCacheHolder(pool *pgxpool.Pool, logger *slog.Logger) *CacheHolder {
 	}
 }
 
+// ensureReady lazily initializes the ready channel so that zero-value
+// CacheHolder structs (created without NewCacheHolder) are safe to use.
+func (h *CacheHolder) ensureReady() {
+	h.readyInit.Do(func() {
+		if h.ready == nil {
+			h.ready = make(chan struct{})
+		}
+	})
+}
+
 // Ready returns a channel that is closed once the first schema load completes.
 func (h *CacheHolder) Ready() <-chan struct{} {
+	h.ensureReady()
 	return h.ready
 }
 
@@ -51,6 +64,7 @@ func (h *CacheHolder) Load(ctx context.Context) error {
 // SetForTesting directly sets the schema cache. Intended for unit tests that
 // cannot provide a real database connection.
 func (h *CacheHolder) SetForTesting(sc *SchemaCache) {
+	h.ensureReady()
 	h.cache.Store(sc)
 	if sc != nil {
 		h.readyOnce.Do(func() { close(h.ready) })
@@ -83,6 +97,7 @@ func (h *CacheHolder) ReloadWait(ctx context.Context) error {
 	return h.reloadLocked(ctx)
 }
 
+// reloadLocked builds a new schema cache from the database and atomically swaps it in. Must be called with h.mu held. On first successful load, closes the ready channel to signal cache availability.
 func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	sc, err := BuildCache(ctx, h.pool)
 	if err != nil {
@@ -92,6 +107,7 @@ func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	tableCount := len(sc.Tables)
 	h.cache.Store(sc)
 	// Signal readiness on first successful load.
+	h.ensureReady()
 	h.readyOnce.Do(func() { close(h.ready) })
 
 	h.logger.Info("schema cache loaded",

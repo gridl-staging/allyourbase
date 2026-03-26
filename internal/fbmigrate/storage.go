@@ -93,6 +93,21 @@ func normalizeFirebaseBucketName(name string) string {
 	return result
 }
 
+func joinPathUnder(baseDir, relPath string) (string, error) {
+	target := filepath.Join(baseDir, relPath)
+	cleanBase := filepath.Clean(baseDir)
+	cleanTarget := filepath.Clean(target)
+
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil {
+		return "", fmt.Errorf("resolving destination path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path traversal detected")
+	}
+	return cleanTarget, nil
+}
+
 // migrateStorage copies files from a Firebase Cloud Storage export directory
 // to AYB's local storage layout.
 func (m *Migrator) migrateStorage(phaseIdx, totalPhases int) error {
@@ -149,7 +164,14 @@ func (m *Migrator) migrateStorage(phaseIdx, totalPhases int) error {
 
 		copied := 0
 		for _, f := range files {
-			destFile := filepath.Join(bucketDir, f.Path)
+			destFile, err := joinPathUnder(bucketDir, f.Path)
+			if err != nil {
+				m.stats.Errors = append(m.stats.Errors,
+					fmt.Sprintf("skipping %s/%s: %v", bucketName, f.Path, err))
+				processed++
+				m.progress.Progress(phase, processed, totalFiles)
+				continue
+			}
 
 			if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
 				m.stats.Errors = append(m.stats.Errors,

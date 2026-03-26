@@ -1,3 +1,4 @@
+// Package cli migrate_firebase implements the Firebase migration CLI subcommand, supporting migration of auth, Firestore, Realtime Database, and Cloud Storage data to AYB.
 package cli
 
 import (
@@ -81,6 +82,7 @@ func init() {
 	migrateFirebaseCmd.MarkFlagRequired("database-url")
 }
 
+// runMigrateFirebase handles the Firebase migration subcommand, validating export sources, analyzing the data, prompting for confirmation (unless --yes or --dry-run is set), executing the migration, and outputting results in human-readable or JSON format.
 func runMigrateFirebase(cmd *cobra.Command, args []string) error {
 	authExport, _ := cmd.Flags().GetString("auth-export")
 	firestoreExport, _ := cmd.Flags().GetString("firestore-export")

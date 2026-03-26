@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/openapi"
 	"github.com/allyourbase/ayb/internal/postgres"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/typegen"
@@ -40,10 +41,27 @@ Output includes:
 	RunE: runTypesTypeScript,
 }
 
+var typesOpenAPICmd = &cobra.Command{
+	Use:   "openapi",
+	Short: "Generate OpenAPI 3.1 spec from database schema",
+	Long: `Connect to PostgreSQL, introspect the schema, and emit an OpenAPI 3.1 JSON
+specification documenting all CRUD endpoints, query parameters, and RPC functions.
+
+If the AYB server is running, you can also fetch the spec from /api/openapi.json.
+
+Examples:
+  ayb types openapi --database-url postgresql://user:pass@localhost:5432/mydb
+  ayb types openapi -o openapi.json`,
+	RunE: runTypesOpenAPI,
+}
+
 func init() {
 	typesCmd.AddCommand(typesTypeScriptCmd)
+	typesCmd.AddCommand(typesOpenAPICmd)
 	typesTypeScriptCmd.Flags().String("database-url", "", "PostgreSQL connection URL (required)")
 	typesTypeScriptCmd.Flags().StringP("output", "o", "", "Output file path (default: stdout)")
+	typesOpenAPICmd.Flags().String("database-url", "", "PostgreSQL connection URL (required)")
+	typesOpenAPICmd.Flags().StringP("output", "o", "", "Output file path (default: stdout)")
 }
 
 func runTypesTypeScript(cmd *cobra.Command, args []string) error {
@@ -101,5 +119,64 @@ func runTypesTypeScript(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing output: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(result), output)
+	return nil
+}
+
+func runTypesOpenAPI(cmd *cobra.Command, args []string) error {
+	dbURL, _ := cmd.Flags().GetString("database-url")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		cfg, err := config.Load("", nil)
+		if err == nil {
+			if cfg.Database.URL != "" {
+				dbURL = cfg.Database.URL
+			} else if _, _, pidErr := readAYBPID(); pidErr == nil {
+				dbURL = fmt.Sprintf("postgresql://ayb:ayb@127.0.0.1:%d/ayb?sslmode=disable", cfg.Database.EmbeddedPort)
+			}
+		}
+	}
+	if dbURL == "" {
+		return fmt.Errorf("--database-url is required (or set DATABASE_URL)")
+	}
+
+	output, _ := cmd.Flags().GetString("output")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	logger, _, _, closeLog := newLogger("error", "json")
+	defer closeLog()
+
+	pool, err := postgres.New(ctx, postgres.Config{
+		URL:      dbURL,
+		MaxConns: 2,
+		MinConns: 1,
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer pool.Close()
+
+	sc, err := schema.BuildCache(ctx, pool.DB())
+	if err != nil {
+		return fmt.Errorf("introspecting schema: %w", err)
+	}
+
+	data, err := openapi.Generate(sc, openapi.Options{BasePath: "/api"})
+	if err != nil {
+		return fmt.Errorf("generating OpenAPI spec: %w", err)
+	}
+
+	if output == "" {
+		fmt.Print(string(data))
+		return nil
+	}
+
+	if err := os.WriteFile(output, data, 0644); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(data), output)
 	return nil
 }

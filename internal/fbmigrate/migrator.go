@@ -1,3 +1,4 @@
+// Package fbmigrate orchestrates migration from Firebase exports into AYB databases, handling Auth, Firestore, RTDB, and Storage datasets.
 package fbmigrate
 
 import (
@@ -329,6 +330,7 @@ func BuildValidationSummary(report *migrate.AnalysisReport, stats *MigrationStat
 	return summary
 }
 
+// migrateAuthUsers inserts Firebase users from the export into _ayb_users, validating the table exists and encoding password hashes. It skips disabled, anonymous, and phone-only users and tracks migration statistics for each row inserted.
 func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, users []FirebaseUser, hashConfig *FirebaseHashConfig, phaseIdx, totalPhases int) error {
 	phase := migrate.Phase{Name: "Auth users", Index: phaseIdx, Total: totalPhases}
 	m.progress.StartPhase(phase, len(users))
@@ -408,6 +410,7 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, users []Fir
 	return nil
 }
 
+// migrateOAuthLinks inserts Firebase OAuth provider identities into _ayb_oauth_accounts for email-enabled users, normalizing provider names and using the user email as fallback if the provider email is missing.
 func (m *Migrator) migrateOAuthLinks(ctx context.Context, tx *sql.Tx, users []FirebaseUser, phaseIdx, totalPhases int) error {
 	phase := migrate.Phase{Name: "OAuth", Index: phaseIdx, Total: totalPhases}
 	m.progress.StartPhase(phase, 0)
@@ -455,6 +458,7 @@ func (m *Migrator) migrateOAuthLinks(ctx context.Context, tx *sql.Tx, users []Fi
 	return nil
 }
 
+// migrateFirestoreData creates database tables for each Firestore collection with a GIN index, flattens document fields to JSON, and inserts documents as rows. It reports progress per document and tracks migration statistics.
 func (m *Migrator) migrateFirestoreData(ctx context.Context, tx *sql.Tx, phaseIdx, totalPhases int) error {
 	phase := migrate.Phase{Name: "Firestore", Index: phaseIdx, Total: totalPhases}
 
@@ -531,6 +535,7 @@ func (m *Migrator) migrateFirestoreData(ctx context.Context, tx *sql.Tx, phaseId
 	return nil
 }
 
+// printStats outputs a formatted summary of migration results including user counts, OAuth links, collections, documents, storage files, skipped items, and any errors that occurred.
 func (m *Migrator) printStats() {
 	fmt.Fprintf(m.output, "\nSummary:\n")
 	if m.stats.Users > 0 {

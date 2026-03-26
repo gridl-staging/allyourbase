@@ -1,4 +1,4 @@
-import { test, expect, execSQL, seedSMSMessage, cleanupSMSDailyCounts, cleanupSMSDailyCountsAll, seedSMSDailyCounts, seedSMSMessageBatch, isSMSProviderConfigured } from "../fixtures";
+import { test, expect, execSQL, seedSMSMessage, cleanupSMSDailyCounts, cleanupSMSDailyCountsAll, seedSMSDailyCounts, seedSMSMessageBatch, isSMSProviderConfigured, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: SMS Dashboard
@@ -48,7 +48,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
 
@@ -82,7 +82,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
 
@@ -100,7 +100,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
   test("Send SMS modal validates inputs", async ({ page }) => {
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
 
@@ -141,7 +141,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
 
@@ -175,7 +175,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Health
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Health/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Health/i })).toBeVisible({ timeout: 5000 });
 
@@ -226,7 +226,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Health
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Health/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Health/i })).toBeVisible({ timeout: 5000 });
 
@@ -249,7 +249,7 @@ test.describe("SMS Dashboard (Full E2E)", () => {
 
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
     await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
 

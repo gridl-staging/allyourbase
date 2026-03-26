@@ -1,8 +1,11 @@
+// Package cli demo.go implements the ayb demo command, which runs bundled demo applications with built-in server startup, schema application, and user account seeding.
 package cli
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,6 +96,7 @@ Examples:
 	RunE:      runDemo,
 }
 
+// runDemo runs a bundled demo application. It starts the AYB server if needed, applies the database schema, seeds demo user accounts, and serves the pre-built frontend with API reverse-proxying.
 func runDemo(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	demo, ok := demoRegistry[name]
@@ -128,8 +132,12 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		defer exec.Command(aybBin, "stop").Run() //nolint:errcheck
 	}
 
-	// Check if auth is enabled (warn but don't block)
-	checkDemoAuth(baseURL, useColor)
+	// Demos depend on the public auth routes for registration and login.
+	// If a user already has an auth-disabled server running, fail before we
+	// mutate schema or attempt seed-user creation.
+	if err := requireDemoAuthEnabled(baseURL, useColor); err != nil {
+		return err
+	}
 
 	// Step 2: Apply schema
 	sp.Start("Applying database schema...")
@@ -182,9 +190,7 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	return serveDemoApp(name, demo.Port, baseURL)
 }
 
-// ensureDemoServer checks if the AYB server is running. If not, starts it
-// via `ayb start` (which backgrounds itself). Returns the base URL,
-// whether we started the server (for cleanup), and any error.
+// TODO: Document ensureDemoServer.
 func ensureDemoServer() (string, bool, error) {
 	base := serverURL()
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -204,9 +210,13 @@ func ensureDemoServer() (string, bool, error) {
 	if err != nil {
 		aybBin = os.Args[0]
 	}
+	jwtSecret, err := resolveDemoJWTSecret()
+	if err != nil {
+		return "", false, fmt.Errorf("generating demo auth secret: %w", err)
+	}
 
 	startCmd := exec.Command(aybBin, "start")
-	startCmd.Env = append(os.Environ(), "AYB_AUTH_ENABLED=true", "AYB_AUTH_JWT_SECRET=devsecret-min-32-chars-long-000000")
+	startCmd.Env = append(os.Environ(), "AYB_AUTH_ENABLED=true", "AYB_AUTH_JWT_SECRET="+jwtSecret)
 	startCmd.Stdout = io.Discard
 	var startErr strings.Builder
 	startCmd.Stderr = &startErr
@@ -221,24 +231,47 @@ func ensureDemoServer() (string, bool, error) {
 	return base, true, nil
 }
 
-// checkDemoAuth probes the server to warn if auth is disabled.
-func checkDemoAuth(baseURL string, useColor bool) {
+func resolveDemoJWTSecret() (string, error) {
+	if secret := strings.TrimSpace(os.Getenv("AYB_AUTH_JWT_SECRET")); secret != "" {
+		return secret, nil
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// requireDemoAuthEnabled ensures the connected server exposes the auth routes
+// that demos rely on for registration and login.
+func requireDemoAuthEnabled(baseURL string, useColor bool) error {
+	enabled, err := demoAuthEnabled(baseURL)
+	if err != nil {
+		return fmt.Errorf("checking auth status: %w", err)
+	}
+	if enabled {
+		return nil
+	}
+	return fmt.Errorf("%s %s\n\n  %s\n    [auth]\n    enabled = true\n\n  %s\n\n    ayb stop && ayb demo <name>\n\n  %s",
+		yellow("⚠", useColor),
+		yellow("The running AYB server has auth disabled. Demos require auth for registration and login.", useColor),
+		dim("Enable auth in ayb.toml:", useColor),
+		dim("Or stop the running server and let the demo start its own auth-enabled server:", useColor),
+		dim("Then restart your usual server config after the demo if needed.", useColor),
+	)
+}
+
+// demoAuthEnabled probes the server to determine whether the public auth
+// routes are available. /api/auth/me returns 404 when auth is disabled and
+// 401/200 when the route exists.
+func demoAuthEnabled(baseURL string) (bool, error) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(baseURL + "/api/auth/me")
 	if err != nil {
-		return
+		return false, err
 	}
 	resp.Body.Close()
-
-	// 401 = auth is enabled (expected). 404 = auth endpoint not found (disabled).
-	if resp.StatusCode == http.StatusNotFound {
-		fmt.Fprintf(os.Stderr, "\n  %s %s\n\n",
-			yellow("⚠", useColor),
-			yellow("Auth appears to be disabled. Demos require auth for registration/login.", useColor))
-		fmt.Fprintf(os.Stderr, "  %s\n", dim("Add to ayb.toml:", useColor))
-		fmt.Fprintf(os.Stderr, "    [auth]\n    enabled = true\n\n")
-		fmt.Fprintf(os.Stderr, "  %s\n\n", dim("Then restart: ayb stop && ayb start", useColor))
-	}
+	return resp.StatusCode != http.StatusNotFound, nil
 }
 
 // applyDemoSchema reads schema.sql from the embedded FS and sends it to the running server.
@@ -299,22 +332,17 @@ func applyDemoSchema(baseURL, name string) (string, error) {
 	return "applied", nil
 }
 
-// resolveDemoAdminToken finds an admin token for the running server.
-// Reuses the same logic as `ayb sql`.
+// TODO: Document resolveDemoAdminToken.
 func resolveDemoAdminToken(baseURL string) (string, error) {
-	// Check env var first
-	if token := os.Getenv("AYB_ADMIN_TOKEN"); token != "" {
+	if token := resolveCLIAdminToken("", baseURL); token != "" {
 		return token, nil
 	}
 
-	// Try saved admin password from ~/.ayb/admin-token
-	tokenPath, pathErr := aybAdminTokenPath()
-	if pathErr != nil {
-		return "", fmt.Errorf("no admin token: could not resolve home directory: %w", pathErr)
-	}
-
-	data, readErr := os.ReadFile(tokenPath)
-	if readErr != nil {
+	tokenPath, saved, err := readSavedAdminTokenFile()
+	if err != nil {
+		if tokenPath == "" {
+			return "", fmt.Errorf("no admin token: could not resolve home directory: %w", err)
+		}
 		return "", fmt.Errorf("no admin token found.\n\n" +
 			"  The server is running but wasn't started by the demo command.\n" +
 			"  Stop it and let the demo handle everything:\n\n" +
@@ -323,12 +351,10 @@ func resolveDemoAdminToken(baseURL string) (string, error) {
 			"    lsof -ti :8090 | xargs kill && ayb demo <name>")
 	}
 
-	password := strings.TrimSpace(string(data))
-	t, loginErr := adminLogin(baseURL, password)
-	if loginErr != nil {
-		return "", fmt.Errorf("admin login failed (saved password may be stale): %w", loginErr)
+	if saved == "" {
+		return "", fmt.Errorf("admin token file is empty: %s", tokenPath)
 	}
-	return t, nil
+	return exchangeSavedAdminAuth(baseURL, saved), nil
 }
 
 // seedDemoUsers registers the seed accounts via the auth API.

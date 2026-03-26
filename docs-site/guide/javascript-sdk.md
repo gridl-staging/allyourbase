@@ -1,6 +1,8 @@
+<!-- audited 2026-03-20 -->
+
 # JavaScript SDK
 
-The `@allyourbase/js` package provides a typed client for the AYB REST API with support for records, auth, storage, and realtime subscriptions.
+The `@allyourbase/js` package provides a typed client for the AYB REST API with support for records, auth, OAuth, storage, realtime subscriptions, and RPC calls.
 
 ## Install
 
@@ -121,7 +123,40 @@ await ayb.auth.confirmPasswordReset(token, "newpass");
 // Email verification
 await ayb.auth.verifyEmail(token);
 await ayb.auth.resendVerification();
+
+// Delete current user's account
+await ayb.auth.deleteAccount();
 ```
+
+### OAuth
+
+Sign in with an OAuth provider via popup (default) or redirect flow:
+
+```ts
+// Popup flow (default)
+const { token, user } = await ayb.auth.signInWithOAuth("google");
+
+// With extra scopes
+await ayb.auth.signInWithOAuth("github", { scopes: ["repo"] });
+
+// Redirect flow (for PWAs or when popups are blocked)
+await ayb.auth.signInWithOAuth("google", {
+  urlCallback: (url) => { window.location.href = url; },
+});
+```
+
+After a redirect-based OAuth flow, parse tokens from the URL hash:
+
+```ts
+const result = ayb.auth.handleOAuthRedirect();
+if (result) {
+  // result.token, result.refreshToken are now set on the client
+}
+```
+
+Anonymous auth, account-linking, and MFA flows are not currently exposed as
+first-class methods on `ayb.auth`. See [Authentication](/guide/authentication)
+for the REST endpoint-level flows and payloads.
 
 ### Token management
 
@@ -139,6 +174,17 @@ if (saved) {
 
 // Clear tokens
 ayb.clearTokens();
+
+// Use an API key instead of JWT tokens
+ayb.setApiKey("ak_...");
+ayb.clearApiKey();
+
+// Listen for auth state changes
+const unsub = ayb.onAuthStateChange((event, session) => {
+  // event: "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED"
+  // session: { token, refreshToken } | null
+});
+unsub(); // stop listening
 ```
 
 ## Storage
@@ -155,14 +201,30 @@ await ayb.storage.upload("documents", blob, "report.pdf");
 const url = ayb.storage.downloadURL("avatars", "photo.jpg");
 // → "http://localhost:8090/api/storage/avatars/photo.jpg"
 
-// List files in a bucket
-const { items } = await ayb.storage.list("avatars", { prefix: "user_", limit: 20 });
+// List files in a bucket (supports prefix, limit, offset)
+const { items } = await ayb.storage.list("avatars", { prefix: "user_", limit: 20, offset: 0 });
 
 // Get a signed URL (time-limited access)
 const { url: signedUrl } = await ayb.storage.getSignedURL("avatars", "photo.jpg", 3600);
 
 // Delete (bucket + name)
 await ayb.storage.delete("avatars", "photo.jpg");
+```
+
+## RPC
+
+Call PostgreSQL functions via the RPC endpoint:
+
+```ts
+// Simple call
+const result = await ayb.rpc("my_function", { arg1: "value" });
+
+// Void functions return undefined; scalar functions return unwrapped values
+
+// Trigger a realtime event alongside the RPC call
+await ayb.rpc("approve_order", { id: 42 }, {
+  notify: { table: "orders", action: "update" },
+});
 ```
 
 ## Realtime
@@ -174,6 +236,7 @@ const unsubscribe = ayb.realtime.subscribe(
     // event.action: "create" | "update" | "delete"
     // event.table: string
     // event.record: Record<string, unknown>
+    // event.oldRecord?: Record<string, unknown> (present on updates)
     console.log(event.action, event.table, event.record);
   },
 );
@@ -204,13 +267,27 @@ const { items } = await ayb.records.list<Post>("posts");
 
 ```ts
 import type {
+  // Records
   ListResponse,
   ListParams,
   GetParams,
+  BatchOperation,
+  BatchResult,
+  // Auth
   AuthResponse,
   User,
+  AuthStateEvent,
+  AuthStateListener,
+  OAuthProvider,
+  OAuthOptions,
+  // RPC
+  RpcOptions,
+  RpcNotifyOption,
+  // Realtime
   RealtimeEvent,
+  // Storage
   StorageObject,
+  // Client
   ClientOptions,
 } from "@allyourbase/js";
 ```
@@ -226,8 +303,13 @@ try {
   if (err instanceof AYBError) {
     console.log(err.status);  // 404
     console.log(err.message); // "record not found"
+    console.log(err.code);    // machine-readable error code (optional)
+    console.log(err.data);    // field-level validation detail (optional)
+    console.log(err.docUrl);  // link to relevant documentation (optional)
   }
 }
 ```
 
-`AYBError` extends `Error` and includes the HTTP `status` code.
+`AYBError` extends `Error` and includes the HTTP `status` code, an optional
+machine-readable `code`, optional `data` for field-level detail, and an optional
+`docUrl` pointing to relevant documentation.

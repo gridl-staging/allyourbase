@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/allyourbase/ayb/internal/audit"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/realtime"
@@ -79,7 +80,7 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Begin transaction with RLS context.
-	tx, err := h.pool.Begin(r.Context())
+	tx, err := h.beginTx(r.Context())
 	if err != nil {
 		h.logger.Error("batch: begin tx error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -172,8 +173,15 @@ func validateBatchOp(tbl *schema.Table, op BatchOperation) error {
 // execBatchOp executes a single batch operation within a transaction.
 // Returns the result, an optional event for publish, and any error.
 func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op BatchOperation) (BatchResult, *realtime.Event, error) {
+	auditMutation := h.auditSink != nil && h.auditSink.ShouldAudit(tbl.Name)
+
 	switch op.Method {
 	case "create":
+		if h.fieldEncryptor != nil {
+			if err := h.fieldEncryptor.EncryptRecord(tbl.Name, op.Body); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
 		query, args := buildInsert(tbl, op.Body)
 		rows, err := q.Query(r.Context(), query, args...)
 		if err != nil {
@@ -184,15 +192,37 @@ func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op 
 		if err != nil {
 			return BatchResult{}, nil, err
 		}
+		if h.fieldEncryptor != nil {
+			if err := h.fieldEncryptor.DecryptRecord(tbl.Name, record); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
+		if auditMutation {
+			if err := h.auditSink.LogMutationWithQuerier(r.Context(), q, audit.AuditEntry{
+				TableName: tbl.Name,
+				RecordID:  pkMap(tbl, record),
+				Operation: "INSERT",
+				NewValues: record,
+			}); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
 		event := &realtime.Event{Action: "create", Table: tbl.Name, Record: record}
 		return BatchResult{Status: http.StatusCreated, Body: record}, event, nil
 
 	case "update":
+		if h.fieldEncryptor != nil {
+			if err := h.fieldEncryptor.EncryptRecord(tbl.Name, op.Body); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
 		pkValues := parsePKValues(op.ID, len(tbl.PrimaryKey))
 		if len(pkValues) != len(tbl.PrimaryKey) {
 			return BatchResult{}, nil, fmt.Errorf("invalid primary key for update")
 		}
-		query, args := buildUpdate(tbl, op.Body, pkValues)
+		// Always use the CTE variant to capture the pre-update row for
+		// realtime column-level filter enter/leave semantics.
+		query, args := buildUpdateWithAudit(tbl, op.Body, pkValues)
 		rows, err := q.Query(r.Context(), query, args...)
 		if err != nil {
 			return BatchResult{}, nil, err
@@ -202,10 +232,27 @@ func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op 
 		if err != nil {
 			return BatchResult{}, nil, err
 		}
+		if h.fieldEncryptor != nil {
+			if err := h.fieldEncryptor.DecryptRecord(tbl.Name, record); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
 		if record == nil {
 			return BatchResult{}, nil, fmt.Errorf("%w: %s", errBatchNotFound, op.ID)
 		}
-		event := &realtime.Event{Action: "update", Table: tbl.Name, Record: record}
+		oldRecord := extractOldRecord(record)
+		if auditMutation {
+			if err := h.auditSink.LogMutationWithQuerier(r.Context(), q, audit.AuditEntry{
+				TableName: tbl.Name,
+				RecordID:  pkMap(tbl, record),
+				Operation: "UPDATE",
+				OldValues: oldRecord,
+				NewValues: record,
+			}); err != nil {
+				return BatchResult{}, nil, err
+			}
+		}
+		event := &realtime.Event{Action: "update", Table: tbl.Name, Record: record, OldRecord: oldRecord}
 		return BatchResult{Status: http.StatusOK, Body: record}, event, nil
 
 	case "delete":
@@ -213,19 +260,38 @@ func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op 
 		if len(pkValues) != len(tbl.PrimaryKey) {
 			return BatchResult{}, nil, fmt.Errorf("invalid primary key for delete")
 		}
-		query, args := buildDelete(tbl, pkValues)
-		tag, err := q.Exec(r.Context(), query, args...)
+		// Always use RETURNING to capture the full deleted row for realtime
+		// filter evaluation.
+		query, args := buildDeleteReturning(tbl, pkValues)
+		rows, err := q.Query(r.Context(), query, args...)
 		if err != nil {
 			return BatchResult{}, nil, err
 		}
-		if tag.RowsAffected() == 0 {
+		deletedRecord, err := scanRow(rows)
+		rows.Close()
+		if err != nil {
+			return BatchResult{}, nil, err
+		}
+		if deletedRecord == nil {
 			return BatchResult{}, nil, fmt.Errorf("%w: %s", errBatchNotFound, op.ID)
 		}
-		record := make(map[string]any, len(tbl.PrimaryKey))
-		for i, pk := range tbl.PrimaryKey {
-			record[pk] = pkValues[i]
+		if auditMutation {
+			if err := h.auditSink.LogMutationWithQuerier(r.Context(), q, audit.AuditEntry{
+				TableName: tbl.Name,
+				RecordID:  pkMap(tbl, deletedRecord),
+				Operation: "DELETE",
+				OldValues: deletedRecord,
+			}); err != nil {
+				return BatchResult{}, nil, err
+			}
 		}
-		event := &realtime.Event{Action: "delete", Table: tbl.Name, Record: record}
+		// Event Record has PK values only (backward compat); OldRecord has
+		// the full pre-delete row for filter evaluation.
+		pkRecord := make(map[string]any, len(tbl.PrimaryKey))
+		for i, pk := range tbl.PrimaryKey {
+			pkRecord[pk] = pkValues[i]
+		}
+		event := &realtime.Event{Action: "delete", Table: tbl.Name, Record: pkRecord, OldRecord: deletedRecord}
 		return BatchResult{Status: http.StatusNoContent}, event, nil
 
 	default:

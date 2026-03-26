@@ -1,3 +1,4 @@
+// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/storage.go.
 package cli
 
 import (
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -59,7 +61,17 @@ func init() {
 	storageCmd.AddCommand(storageDeleteCmd)
 }
 
+// storageRequest makes an authenticated HTTP request to the storage API, using an admin token from flags or the AYB_ADMIN_TOKEN environment variable.
 func storageRequest(cmd *cobra.Command, method, path string, body io.Reader, contentType string) (*http.Response, []byte, error) {
+	token, baseURL := resolveStorageRequestOptions(cmd)
+	req, err := newAuthenticatedRequest(method, baseURL, path, token, contentType, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return doBufferedRequest(req)
+}
+
+func resolveStorageRequestOptions(cmd *cobra.Command) (string, string) {
 	token, _ := cmd.Flags().GetString("admin-token")
 	baseURL, _ := cmd.Flags().GetString("url")
 
@@ -69,30 +81,10 @@ func storageRequest(cmd *cobra.Command, method, path string, body io.Reader, con
 	if baseURL == "" {
 		baseURL = serverURL()
 	}
-
-	req, err := http.NewRequest(method, baseURL+path, body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
-	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := cliHTTPClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to server: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reading response: %w", err)
-	}
-	return resp, respBody, nil
+	return token, baseURL
 }
 
+// runStorageLs lists files in a storage bucket and displays them as a formatted table, CSV, or JSON output.
 func runStorageLs(cmd *cobra.Command, args []string) error {
 	bucket := args[0]
 	outFmt := outputFormat(cmd)
@@ -150,19 +142,12 @@ func runStorageLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runStorageUpload uploads a file to a storage bucket by creating a multipart form request and posting it to the server's storage API.
 func runStorageUpload(cmd *cobra.Command, args []string) error {
 	bucket := args[0]
 	filePath := args[1]
 	outFmt := outputFormat(cmd)
-
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
+	token, baseURL := resolveStorageRequestOptions(cmd)
 
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -170,39 +155,15 @@ func runStorageUpload(cmd *cobra.Command, args []string) error {
 	}
 	defer f.Close()
 
-	// Build multipart form.
-	pr, pw := io.Pipe()
-	writer := multipart.NewWriter(pw)
-	go func() {
-		part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-		if err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-		if _, err := io.Copy(part, f); err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-		pw.CloseWithError(writer.Close())
-	}()
+	requestBody, contentType := streamingMultipartFileBody("file", filepath.Base(filePath), f, nil)
 
-	req, err := http.NewRequest("POST", baseURL+"/api/storage/"+bucket, pr)
+	req, err := newAuthenticatedRequest(http.MethodPost, baseURL, "/api/storage/"+bucket, token, contentType, requestBody)
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+		return err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := cliHTTPClient.Do(req)
+	resp, respBody, err := doBufferedRequest(req)
 	if err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
+		return err
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
@@ -226,26 +187,15 @@ func runStorageUpload(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runStorageDownload downloads a file from a storage bucket, writing the contents to a specified output file or stdout.
 func runStorageDownload(cmd *cobra.Command, args []string) error {
 	bucket := args[0]
 	name := args[1]
 	output, _ := cmd.Flags().GetString("output")
-
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
-
-	req, err := http.NewRequest("GET", baseURL+"/api/storage/"+bucket+"/"+name, nil)
+	token, baseURL := resolveStorageRequestOptions(cmd)
+	req, err := newAuthenticatedRequest(http.MethodGet, baseURL, "/api/storage/"+bucket+"/"+name, token, "", nil)
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		return err
 	}
 
 	resp, err := cliHTTPClient.Do(req)
@@ -306,4 +256,40 @@ func formatBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%d B", b)
 	}
+}
+
+// TODO: Document streamingMultipartFileBody.
+func streamingMultipartFileBody(fileFieldName, fileName string, file io.Reader, formValues map[string]string) (io.Reader, string) {
+	bodyReader, bodyWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(bodyWriter)
+	contentType := multipartWriter.FormDataContentType()
+
+	go func() {
+		keys := make([]string, 0, len(formValues))
+		for key := range formValues {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			if err := multipartWriter.WriteField(key, formValues[key]); err != nil {
+				_ = bodyWriter.CloseWithError(err)
+				return
+			}
+		}
+
+		filePart, err := multipartWriter.CreateFormFile(fileFieldName, fileName)
+		if err != nil {
+			_ = bodyWriter.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(filePart, file); err != nil {
+			_ = bodyWriter.CloseWithError(err)
+			return
+		}
+
+		_ = bodyWriter.CloseWithError(multipartWriter.Close())
+	}()
+
+	return bodyReader, contentType
 }

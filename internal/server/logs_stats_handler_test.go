@@ -260,7 +260,7 @@ func TestAdminSecretsNotRegisteredWithoutAuthSvc(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, http.StatusNotFound, w.Code)
+	testutil.Equal(t, http.StatusMethodNotAllowed, w.Code)
 }
 
 // --- LogBuffer tests ---
@@ -378,4 +378,33 @@ func TestLogBufferConcurrentLogging(t *testing.T) {
 
 	entries := lb.Entries()
 	testutil.Equal(t, 20, len(entries))
+}
+
+func TestLogBufferWithAttrsSharesBufferState(t *testing.T) {
+	t.Parallel()
+	inner := slog.NewTextHandler(io.Discard, nil)
+	lb := server.NewLogBuffer(inner, 10)
+	logger := slog.New(lb).With("component", "worker")
+
+	logger.Info("with-attrs-one")
+	logger.Info("with-attrs-two")
+
+	entries := lb.Entries()
+	testutil.Equal(t, 2, len(entries))
+	testutil.Equal(t, "with-attrs-one", entries[0].Message)
+	testutil.Equal(t, "with-attrs-two", entries[1].Message)
+}
+
+func TestLogBufferWithGroupSharesBufferState(t *testing.T) {
+	t.Parallel()
+	inner := slog.NewTextHandler(io.Discard, nil)
+	lb := server.NewLogBuffer(inner, 10)
+	logger := slog.New(lb).WithGroup("db")
+
+	logger.Info("with-group", "query", "SELECT 1")
+
+	entries := lb.Entries()
+	testutil.Equal(t, 1, len(entries))
+	testutil.Equal(t, "with-group", entries[0].Message)
+	testutil.Equal(t, "SELECT 1", entries[0].Attrs["query"].(string))
 }

@@ -11,7 +11,7 @@ vi.mock("../../api", () => ({
 
 import { OAuthConsent } from "../OAuthConsent";
 import { checkOAuthAuthorize, submitOAuthConsent, ApiError } from "../../api";
-import type { OAuthConsentPrompt, OAuthConsentResult } from "../../api";
+import type { OAuthConsentPrompt } from "../../api";
 
 const mockCheckAuthorize = vi.mocked(checkOAuthAuthorize);
 const mockSubmitConsent = vi.mocked(submitOAuthConsent);

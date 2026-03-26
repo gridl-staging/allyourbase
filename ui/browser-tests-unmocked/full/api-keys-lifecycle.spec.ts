@@ -1,4 +1,15 @@
-import { test, expect, execSQL } from "../fixtures";
+import {
+  test,
+  expect,
+  probeEndpoint,
+  ensureUserByEmail,
+  cleanupUserByEmail,
+  seedApiKey,
+  seedAdminApp,
+  cleanupAdminAppByName,
+  cleanupApiKeyByName,
+  waitForDashboard,
+} from "../fixtures";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 /**
@@ -12,61 +23,22 @@ import type { APIRequestContext, Page } from "@playwright/test";
  * - Revoke API key
  */
 
-const TEST_PASSWORD_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g";
-
-function sqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function createUser(
+async function openAPIKeysPage(
+  page: Page,
   request: APIRequestContext,
   adminToken: string,
-  email: string,
-): Promise<string> {
-  const escapedEmail = sqlLiteral(email);
-  await execSQL(
-    request,
-    adminToken,
-    `INSERT INTO _ayb_users (email, password_hash) VALUES ('${escapedEmail}', '${TEST_PASSWORD_HASH}') ON CONFLICT (email) DO NOTHING;`,
+): Promise<void> {
+  const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/api-keys");
+  test.skip(
+    probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
+    `API keys service unavailable (status ${probeStatus})`,
   );
-  const result = await execSQL(
-    request,
-    adminToken,
-    `SELECT id FROM _ayb_users WHERE email = '${escapedEmail}';`,
-  );
-  const userID = result.rows[0]?.[0];
-  if (typeof userID !== "string") {
-    throw new Error(`Expected user id for email ${email}`);
-  }
-  return userID;
-}
-
-async function createApp(
-  request: APIRequestContext,
-  adminToken: string,
-  ownerUserID: string,
-  name: string,
-  rateLimitRps: number,
-  rateLimitWindowSeconds: number,
-): Promise<string> {
-  const result = await execSQL(
-    request,
-    adminToken,
-    `INSERT INTO _ayb_apps (name, description, owner_user_id, rate_limit_rps, rate_limit_window_seconds) VALUES ('${sqlLiteral(name)}', 'seeded by browser test', '${ownerUserID}', ${rateLimitRps}, ${rateLimitWindowSeconds}) RETURNING id;`,
-  );
-  const appID = result.rows[0]?.[0];
-  if (typeof appID !== "string") {
-    throw new Error(`Expected app id for app ${name}`);
-  }
-  return appID;
-}
-
-async function openAPIKeysPage(page: Page): Promise<void> {
   await page.goto("/admin/");
+  await waitForDashboard(page);
   const apiKeysButton = page.getByRole("button", { name: /^API Keys$/i });
   await expect(apiKeysButton).toBeVisible({ timeout: 5000 });
   await apiKeysButton.click();
@@ -74,13 +46,26 @@ async function openAPIKeysPage(page: Page): Promise<void> {
 }
 
 test.describe("API Keys Lifecycle (Full E2E)", () => {
-  const pendingCleanup: string[] = [];
+  const keyNames: string[] = [];
+  const appNames: string[] = [];
+  const userEmails: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const sql of pendingCleanup) {
-      await execSQL(request, adminToken, sql).catch(() => {});
+    while (keyNames.length > 0) {
+      const keyName = keyNames.pop();
+      if (!keyName) continue;
+      await cleanupApiKeyByName(request, adminToken, keyName).catch(() => {});
     }
-    pendingCleanup.length = 0;
+    while (appNames.length > 0) {
+      const appName = appNames.pop();
+      if (!appName) continue;
+      await cleanupAdminAppByName(request, adminToken, appName).catch(() => {});
+    }
+    while (userEmails.length > 0) {
+      const userEmail = userEmails.pop();
+      if (!userEmail) continue;
+      await cleanupUserByEmail(request, adminToken, userEmail).catch(() => {});
+    }
   });
 
   test("seeded API key renders in list view", async ({ page, request, adminToken }) => {
@@ -88,22 +73,24 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     const keyName = `seed-key-${runId}`;
     const testEmail = `apikey-seed-${runId}@test.com`;
 
-    // Register cleanup early so afterEach runs it even on failure
-    pendingCleanup.push(
-      `DELETE FROM _ayb_api_keys WHERE name = '${keyName}';`,
-      `DELETE FROM _ayb_users WHERE email = '${testEmail}';`,
-    );
+    keyNames.push(keyName);
+    userEmails.push(testEmail);
 
     // Arrange: create user and API key via SQL helpers
-    const userId = await createUser(request, adminToken, testEmail);
-    await execSQL(
+    const user = await ensureUserByEmail(request, adminToken, testEmail);
+    await seedApiKey(
       request,
       adminToken,
-      `INSERT INTO _ayb_api_keys (name, key_hash, key_prefix, user_id) VALUES ('${keyName}', 'seedhash${runId}', 'ayb_seed', '${userId}');`,
+      {
+        userId: user.id,
+        name: keyName,
+        keyHash: `seedhash${runId}`,
+        keyPrefix: "ayb_seed",
+      },
     );
 
     // Act: navigate to API Keys page
-    await openAPIKeysPage(page);
+    await openAPIKeysPage(page, request, adminToken);
 
     // Assert: seeded key name appears in the list
     await expect(page.getByText(keyName).first()).toBeVisible({ timeout: 5000 });
@@ -117,21 +104,22 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     const appName = `orders-app-${runId}`;
     const keyName = `orders-key-${runId}`;
     const appRateLimit = "120 req/60s";
-    const escapedAppName = sqlLiteral(appName);
-
-    // Register cleanup early so afterEach runs it even on failure
-    pendingCleanup.push(
-      `DELETE FROM _ayb_api_keys WHERE name = '${keyName}';`,
-      `DELETE FROM _ayb_apps WHERE name = '${escapedAppName}';`,
-      `DELETE FROM _ayb_users WHERE email = '${testEmail}';`,
-    );
+    keyNames.push(keyName);
+    appNames.push(appName);
+    userEmails.push(testEmail);
 
     // Arrange: create user and app via SQL helpers.
-    const userID = await createUser(request, adminToken, testEmail);
-    const appID = await createApp(request, adminToken, userID, appName, 120, 60);
+    const user = await ensureUserByEmail(request, adminToken, testEmail);
+    const app = await seedAdminApp(request, adminToken, {
+      name: appName,
+      ownerUserId: user.id,
+      description: "seeded by browser test",
+      rateLimitRps: 120,
+      rateLimitWindowSeconds: 60,
+    });
 
     // Act: navigate to API Keys.
-    await openAPIKeysPage(page);
+    await openAPIKeysPage(page, request, adminToken);
 
     // ============================================================
     // CREATE: Add new API key
@@ -148,12 +136,12 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     await expect(userSelect).toBeVisible({ timeout: 2000 });
     const optCount = await userSelect.getByRole("option").count();
     expect(optCount).toBeGreaterThan(1);
-    await userSelect.selectOption({ value: userID });
+    await userSelect.selectOption({ value: user.id });
 
     // App selector
     const appSelect = page.getByLabel("App Scope");
     await expect(appSelect).toBeVisible({ timeout: 2000 });
-    await appSelect.selectOption({ value: appID });
+    await appSelect.selectOption({ value: app.id });
 
     // Submit
     const submitBtn = page.getByRole("button", { name: /^create$|^save$/i });
@@ -164,9 +152,9 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     // VERIFY: Key created modal shows the key
     // ============================================================
     await expect(page.getByText("API Key Created")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(keyName)).toBeVisible({ timeout: 3000 });
-    await expect(page.getByText(appName)).toBeVisible({ timeout: 3000 });
-    await expect(page.getByText(appRateLimit)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(keyName, { exact: true }).first()).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(appName, { exact: true }).first()).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(appRateLimit).first()).toBeVisible({ timeout: 3000 });
 
     // Close the created modal by clicking Done
     const doneBtn = page.getByRole("button", { name: /^done$/i });

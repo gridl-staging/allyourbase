@@ -19,9 +19,11 @@ import {
   AlertCircle,
   HardDrive,
   Eye,
+  RefreshCw,
 } from "lucide-react";
+import { CdnPurgeSection } from "./CdnPurgeSection";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { useAppToast } from "./ToastProvider";
 
 const BUCKET_KEY = "ayb_storage_bucket";
 
@@ -41,8 +43,9 @@ export function StorageBrowser() {
   const [modal, setModal] = useState<Modal>({ kind: "none" });
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [showCdnPurge, setShowCdnPurge] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const fetchFiles = useCallback(async () => {
     if (!bucket.trim()) {
@@ -167,7 +170,7 @@ export function StorageBrowser() {
       <div className="px-6 py-3 border-b flex items-center gap-3">
         <h2 className="font-semibold text-sm">Storage</h2>
         <div className="flex items-center gap-2">
-          <FolderOpen className="w-3.5 h-3.5 text-gray-400" />
+          <FolderOpen className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             value={bucket}
@@ -177,7 +180,7 @@ export function StorageBrowser() {
             className="px-2 py-1 text-sm border rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <span className="text-xs text-gray-400">{totalItems} {totalItems === 1 ? "file" : "files"}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{totalItems} {totalItems === 1 ? "file" : "files"}</span>
         <div className="ml-auto flex gap-2">
           <input
             ref={fileInput}
@@ -199,6 +202,20 @@ export function StorageBrowser() {
           >
             <Upload className="w-3.5 h-3.5" />
             {uploading ? "Uploading..." : "Upload"}
+          </button>
+          <button
+            onClick={() => setShowCdnPurge((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border",
+              showCdnPurge
+                ? "text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-900/20"
+                : "text-gray-600 dark:text-gray-300 border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700",
+            )}
+            title="CDN Purge"
+            aria-label="CDN Purge"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            CDN Purge
           </button>
         </div>
       </div>
@@ -225,19 +242,19 @@ export function StorageBrowser() {
       {/* File list */}
       <div className="flex-1 overflow-auto relative">
         {loading ? (
-          <div className="flex items-center justify-center h-64 text-gray-400">
+          <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             Loading files...
           </div>
         ) : !bucket.trim() ? (
           <div className="text-center py-16">
-            <HardDrive className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 text-sm">Enter a bucket name to browse</p>
+            <HardDrive className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+            <p className="text-gray-500 dark:text-gray-400 text-sm">Enter a bucket name to browse</p>
           </div>
         ) : files.length === 0 ? (
           <div className="text-center py-16">
-            <HardDrive className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 text-sm mb-3">
+            <HardDrive className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">
               No files in "{bucket}"
             </p>
             <button
@@ -249,28 +266,28 @@ export function StorageBrowser() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 sticky top-0">
+            <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
               <tr>
-                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500">
+                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   Name
                 </th>
-                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500">
+                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   Type
                 </th>
-                <th className="text-right px-6 py-2 text-xs font-medium text-gray-500">
+                <th className="text-right px-6 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   Size
                 </th>
-                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500">
+                <th className="text-left px-6 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   Created
                 </th>
-                <th className="text-right px-6 py-2 text-xs font-medium text-gray-500">
+                <th className="text-right px-6 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody>
               {files.map((f) => (
-                <tr key={f.id} className="border-t hover:bg-gray-50">
+                <tr key={f.id} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
                   <td className="px-6 py-2">
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-xs truncate max-w-xs">
@@ -280,7 +297,7 @@ export function StorageBrowser() {
                         onClick={() =>
                           copyToClipboard(f.name, "File name")
                         }
-                        className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500"
+                        className="shrink-0 p-0.5 text-gray-300 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-300 dark:text-gray-400"
                         title="Copy name"
                         aria-label="Copy name"
                       >
@@ -288,13 +305,13 @@ export function StorageBrowser() {
                       </button>
                     </div>
                   </td>
-                  <td className="px-6 py-2 text-xs text-gray-500">
+                  <td className="px-6 py-2 text-xs text-gray-500 dark:text-gray-400">
                     {f.contentType}
                   </td>
-                  <td className="px-6 py-2 text-xs text-gray-500 text-right">
+                  <td className="px-6 py-2 text-xs text-gray-500 dark:text-gray-400 text-right">
                     {formatSize(f.size)}
                   </td>
-                  <td className="px-6 py-2 text-xs text-gray-500">
+                  <td className="px-6 py-2 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(f.createdAt).toLocaleString()}
                   </td>
                   <td className="px-6 py-2 text-right">
@@ -304,7 +321,7 @@ export function StorageBrowser() {
                           onClick={() =>
                             setModal({ kind: "preview", file: f })
                           }
-                          className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                           title="Preview"
                           aria-label="Preview"
                         >
@@ -315,7 +332,7 @@ export function StorageBrowser() {
                         href={storageDownloadURL(f.bucket, f.name)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 inline-block"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 inline-block"
                         title="Download"
                         aria-label="Download"
                       >
@@ -323,7 +340,7 @@ export function StorageBrowser() {
                       </a>
                       <button
                         onClick={() => handleSignedURL(f)}
-                        className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Copy signed URL"
                         aria-label="Copy signed URL"
                       >
@@ -336,7 +353,7 @@ export function StorageBrowser() {
                             "Download URL",
                           )
                         }
-                        className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Copy download URL"
                         aria-label="Copy download URL"
                       >
@@ -344,7 +361,7 @@ export function StorageBrowser() {
                       </button>
                       <button
                         onClick={() => setModal({ kind: "delete", file: f })}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Delete"
                         aria-label="Delete"
                       >
@@ -359,15 +376,17 @@ export function StorageBrowser() {
         )}
       </div>
 
+      {showCdnPurge && <CdnPurgeSection />}
+
       {/* Preview Modal */}
       {modal.kind === "preview" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4">
             <div className="flex items-center justify-between px-5 py-3 border-b">
               <h3 className="font-semibold text-sm truncate">{modal.file.name}</h3>
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -380,7 +399,7 @@ export function StorageBrowser() {
                 className="max-w-full max-h-[60vh] object-contain rounded"
               />
             </div>
-            <div className="px-5 py-3 border-t text-xs text-gray-500 flex items-center gap-4">
+            <div className="px-5 py-3 border-t text-xs text-gray-500 dark:text-gray-400 flex items-center gap-4">
               <span>{modal.file.contentType}</span>
               <span>{formatSize(modal.file.size)}</span>
               <span>{new Date(modal.file.createdAt).toLocaleString()}</span>
@@ -392,18 +411,18 @@ export function StorageBrowser() {
       {/* Delete confirmation */}
       {modal.kind === "delete" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="font-semibold mb-2">Delete File</h3>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               Are you sure? This cannot be undone.
             </p>
-            <p className="text-xs font-mono text-gray-500 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
               {modal.file.name}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -418,7 +437,6 @@ export function StorageBrowser() {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

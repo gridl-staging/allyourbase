@@ -1,6 +1,8 @@
+// Package auth Handlers for creating, listing, and revoking user API keys.
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/allyourbase/ayb/internal/httputil"
@@ -8,9 +10,11 @@ import (
 )
 
 type createAPIKeyRequest struct {
-	Name          string   `json:"name"`
-	Scope         string   `json:"scope"`         // "*", "readonly", "readwrite"; defaults to "*"
-	AllowedTables []string `json:"allowedTables"` // empty = all tables
+	Name          string          `json:"name"`
+	Scope         string          `json:"scope"`         // "*", "readonly", "readwrite"; defaults to "*"
+	AllowedTables []string        `json:"allowedTables"` // empty = all tables
+	AppID         json.RawMessage `json:"appId"`
+	OrgID         json.RawMessage `json:"orgId"`
 }
 
 type createAPIKeyResponse struct {
@@ -18,6 +22,7 @@ type createAPIKeyResponse struct {
 	APIKey *APIKey `json:"apiKey"`
 }
 
+// Creates an API key for the authenticated user. The plaintext key is returned in the response and shown only once.
 func (h *Handler) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -31,6 +36,14 @@ func (h *Handler) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.AppID != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "appId is not supported on this endpoint")
+		return
+	}
+	if req.OrgID != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "orgId is not supported on this endpoint")
 		return
 	}
 
@@ -54,6 +67,7 @@ func (h *Handler) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, createAPIKeyResponse{Key: plaintext, APIKey: key})
 }
 
+// Lists all API keys belonging to the authenticated user.
 func (h *Handler) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -71,6 +85,7 @@ func (h *Handler) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, keys)
 }
 
+// Revokes an API key by ID, which is extracted from the URL path and validated as a UUID.
 func (h *Handler) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {

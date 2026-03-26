@@ -21,7 +21,17 @@ export default function BoardList({ onSelectBoard }: Props) {
       const res = await ayb.records.list<Board>("boards", {
         sort: "-created_at",
       });
-      setBoards(res.items);
+      setBoards((prev) => {
+        // Preserve boards created locally if the initial load resolves after
+        // a create request and returns a stale snapshot.
+        const merged = new Map(prev.map((board) => [board.id, board]));
+        for (const board of res.items) {
+          merged.set(board.id, board);
+        }
+        return Array.from(merged.values()).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+      });
     } catch (err) {
       console.error("Failed to load boards:", err);
     } finally {
@@ -39,7 +49,7 @@ export default function BoardList({ onSelectBoard }: Props) {
         title: newTitle.trim(),
         user_id: me.id,
       });
-      setBoards([board, ...boards]);
+      setBoards((prev) => [board, ...prev.filter((existing) => existing.id !== board.id)]);
       setNewTitle("");
     } catch (err) {
       console.error("Failed to create board:", err);
@@ -53,7 +63,7 @@ export default function BoardList({ onSelectBoard }: Props) {
     if (!confirm(`Delete "${board.title}"?`)) return;
     try {
       await ayb.records.delete("boards", board.id);
-      setBoards(boards.filter((b) => b.id !== board.id));
+      setBoards((prev) => prev.filter((existing) => existing.id !== board.id));
     } catch (err) {
       console.error("Failed to delete board:", err);
     }

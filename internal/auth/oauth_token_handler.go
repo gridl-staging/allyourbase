@@ -1,3 +1,4 @@
+// Package auth Handles OAuth 2.0 token endpoint requests for authorization code, client credentials, and refresh token grants.
 package auth
 
 import (
@@ -17,6 +18,7 @@ type oauthTokenProvider interface {
 	RefreshOAuthToken(ctx context.Context, refreshToken, clientID string) (*OAuthTokenResponse, error)
 }
 
+// handleOAuthToken processes OAuth 2.0 token requests by validating the request format, extracting and validating client credentials, and delegating to the appropriate grant type handler before returning the token response.
 func (h *Handler) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if !isFormURLEncoded(r.Header.Get("Content-Type")) {
 		writeOAuthError(w, http.StatusBadRequest, OAuthErrInvalidRequest, "Content-Type must be application/x-www-form-urlencoded")
@@ -81,6 +83,7 @@ func (h *Handler) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
+// handleOAuthTokenAuthorizationCodeGrant exchanges an authorization code for a token by extracting and validating the code, redirect_uri, and code_verifier from the request.
 func (h *Handler) handleOAuthTokenAuthorizationCodeGrant(r *http.Request, clientID string) (*OAuthTokenResponse, error) {
 	code := r.PostForm.Get("code")
 	if code == "" {
@@ -100,6 +103,7 @@ func (h *Handler) handleOAuthTokenAuthorizationCodeGrant(r *http.Request, client
 	return h.oauthToken.ExchangeAuthorizationCode(r.Context(), code, clientID, redirectURI, codeVerifier)
 }
 
+// handleOAuthTokenClientCredentialsGrant issues a token for a confidential client by validating the requested scope is permitted for the client.
 func (h *Handler) handleOAuthTokenClientCredentialsGrant(r *http.Request, client *OAuthClient) (*OAuthTokenResponse, error) {
 	if client.ClientType != OAuthClientTypeConfidential {
 		return nil, NewOAuthError(OAuthErrUnauthorizedClient, "client_credentials is only allowed for confidential clients")
@@ -129,6 +133,7 @@ func (h *Handler) handleOAuthTokenRefreshGrant(r *http.Request, clientID string)
 	return h.oauthToken.RefreshOAuthToken(r.Context(), refreshToken, clientID)
 }
 
+// extractOAuthClientCredentials extracts client credentials from either the Authorization header or the request form body, ensuring both methods are not used simultaneously.
 func extractOAuthClientCredentials(r *http.Request) (clientID, clientSecret string, oauthErr *OAuthError) {
 	basicHeader := r.Header.Get("Authorization")
 	basicClientID, basicClientSecret, hasBasic := r.BasicAuth()

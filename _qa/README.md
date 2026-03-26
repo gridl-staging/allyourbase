@@ -30,13 +30,17 @@ This is NOT part of the project's test suite. These are standalone, isolated QA 
 ## Running
 
 ```bash
-# Run all bash QA tests (server should not be running)
+# Run all bash QA tests.
+# The harness starts/stops the server itself and defaults to an auth-enabled
+# config so the auth and demo checks are meaningful.
 cd _qa && bash scripts/run_all.sh
 
 # Run Playwright tests (server must be running)
 cd _qa/playwright && npx playwright test
 
-# Run individual scripts
+# Run individual scripts.
+# If you run auth/demo scripts directly, start AYB with:
+# AYB_AUTH_ENABLED=true AYB_AUTH_JWT_SECRET=... AYB_ADMIN_PASSWORD=...
 bash scripts/01_cli_help_and_version.sh
 ```
 

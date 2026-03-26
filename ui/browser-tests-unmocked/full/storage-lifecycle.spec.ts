@@ -1,4 +1,13 @@
-import { test, expect, seedFile, deleteFile } from "../fixtures";
+import {
+  test,
+  expect,
+  probeEndpoint,
+  seedFile,
+  deleteFile,
+  execSQL,
+  sqlLiteral,
+  waitForDashboard,
+} from "../fixtures";
 
 /**
  * FULL E2E TEST: Storage Lifecycle
@@ -14,31 +23,58 @@ import { test, expect, seedFile, deleteFile } from "../fixtures";
 
 test.describe("Storage Lifecycle (Full E2E)", () => {
   // Track files created during tests for cleanup on failure
-  const pendingFileCleanup: string[] = [];
+  const pendingFileCleanup: Array<{ bucket: string; name: string }> = [];
+  const pendingBucketCleanup: string[] = [];
 
   test.afterEach(async ({ request, adminToken }) => {
-    for (const fileName of pendingFileCleanup) {
-      await deleteFile(request, adminToken, "default", fileName).catch(() => {});
+    for (const file of pendingFileCleanup) {
+      await deleteFile(request, adminToken, file.bucket, file.name).catch(() => {});
     }
     pendingFileCleanup.length = 0;
+
+    for (const bucket of pendingBucketCleanup) {
+      await execSQL(
+        request,
+        adminToken,
+        `DELETE FROM _ayb_storage_buckets WHERE name = '${sqlLiteral(bucket)}'`,
+      ).catch(() => {});
+    }
+    pendingBucketCleanup.length = 0;
   });
 
   test("seeded file renders in storage list", async ({ page, request, adminToken }) => {
+    const probeStatus = await probeEndpoint(request, adminToken, "/api/storage/default");
+    test.skip(
+      probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
+      `Storage service unavailable (status ${probeStatus})`,
+    );
+
     const runId = Date.now();
+    const bucketName = `storage-seeded-${runId}`;
     const fileName = `lifecycle-verify-${runId}.txt`;
+    pendingBucketCleanup.push(bucketName);
 
     // Register cleanup early so afterEach runs it even on failure
-    pendingFileCleanup.push(fileName);
+    pendingFileCleanup.push({ bucket: bucketName, name: fileName });
+
+    // Create a dedicated bucket for this run.
+    await execSQL(
+      request,
+      adminToken,
+      `INSERT INTO _ayb_storage_buckets (name, public) VALUES ('${sqlLiteral(bucketName)}', true) ON CONFLICT (name) DO NOTHING`,
+    );
 
     // Arrange: seed a file via API
-    await seedFile(request, adminToken, "default", fileName, "lifecycle verify content");
+    await seedFile(request, adminToken, bucketName, fileName, "lifecycle verify content");
 
     // Act: navigate to Storage page
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const storageButton = page.locator("aside").getByRole("button", { name: /^Storage$/i });
     await storageButton.click();
     await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible({ timeout: 5000 });
+    const bucketInput = page.getByPlaceholder("bucket name");
+    await bucketInput.fill(bucketName);
 
     // Assert: seeded file name appears in the list
     await expect(page.getByText(fileName).first()).toBeVisible({ timeout: 5000 });
@@ -46,19 +82,37 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // Cleanup handled by afterEach
   });
 
-  test("upload, preview, signed URL, download, and delete files", async ({ page }) => {
+  test("upload, preview, signed URL, download, and delete files", async ({ page, request, adminToken }) => {
+    const probeStatus = await probeEndpoint(request, adminToken, "/api/storage/default");
+    test.skip(
+      probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
+      `Storage service unavailable (status ${probeStatus})`,
+    );
+
     const runId = Date.now();
+    const bucketName = `storage-upload-${runId}`;
     const textFileName = `lifecycle-text-${runId}.txt`;
     const imgFileName = `lifecycle-img-${runId}.png`;
+    pendingBucketCleanup.push(bucketName);
 
     // Register cleanup early so afterEach removes files if test fails partway
-    pendingFileCleanup.push(textFileName, imgFileName);
+    pendingFileCleanup.push(
+      { bucket: bucketName, name: textFileName },
+      { bucket: bucketName, name: imgFileName },
+    );
+
+    // Create a dedicated bucket for this run.
+    await execSQL(
+      request,
+      adminToken,
+      `INSERT INTO _ayb_storage_buckets (name, public) VALUES ('${sqlLiteral(bucketName)}', true) ON CONFLICT (name) DO NOTHING`,
+    );
 
     // ============================================================
     // Setup: Navigate to Storage
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const storageButton = page.locator("aside").getByRole("button", { name: /^Storage$/i });
     await expect(storageButton).toBeVisible({ timeout: 5000 });
@@ -67,6 +121,8 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // Wait for storage view
     const uploadButton = page.getByRole("button", { name: "Upload", exact: true });
     await expect(uploadButton).toBeVisible({ timeout: 5000 });
+    const bucketInput = page.getByPlaceholder("bucket name");
+    await bucketInput.fill(bucketName);
 
     // ============================================================
     // UPLOAD: Text file
@@ -108,7 +164,12 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     await previewButton.click();
 
     // Verify preview modal shows image
-    await expect(page.getByRole("img").first()).toBeVisible({ timeout: 3000 });
+    const previewImage = page.getByRole("img", { name: imgFileName });
+    await expect(previewImage).toBeVisible({ timeout: 3000 });
+    await expect(previewImage).toHaveAttribute(
+      "src",
+      new RegExp(`/api/storage/${bucketName}/${imgFileName}`),
+    );
 
     // Close preview
     const closePreviewBtn = page.getByRole("button", { name: "Close" });
@@ -122,7 +183,12 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     const signedUrlButton = textRow.getByRole("button", { name: "Copy signed URL" });
 
     await expect(signedUrlButton).toBeVisible({ timeout: 2000 });
+    const signResponse = page.waitForResponse((response) => (
+      response.request().method() === "POST"
+      && response.url().includes(`/api/storage/${bucketName}/${textFileName}/sign`)
+    ));
     await signedUrlButton.click();
+    expect((await signResponse).ok()).toBeTruthy();
 
     // Verify signed URL copy toast
     await expect(page.getByText(/copied/i).first()).toBeVisible({ timeout: 3000 });
@@ -132,6 +198,10 @@ test.describe("Storage Lifecycle (Full E2E)", () => {
     // ============================================================
     const downloadLink = textRow.getByRole("link", { name: "Download" });
     await expect(downloadLink).toBeVisible({ timeout: 2000 });
+    await expect(downloadLink).toHaveAttribute(
+      "href",
+      new RegExp(`/api/storage/${bucketName}/${textFileName}`),
+    );
 
     // ============================================================
     // DELETE: Remove text file

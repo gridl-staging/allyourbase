@@ -23,6 +23,11 @@ func TypeScript(sc *schema.SchemaCache) string {
 	}
 	sort.Strings(keys)
 
+	// Emit GeoJSON namespace if any non-system table has spatial columns.
+	if hasSpatialColumns(sc, keys) {
+		writeGeoJSONNamespace(&b)
+	}
+
 	// Collect enums across all tables (deduplicated by name).
 	enumsSeen := map[string][]string{}
 	for _, k := range keys {
@@ -116,6 +121,17 @@ func omitForCreate(t *schema.Table) []string {
 
 // jsonTypeToTS maps a column's JSONType to a TypeScript type.
 func jsonTypeToTS(col *schema.Column) string {
+	// pgvector maps to number[].
+	if col.IsVector || isVectorType(col.TypeName) {
+		return "number[]"
+	}
+
+	// Spatial columns (geometry and geography) map to GeoJSON types.
+	// IsGeometry is true for both geometry and geography columns.
+	if col.IsGeometry {
+		return geoJSONTypeForColumn(col.GeometryType)
+	}
+
 	// Enums with known values get a union type reference.
 	if col.IsEnum && len(col.EnumValues) > 0 {
 		return pascalCase(col.TypeName)
@@ -132,6 +148,14 @@ func jsonTypeToTS(col *schema.Column) string {
 	default:
 		return "string"
 	}
+}
+
+func isVectorType(typeName string) bool {
+	base := strings.ToLower(strings.TrimSpace(typeName))
+	if idx := strings.Index(base, "("); idx > 0 {
+		base = strings.TrimSpace(base[:idx])
+	}
+	return base == "vector"
 }
 
 // pascalCase converts a snake_case name to PascalCase.
@@ -155,4 +179,66 @@ func pascalCase(s string) string {
 
 func isSystemTable(name string) bool {
 	return strings.HasPrefix(name, "_ayb_")
+}
+
+// hasSpatialColumns returns true if any non-system table has geometry or geography columns.
+func hasSpatialColumns(sc *schema.SchemaCache, keys []string) bool {
+	for _, k := range keys {
+		t := sc.Tables[k]
+		if isSystemTable(t.Name) {
+			continue
+		}
+		if t.HasGeometry() {
+			return true
+		}
+	}
+	return false
+}
+
+// geoJSONTypeForColumn maps a normalized GeometryType to a GeoJSON namespace type.
+// Returns "GeoJSON.Geometry" for empty or unknown types.
+func geoJSONTypeForColumn(geometryType string) string {
+	switch geometryType {
+	case "Point", "MultiPoint", "LineString", "MultiLineString",
+		"Polygon", "MultiPolygon", "GeometryCollection":
+		return "GeoJSON." + geometryType
+	default:
+		return "GeoJSON.Geometry"
+	}
+}
+
+// writeGeoJSONNamespace emits a self-contained GeoJSON type namespace following RFC 7946.
+func writeGeoJSONNamespace(b *strings.Builder) {
+	b.WriteString("export namespace GeoJSON {\n")
+	b.WriteString("  export type Position = [number, number] | [number, number, number];\n\n")
+	b.WriteString("  export interface Point {\n")
+	b.WriteString("    type: \"Point\";\n")
+	b.WriteString("    coordinates: Position;\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface MultiPoint {\n")
+	b.WriteString("    type: \"MultiPoint\";\n")
+	b.WriteString("    coordinates: Position[];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface LineString {\n")
+	b.WriteString("    type: \"LineString\";\n")
+	b.WriteString("    coordinates: Position[];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface MultiLineString {\n")
+	b.WriteString("    type: \"MultiLineString\";\n")
+	b.WriteString("    coordinates: Position[][];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface Polygon {\n")
+	b.WriteString("    type: \"Polygon\";\n")
+	b.WriteString("    coordinates: Position[][];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface MultiPolygon {\n")
+	b.WriteString("    type: \"MultiPolygon\";\n")
+	b.WriteString("    coordinates: Position[][][];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export interface GeometryCollection {\n")
+	b.WriteString("    type: \"GeometryCollection\";\n")
+	b.WriteString("    geometries: Geometry[];\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  export type Geometry = Point | MultiPoint | LineString | MultiLineString | Polygon | MultiPolygon | GeometryCollection;\n")
+	b.WriteString("}\n\n")
 }

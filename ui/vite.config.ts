@@ -24,6 +24,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
-    exclude: ["browser-tests-unmocked/**", "node_modules/**"],
+    exclude: ["browser-tests-unmocked/**", "browser-tests-mocked/**", "node_modules/**"],
   },
 });

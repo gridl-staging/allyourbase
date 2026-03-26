@@ -1,12 +1,9 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, sqlLiteral, waitForDashboard } from "../fixtures";
 import type { Page } from "@playwright/test";
-
-function sqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 async function openEmailTemplatesPage(page: Page): Promise<void> {
   await page.goto("/admin/");
+  await waitForDashboard(page);
   await page.getByRole("button", { name: /^Email Templates$/i }).click();
   await expect(page.getByRole("heading", { name: "Email Templates" })).toBeVisible({ timeout: 5000 });
 }
@@ -88,7 +85,10 @@ test.describe("Email Templates Lifecycle (Full E2E)", () => {
 }`);
 
     await expect(page.getByText(`Custom reset ${runId} for Sigil ${runId}`)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(`https://sigil.example/reset/${runId}`)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("email-template-preview-html")).toContainText(
+      `https://sigil.example/reset/${runId}`,
+      { timeout: 10000 },
+    );
 
     await page.getByRole("button", { name: "Reset to Default" }).click();
 

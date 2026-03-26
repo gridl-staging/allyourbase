@@ -1,3 +1,4 @@
+// Package auth oauth_clients.go provides OAuth 2.0 client management including registration, validation, credential handling, and database CRUD operations.
 package auth
 
 import (
@@ -62,6 +63,7 @@ func NewOAuthError(code, description string) *OAuthError {
 }
 
 // OAuthClient represents a registered OAuth 2.0 client.
+// OAuthClient represents a registered OAuth 2.0 client with configuration for redirect URIs, scopes, and client type (confidential or public). It includes creation and revocation timestamps and computed statistics on active tokens and total grants.
 type OAuthClient struct {
 	ID                      string     `json:"id"`
 	AppID                   string     `json:"appId"`

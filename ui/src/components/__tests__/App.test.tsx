@@ -6,6 +6,7 @@ import { MockApiError } from "../../test-utils";
 vi.mock("../../api", () => ({
   getAdminStatus: vi.fn(),
   getSchema: vi.fn(),
+  clearAuthToken: vi.fn(),
   clearToken: vi.fn(),
   ApiError: MockApiError,
 }));
@@ -34,11 +35,12 @@ vi.mock("../Layout", () => ({
   ),
 }));
 
-import { getAdminStatus, getSchema, clearToken } from "../../api";
+import { getAdminStatus, getSchema, clearAuthToken, clearToken } from "../../api";
 import { App } from "../../App";
 
 const mockGetAdminStatus = vi.mocked(getAdminStatus);
 const mockGetSchema = vi.mocked(getSchema);
+const mockClearAuthToken = vi.mocked(clearAuthToken);
 const mockClearToken = vi.mocked(clearToken);
 
 const fakeSchema = {
@@ -101,6 +103,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("login")).toBeInTheDocument();
     });
+    expect(mockClearAuthToken).toHaveBeenCalled();
     expect(mockClearToken).toHaveBeenCalled();
   });
 
@@ -167,6 +170,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("login")).toBeInTheDocument();
     });
+    expect(mockClearAuthToken).toHaveBeenCalled();
     expect(mockClearToken).toHaveBeenCalled();
   });
 

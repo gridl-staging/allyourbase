@@ -13,8 +13,8 @@ test.describe("Email Templates Preview (Browser Mocked)", () => {
     await page.getByRole("button", { name: /^Email Templates$/i }).click();
 
     await expect(page.getByRole("heading", { name: "Email Templates" })).toBeVisible();
-    await expect(page.getByText("auth.password_reset")).toBeVisible();
-    await expect(page.getByText("app.club_invite")).toBeVisible();
+    await expect(page.getByRole("button", { name: /auth\.password_reset/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /app\.club_invite/ })).toBeVisible();
 
     await expect(page.getByText("Preview for Allyourbase")).toBeVisible({ timeout: 5000 });
   });

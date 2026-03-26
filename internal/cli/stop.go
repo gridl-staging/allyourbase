@@ -1,8 +1,10 @@
+// Package cli The file implements the stop command to gracefully shut down the AYB server, with automatic escalation to forced termination and cleanup of process files.
 package cli
 
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 	"time"
@@ -18,36 +20,52 @@ var stopCmd = &cobra.Command{
 	RunE:  runStop,
 }
 
+var stopPortInUse = portInUse
+
+func init() {
+	stopCmd.Flags().Int("port", 0, "Server port to check for orphan-process detection (default: 8090)")
+}
+
+func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) error {
+	// No PID file — check if something is actually listening on the configured
+	// port. This catches orphan processes (e.g. foreground mode killed
+	// ungracefully, leaving embedded postgres alive).
+	if stopPortInUse(orphanCheckPort) {
+		if jsonOut {
+			return json.NewEncoder(out).Encode(map[string]any{
+				"status":  "orphan",
+				"message": fmt.Sprintf("no PID file but port %d is in use", orphanCheckPort),
+				"port":    orphanCheckPort,
+			})
+		}
+		fmt.Fprintf(out, "No PID file found, but port %d is in use.\n", orphanCheckPort)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "  An orphan process may be holding the port. Try:")
+		fmt.Fprintf(out, "    lsof -ti :%d | xargs kill   # find and kill the process\n", orphanCheckPort)
+		fmt.Fprintln(out, "    ayb start                     # then start fresh")
+		return nil
+	}
+	if jsonOut {
+		return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
+	}
+	fmt.Fprintln(out, "No AYB server is running (no PID file found).")
+	return nil
+}
+
+// runStop gracefully terminates the AYB server by sending SIGTERM to the process identified in the PID file. If graceful shutdown doesn't complete within 10 seconds, it escalates to SIGKILL. It handles orphan processes, stale PID files, cleans up server files, and returns JSON output when the json flag is set.
 func runStop(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	portFlag, _ := cmd.Flags().GetInt("port")
 	out := cmd.OutOrStdout()
 
 	pid, _, err := readAYBPID()
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No PID file — check if something is actually listening on the
-			// default port. This catches orphan processes (e.g. foreground
-			// mode killed ungracefully, leaving embedded postgres alive).
-			if portInUse(8090) {
-				if jsonOut {
-					return json.NewEncoder(out).Encode(map[string]any{
-						"status":  "orphan",
-						"message": "no PID file but port 8090 is in use",
-						"port":    8090,
-					})
-				}
-				fmt.Fprintln(out, "No PID file found, but port 8090 is in use.")
-				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "  An orphan process may be holding the port. Try:")
-				fmt.Fprintln(out, "    lsof -ti :8090 | xargs kill   # find and kill the process")
-				fmt.Fprintln(out, "    ayb start                     # then start fresh")
-				return nil
+			orphanCheckPort := portFlag
+			if orphanCheckPort == 0 {
+				orphanCheckPort = 8090
 			}
-			if jsonOut {
-				return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
-			}
-			fmt.Fprintln(out, "No AYB server is running (no PID file found).")
-			return nil
+			return reportStopWithoutPID(out, jsonOut, orphanCheckPort)
 		}
 		return fmt.Errorf("reading PID file: %w", err)
 	}

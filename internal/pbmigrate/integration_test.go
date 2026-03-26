@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -256,413 +257,56 @@ func TestE2E_SkipFiles(t *testing.T) {
 	testutil.Equal(t, 0, len(entries))
 }
 
-// Helper functions
+func TestE2E_IndexMigration(t *testing.T) {
+	pbData := createPocketBaseWithIndexes(t)
+	defer os.RemoveAll(pbData)
 
-func createPocketBaseFixture(t *testing.T) string {
-	t.Helper()
-	tmpDir := t.TempDir()
+	pgURL := createTestDatabase(t, "e2e_index_migration")
+	defer dropTestDatabase(t, pgURL, "e2e_index_migration")
 
-	// Create pb_data directory
-	pbDataPath := filepath.Join(tmpDir, "pb_data")
-	err := os.MkdirAll(pbDataPath, 0755)
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		Verbose:     true,
+	}
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
 	testutil.NoError(t, err)
 
-	// Create data.db (SQLite database)
-	dbPath := filepath.Join(pbDataPath, "data.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	verifyIndexExists(t, pgURL, "idx_posts_title", false)
+	verifyIndexExists(t, pgURL, "idx_posts_title_updated", false)
+	verifyIndexExists(t, pgURL, "idx_posts_title_unique", true)
+}
+
+func TestE2E_IndexMigrationRejectsUnsupportedDefinition(t *testing.T) {
+	pbData := createPocketBaseWithUnsupportedIndex(t)
+	defer os.RemoveAll(pbData)
+
+	pgURL := createTestDatabase(t, "e2e_index_migration_unsupported")
+	defer dropTestDatabase(t, pgURL, "e2e_index_migration_unsupported")
+
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		Verbose:     true,
+	}
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	_, err = migrator.Migrate(context.Background())
+	testutil.ErrorContains(t, err, "failed to translate indexes for posts")
+	testutil.ErrorContains(t, err, "unsupported SQLite index definition")
+
+	db, err := sql.Open("pgx", pgURL)
 	testutil.NoError(t, err)
 	defer db.Close()
 
-	// Create _collections table
-	_, err = db.Exec(`
-		CREATE TABLE _collections (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			type TEXT NOT NULL,
-			system INTEGER NOT NULL,
-			schema TEXT NOT NULL,
-			indexes TEXT,
-			listRule TEXT,
-			viewRule TEXT,
-			createRule TEXT,
-			updateRule TEXT,
-			deleteRule TEXT,
-			options TEXT,
-			created TEXT,
-			updated TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert collections
-	insertCollection(t, db, PBCollection{
-		ID:     "posts123",
-		Name:   "posts",
-		Type:   "base",
-		System: false,
-		Schema: []PBField{
-			{Name: "title", Type: "text", Required: true},
-			{Name: "body", Type: "editor", Required: false},
-			{Name: "image", Type: "file", Required: false},
-			{Name: "published", Type: "bool", Required: false},
-		},
-		ListRule:   stringPtr(""),
-		ViewRule:   stringPtr(""),
-		CreateRule: stringPtr("@request.auth.id != ''"),
-		UpdateRule: stringPtr("@request.auth.id != ''"),
-		DeleteRule: stringPtr("@request.auth.id != ''"),
-	})
-
-	insertCollection(t, db, PBCollection{
-		ID:     "users123",
-		Name:   "users",
-		Type:   "auth",
-		System: false,
-		Schema: []PBField{
-			{Name: "email", Type: "email", Required: true, System: true},
-			{Name: "passwordHash", Type: "text", Required: true, System: true},
-			{Name: "verified", Type: "bool", Required: false, System: true},
-		},
-		ListRule:   stringPtr(""),
-		ViewRule:   stringPtr(""),
-		CreateRule: stringPtr(""),
-		UpdateRule: stringPtr("id = @request.auth.id"),
-		DeleteRule: nil,
-	})
-
-	insertCollection(t, db, PBCollection{
-		ID:     "comments123",
-		Name:   "comments",
-		Type:   "base",
-		System: false,
-		Schema: []PBField{
-			{Name: "text", Type: "text", Required: true},
-			{Name: "post", Type: "relation", Required: true},
-		},
-		ListRule:   stringPtr(""),
-		ViewRule:   stringPtr(""),
-		CreateRule: stringPtr(""),
-		UpdateRule: nil,
-		DeleteRule: nil,
-	})
-
-	insertCollection(t, db, PBCollection{
-		ID:     "stats123",
-		Name:   "stats_view",
-		Type:   "view",
-		System: false,
-		Schema: []PBField{
-			{Name: "count", Type: "number", Required: false},
-		},
-		ViewQuery: "SELECT COUNT(*) as count FROM posts",
-	})
-
-	// Create posts table
-	_, err = db.Exec(`
-		CREATE TABLE posts (
-			id TEXT PRIMARY KEY,
-			created TEXT,
-			updated TEXT,
-			title TEXT,
-			body TEXT,
-			image TEXT,
-			published INTEGER
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert posts
-	_, err = db.Exec(`
-		INSERT INTO posts (id, created, updated, title, body, image, published)
-		VALUES
-			('post1', '2024-01-01 00:00:00.000Z', '2024-01-01 00:00:00.000Z', 'First Post', 'Hello world', 'image1.jpg', 1),
-			('post2', '2024-01-02 00:00:00.000Z', '2024-01-02 00:00:00.000Z', 'Second Post', 'More content', 'image2.png', 1),
-			('post3', '2024-01-03 00:00:00.000Z', '2024-01-03 00:00:00.000Z', 'Draft', 'Draft content', '', 0)
-	`)
-	testutil.NoError(t, err)
-
-	// Create comments table
-	_, err = db.Exec(`
-		CREATE TABLE comments (
-			id TEXT PRIMARY KEY,
-			created TEXT,
-			updated TEXT,
-			text TEXT,
-			post TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert comments
-	_, err = db.Exec(`
-		INSERT INTO comments (id, created, updated, text, post)
-		VALUES
-			('comment1', '2024-01-01 01:00:00.000Z', '2024-01-01 01:00:00.000Z', 'Great post!', 'post1'),
-			('comment2', '2024-01-02 01:00:00.000Z', '2024-01-02 01:00:00.000Z', 'Nice!', 'post2')
-	`)
-	testutil.NoError(t, err)
-
-	// Create users table (auth collection)
-	_, err = db.Exec(`
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			created TEXT,
-			updated TEXT,
-			email TEXT,
-			passwordHash TEXT,
-			verified INTEGER
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert users
-	_, err = db.Exec(`
-		INSERT INTO users (id, created, updated, email, passwordHash, verified)
-		VALUES
-			('user1', '2024-01-01 00:00:00.000Z', '2024-01-01 00:00:00.000Z', 'user@example.com', '$2a$10$hashedpassword', 1)
-	`)
-	testutil.NoError(t, err)
-
-	// Create storage directory with files
-	storagePath := filepath.Join(pbDataPath, "storage", "posts")
-	err = os.MkdirAll(storagePath, 0755)
-	testutil.NoError(t, err)
-
-	err = os.WriteFile(filepath.Join(storagePath, "image1.jpg"), []byte("fake-jpeg-data"), 0644)
-	testutil.NoError(t, err)
-
-	err = os.WriteFile(filepath.Join(storagePath, "image2.png"), []byte("fake-png-data"), 0644)
-	testutil.NoError(t, err)
-
-	return pbDataPath
-}
-
-func createPocketBaseWithAuthUsers(t *testing.T) string {
-	t.Helper()
-	tmpDir := t.TempDir()
-
-	pbDataPath := filepath.Join(tmpDir, "pb_data")
-	err := os.MkdirAll(pbDataPath, 0755)
-	testutil.NoError(t, err)
-
-	dbPath := filepath.Join(pbDataPath, "data.db")
-	db, err := sql.Open("sqlite3", dbPath)
-	testutil.NoError(t, err)
-	defer db.Close()
-
-	// Create _collections table
-	_, err = db.Exec(`
-		CREATE TABLE _collections (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			type TEXT NOT NULL,
-			system INTEGER NOT NULL,
-			schema TEXT NOT NULL,
-			indexes TEXT,
-			listRule TEXT,
-			viewRule TEXT,
-			createRule TEXT,
-			updateRule TEXT,
-			deleteRule TEXT,
-			options TEXT,
-			created TEXT,
-			updated TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert auth collection with custom fields
-	insertCollection(t, db, PBCollection{
-		ID:     "users123",
-		Name:   "users",
-		Type:   "auth",
-		System: false,
-		Schema: []PBField{
-			{Name: "email", Type: "email", Required: true, System: true},
-			{Name: "passwordHash", Type: "text", Required: true, System: true},
-			{Name: "verified", Type: "bool", Required: false, System: true},
-			{Name: "name", Type: "text", Required: true, System: false},
-			{Name: "role", Type: "select", Required: false, System: false},
-			{Name: "avatar", Type: "file", Required: false, System: false},
-		},
-	})
-
-	// Create users table
-	_, err = db.Exec(`
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			created TEXT,
-			updated TEXT,
-			email TEXT,
-			passwordHash TEXT,
-			verified INTEGER,
-			name TEXT,
-			role TEXT,
-			avatar TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert users
-	_, err = db.Exec(`
-		INSERT INTO users (id, created, updated, email, passwordHash, verified, name, role, avatar)
-		VALUES
-			('user1abc', '2024-01-01 00:00:00.000Z', '2024-01-01 00:00:00.000Z', 'alice@example.com', '$2a$10$hashedpassword1', 1, 'Alice Smith', 'admin', 'avatar1.jpg'),
-			('user2abc', '2024-01-02 00:00:00.000Z', '2024-01-02 00:00:00.000Z', 'bob@example.com', '$2a$10$hashedpassword2', 0, 'Bob Jones', 'user', ''),
-			('user3abc', '2024-01-03 00:00:00.000Z', '2024-01-03 00:00:00.000Z', 'carol@example.com', '$2a$10$hashedpassword3', 1, 'Carol White', 'moderator', 'avatar3.png')
-	`)
-	testutil.NoError(t, err)
-
-	return pbDataPath
-}
-
-func createPocketBaseWithFiles(t *testing.T) string {
-	t.Helper()
-	tmpDir := t.TempDir()
-
-	pbDataPath := filepath.Join(tmpDir, "pb_data")
-	err := os.MkdirAll(pbDataPath, 0755)
-	testutil.NoError(t, err)
-
-	dbPath := filepath.Join(pbDataPath, "data.db")
-	db, err := sql.Open("sqlite3", dbPath)
-	testutil.NoError(t, err)
-	defer db.Close()
-
-	// Create _collections table
-	_, err = db.Exec(`
-		CREATE TABLE _collections (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			type TEXT NOT NULL,
-			system INTEGER NOT NULL,
-			schema TEXT NOT NULL,
-			indexes TEXT,
-			listRule TEXT,
-			viewRule TEXT,
-			createRule TEXT,
-			updateRule TEXT,
-			deleteRule TEXT,
-			options TEXT,
-			created TEXT,
-			updated TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	// Insert collection with file field
-	insertCollection(t, db, PBCollection{
-		ID:     "posts123",
-		Name:   "posts",
-		Type:   "base",
-		System: false,
-		Schema: []PBField{
-			{Name: "title", Type: "text", Required: true},
-			{Name: "image", Type: "file", Required: false},
-		},
-	})
-
-	// Create posts table
-	_, err = db.Exec(`
-		CREATE TABLE posts (
-			id TEXT PRIMARY KEY,
-			created TEXT,
-			updated TEXT,
-			title TEXT,
-			image TEXT
-		)
-	`)
-	testutil.NoError(t, err)
-
-	_, err = db.Exec(`
-		INSERT INTO posts (id, created, updated, title, image)
-		VALUES
-			('post1', '2024-01-01 00:00:00.000Z', '2024-01-01 00:00:00.000Z', 'Post 1', 'image1.jpg'),
-			('post2', '2024-01-02 00:00:00.000Z', '2024-01-02 00:00:00.000Z', 'Post 2', 'image2.png')
-	`)
-	testutil.NoError(t, err)
-
-	// Create storage with files
-	storagePath := filepath.Join(pbDataPath, "storage", "posts")
-	err = os.MkdirAll(filepath.Join(storagePath, "nested"), 0755)
-	testutil.NoError(t, err)
-
-	err = os.WriteFile(filepath.Join(storagePath, "image1.jpg"), []byte("fake-jpeg-data"), 0644)
-	testutil.NoError(t, err)
-
-	err = os.WriteFile(filepath.Join(storagePath, "image2.png"), []byte("fake-png-data"), 0644)
-	testutil.NoError(t, err)
-
-	err = os.WriteFile(filepath.Join(storagePath, "nested", "doc.pdf"), []byte("fake-pdf-data"), 0644)
-	testutil.NoError(t, err)
-
-	return pbDataPath
-}
-
-func insertCollection(t *testing.T, db *sql.DB, coll PBCollection) {
-	t.Helper()
-
-	schemaJSON, err := json.Marshal(coll.Schema)
-	testutil.NoError(t, err)
-
-	var listRule, viewRule, createRule, updateRule, deleteRule interface{}
-	if coll.ListRule != nil {
-		listRule = *coll.ListRule
-	}
-	if coll.ViewRule != nil {
-		viewRule = *coll.ViewRule
-	}
-	if coll.CreateRule != nil {
-		createRule = *coll.CreateRule
-	}
-	if coll.UpdateRule != nil {
-		updateRule = *coll.UpdateRule
-	}
-	if coll.DeleteRule != nil {
-		deleteRule = *coll.DeleteRule
-	}
-
-	var optionsJSON []byte
-	if coll.Type == "view" {
-		optionsJSON, _ = json.Marshal(map[string]interface{}{
-			"query": coll.ViewQuery,
-		})
-	} else {
-		optionsJSON = []byte("{}")
-	}
-
-	_, err = db.Exec(`
-		INSERT INTO _collections (id, name, type, system, schema, listRule, viewRule, createRule, updateRule, deleteRule, options, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, coll.ID, coll.Name, coll.Type, boolToInt(coll.System), string(schemaJSON), listRule, viewRule, createRule, updateRule, deleteRule, string(optionsJSON), "2024-01-01 00:00:00.000Z", "2024-01-01 00:00:00.000Z")
-	testutil.NoError(t, err)
-}
-
-func createTestDatabase(t *testing.T, name string) string {
-	t.Helper()
-
-	// Use shared PostgreSQL container and reset schema
-	ctx := context.Background()
-	_, err := sharedPG.Pool.Exec(ctx, "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public")
-	testutil.NoError(t, err)
-
-	// Return connection string
-	return sharedPG.ConnString
-}
-
-func dropTestDatabase(t *testing.T, dbURL, name string) {
-	t.Helper()
-	// No-op, TestMain handles cleanup
-}
-
-func verifySchemaCreated(t *testing.T, dbURL string) {
-	t.Helper()
-
-	db, err := sql.Open("pgx", dbURL)
-	testutil.NoError(t, err)
-	defer db.Close()
-
-	// Check posts table exists
 	var exists bool
 	err = db.QueryRow(`
 		SELECT EXISTS (
@@ -671,150 +315,304 @@ func verifySchemaCreated(t *testing.T, dbURL string) {
 		)
 	`).Scan(&exists)
 	testutil.NoError(t, err)
-	testutil.True(t, exists)
-
-	// Check comments table exists
-	err = db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
-			WHERE table_name = 'comments'
-		)
-	`).Scan(&exists)
-	testutil.NoError(t, err)
-	testutil.True(t, exists)
-
-	// Check stats_view exists
-	err = db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.views
-			WHERE table_name = 'stats_view'
-		)
-	`).Scan(&exists)
-	testutil.NoError(t, err)
-	testutil.True(t, exists)
-
-	// Check _ayb_users table exists
-	err = db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
-			WHERE table_name = '_ayb_users'
-		)
-	`).Scan(&exists)
-	testutil.NoError(t, err)
-	testutil.True(t, exists)
+	testutil.False(t, exists)
 }
 
-func verifyDataMigrated(t *testing.T, dbURL string) {
-	t.Helper()
+func TestE2E_Regression_SuccessFixtureIndexesFilesRLSReporting(t *testing.T) {
+	pbData := createPocketBaseFixture(t)
+	defer os.RemoveAll(pbData)
 
-	db, err := sql.Open("pgx", dbURL)
+	fixtureDB, err := sql.Open("sqlite3", filepath.Join(pbData, "data.db"))
 	testutil.NoError(t, err)
-	defer db.Close()
+	defer fixtureDB.Close()
 
-	// Check posts
-	var postCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM posts").Scan(&postCount)
+	indexesJSON, err := json.Marshal([]string{
+		"CREATE INDEX idx_posts_title ON posts (title)",
+		"CREATE UNIQUE INDEX idx_posts_title_unique ON posts (title)",
+	})
 	testutil.NoError(t, err)
-	testutil.Equal(t, 3, postCount)
 
-	// Check specific post
-	var title, body string
-	var published bool
-	err = db.QueryRow("SELECT title, body, published FROM posts WHERE id = $1", "post1").
-		Scan(&title, &body, &published)
+	_, err = fixtureDB.Exec(`UPDATE _collections SET indexes = ? WHERE name = ?`, string(indexesJSON), "posts")
 	testutil.NoError(t, err)
-	testutil.Equal(t, "First Post", title)
-	testutil.Equal(t, "Hello world", body)
-	testutil.True(t, published)
 
-	// Check comments
-	var commentCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM comments").Scan(&commentCount)
-	testutil.NoError(t, err)
-	testutil.Equal(t, 2, commentCount)
-}
+	pgURL := createTestDatabase(t, "e2e_regression_success_fixture")
+	defer dropTestDatabase(t, pgURL, "e2e_regression_success_fixture")
 
-func verifyAuthUsersMigrated(t *testing.T, dbURL string) {
-	t.Helper()
-
-	db, err := sql.Open("pgx", dbURL)
-	testutil.NoError(t, err)
-	defer db.Close()
-
-	// Check users were migrated (fixture has exactly 1 user)
-	var userCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM _ayb_users").Scan(&userCount)
-	testutil.NoError(t, err)
-	testutil.Equal(t, 1, userCount)
-
-	// Check ID mapping
-	var mapCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM _ayb_pb_id_map").Scan(&mapCount)
-	testutil.NoError(t, err)
-	testutil.Equal(t, userCount, mapCount)
-
-	// Verify user data
-	var email, passwordHash string
-	var verified bool
-	err = db.QueryRow("SELECT email, password_hash, email_verified FROM _ayb_users WHERE email = $1", "user@example.com").
-		Scan(&email, &passwordHash, &verified)
-	testutil.NoError(t, err)
-	testutil.Equal(t, "user@example.com", email)
-	testutil.NotEqual(t, "", passwordHash)
-	testutil.True(t, verified)
-}
-
-func verifyFilesCopied(t *testing.T, storagePath string) {
-	t.Helper()
-
-	// Check files exist
-	verifyFile(t, filepath.Join(storagePath, "posts", "image1.jpg"), []byte("fake-jpeg-data"))
-	verifyFile(t, filepath.Join(storagePath, "posts", "image2.png"), []byte("fake-png-data"))
-}
-
-func verifyFile(t *testing.T, path string, expectedContent []byte) {
-	t.Helper()
-
-	content, err := os.ReadFile(path)
-	testutil.NoError(t, err)
-	testutil.Equal(t, string(expectedContent), string(content))
-}
-
-func verifyRLSPolicies(t *testing.T, dbURL string) {
-	t.Helper()
-
-	db, err := sql.Open("pgx", dbURL)
-	testutil.NoError(t, err)
-	defer db.Close()
-
-	// Check RLS is enabled on posts
-	var rlsEnabled bool
-	err = db.QueryRow(`
-		SELECT relrowsecurity
-		FROM pg_class
-		WHERE relname = 'posts'
-	`).Scan(&rlsEnabled)
-	testutil.NoError(t, err)
-	testutil.True(t, rlsEnabled)
-
-	// Check policies exist
-	var policyCount int
-	err = db.QueryRow(`
-		SELECT COUNT(*)
-		FROM pg_policies
-		WHERE tablename = 'posts'
-	`).Scan(&policyCount)
-	testutil.NoError(t, err)
-	testutil.True(t, policyCount >= 3) // At least SELECT, INSERT, UPDATE policies
-}
-
-func stringPtr(s string) *string {
-	return &s
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
+	tmpStorage := t.TempDir()
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		StoragePath: tmpStorage,
+		Verbose:     false,
 	}
-	return 0
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+
+	verifyIndexExists(t, pgURL, "idx_posts_title", false)
+	verifyIndexExists(t, pgURL, "idx_posts_title_unique", true)
+	verifyFilesCopied(t, tmpStorage)
+	verifyRLSPolicies(t, pgURL)
+
+	testutil.Equal(t, 2, stats.Files)
+	testutil.True(t, stats.Policies >= 6)
+	testutil.Nil(t, stats.Errors)
+	testutil.Nil(t, stats.FailedFiles)
+}
+
+func TestE2E_Regression_AuthValidationFailureRollsBackMigration(t *testing.T) {
+	tests := []struct {
+		name    string
+		dbName  string
+		wantErr string
+		mutate  func(t *testing.T, db *sql.DB)
+	}{
+		{
+			name:    "duplicate emails",
+			dbName:  "e2e_auth_validation_duplicate",
+			wantErr: "duplicate email",
+			mutate: func(t *testing.T, db *sql.DB) {
+				t.Helper()
+				_, err := db.Exec(`
+					INSERT INTO users (id, created, updated, email, passwordHash, verified)
+					VALUES ('user2', '2024-01-01 00:00:00.000Z', '2024-01-01 00:00:00.000Z', 'user@example.com', '$2a$10$anotherhash', 1)
+				`)
+				testutil.NoError(t, err)
+			},
+		},
+		{
+			name:    "empty password hash",
+			dbName:  "e2e_auth_validation_empty_hash",
+			wantErr: "empty password hash",
+			mutate: func(t *testing.T, db *sql.DB) {
+				t.Helper()
+				_, err := db.Exec(`UPDATE users SET passwordHash = '   ' WHERE id = 'user1'`)
+				testutil.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			pbData := createPocketBaseFixture(t)
+			defer os.RemoveAll(pbData)
+
+			fixtureDB, err := sql.Open("sqlite3", filepath.Join(pbData, "data.db"))
+			testutil.NoError(t, err)
+			defer fixtureDB.Close()
+
+			tt.mutate(t, fixtureDB)
+
+			pgURL := createTestDatabase(t, tt.dbName)
+			defer dropTestDatabase(t, pgURL, tt.dbName)
+
+			tmpStorage := t.TempDir()
+			opts := MigrationOptions{
+				SourcePath:  pbData,
+				DatabaseURL: pgURL,
+				StoragePath: tmpStorage,
+				Verbose:     false,
+			}
+
+			migrator, err := NewMigrator(opts)
+			testutil.NoError(t, err)
+			defer migrator.Close()
+
+			_, err = migrator.Migrate(context.Background())
+			testutil.ErrorContains(t, err, tt.wantErr)
+
+			db, err := sql.Open("pgx", pgURL)
+			testutil.NoError(t, err)
+			defer db.Close()
+
+			var postsExists bool
+			err = db.QueryRow(`SELECT to_regclass('public.posts') IS NOT NULL`).Scan(&postsExists)
+			testutil.NoError(t, err)
+			testutil.False(t, postsExists)
+
+			var usersExists bool
+			err = db.QueryRow(`SELECT to_regclass('public._ayb_users') IS NOT NULL`).Scan(&usersExists)
+			testutil.NoError(t, err)
+			testutil.False(t, usersExists)
+
+			entries, err := os.ReadDir(tmpStorage)
+			testutil.NoError(t, err)
+			testutil.Equal(t, 0, len(entries))
+		})
+	}
+}
+
+// TestE2E_NilCustomFieldLandsAsSQLNull verifies that an auth user whose
+// custom fields are nil/absent in PocketBase is migrated successfully with
+// SQL NULL values in the _ayb_user_profiles_<collection> table — not as
+// empty strings or missing rows.
+func TestE2E_NilCustomFieldLandsAsSQLNull(t *testing.T) {
+	// Start from the auth fixture which has custom fields (name, role, avatar).
+	pbData := createPocketBaseWithAuthUsers(t)
+	defer os.RemoveAll(pbData)
+
+	fixtureDB, err := sql.Open("sqlite3", filepath.Join(pbData, "data.db"))
+	testutil.NoError(t, err)
+	defer fixtureDB.Close()
+
+	// Relax the "name" field's Required flag so the profiles table column
+	// is nullable and NULL inserts are accepted by PostgreSQL.
+	schemaJSON, err := json.Marshal([]PBField{
+		{Name: "email", Type: "email", Required: true, System: true},
+		{Name: "passwordHash", Type: "text", Required: true, System: true},
+		{Name: "verified", Type: "bool", Required: false, System: true},
+		{Name: "name", Type: "text", Required: false, System: false},
+		{Name: "role", Type: "select", Required: false, System: false},
+		{Name: "avatar", Type: "file", Required: false, System: false},
+	})
+	testutil.NoError(t, err)
+	_, err = fixtureDB.Exec(`UPDATE _collections SET schema = ? WHERE name = 'users'`, string(schemaJSON))
+	testutil.NoError(t, err)
+
+	// Add a user whose custom fields are all NULL.
+	_, err = fixtureDB.Exec(`
+		INSERT INTO users (id, created, updated, email, passwordHash, verified, name, role, avatar)
+		VALUES ('user4nil', '2024-01-04 00:00:00.000Z', '2024-01-04 00:00:00.000Z',
+		        'niluser@example.com', '$2a$10$hashedpassword4', 1, NULL, NULL, NULL)
+	`)
+	testutil.NoError(t, err)
+
+	pgURL := createTestDatabase(t, "e2e_nil_custom_field")
+	defer dropTestDatabase(t, pgURL, "e2e_nil_custom_field")
+
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		Verbose:     true,
+	}
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err)
+	testutil.Equal(t, 4, stats.AuthUsers) // 3 original + 1 nil-field user
+
+	// Verify the nil-field user has a profile row with SQL NULLs.
+	db, err := sql.Open("pgx", pgURL)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	var profileCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM _ayb_user_profiles_users").Scan(&profileCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 4, profileCount) // all 4 users must have profile rows
+
+	// Query the nil-field user's profile via the user email.
+	var name, role, avatar sql.NullString
+	err = db.QueryRow(`
+		SELECT p.name, p.role, p.avatar
+		FROM _ayb_user_profiles_users p
+		JOIN _ayb_users u ON u.id = p.user_id
+		WHERE u.email = $1
+	`, "niluser@example.com").Scan(&name, &role, &avatar)
+	testutil.NoError(t, err)
+
+	// All three custom fields must be SQL NULL, not empty strings.
+	testutil.False(t, name.Valid, "expected name to be SQL NULL")
+	testutil.False(t, role.Valid, "expected role to be SQL NULL")
+	testutil.False(t, avatar.Valid, "expected avatar to be SQL NULL")
+}
+
+// TestE2E_FileCopyFailureSurfacesInStats verifies that when a source file
+// is missing/corrupt, migration still succeeds but records the failure in
+// MigrationStats.FailedFiles. Non-failed files must still be copied.
+func TestE2E_FileCopyFailureSurfacesInStats(t *testing.T) {
+	pbData := createPocketBaseFixture(t)
+	defer os.RemoveAll(pbData)
+
+	// Make one source file unreadable to trigger a copy failure.
+	// (Removing the file would cause Walk to skip it silently.)
+	makeFixtureFileUnreadable(t, pbData, "posts", "image1.jpg")
+
+	pgURL := createTestDatabase(t, "e2e_file_copy_failure")
+	defer dropTestDatabase(t, pgURL, "e2e_file_copy_failure")
+
+	tmpStorage := t.TempDir()
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		StoragePath: tmpStorage,
+		Verbose:     true,
+	}
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(context.Background())
+	testutil.NoError(t, err) // migration must still succeed
+
+	// The removed file should appear in FailedFiles.
+	testutil.Equal(t, 1, len(stats.FailedFiles))
+	testutil.Equal(t, "posts/image1.jpg", stats.FailedFiles[0])
+
+	// The surviving file must still be copied.
+	verifyFile(t, filepath.Join(tmpStorage, "posts", "image2.png"), []byte("fake-png-data"))
+}
+
+// TestE2E_UnsupportedRLSTokenRollsBack verifies that an unsupported
+// PocketBase rule token causes Migrate() to return an error and roll back
+// the transaction — no partial schema committed, storage dir empty.
+func TestE2E_UnsupportedRLSTokenRollsBack(t *testing.T) {
+	pbData := createPocketBaseFixture(t)
+	defer os.RemoveAll(pbData)
+
+	// Mutate: inject an unsupported PocketBase array operator into the
+	// posts collection's listRule so GenerateRLSPolicies fails.
+	fixtureDB, err := sql.Open("sqlite3", filepath.Join(pbData, "data.db"))
+	testutil.NoError(t, err)
+	defer fixtureDB.Close()
+
+	_, err = fixtureDB.Exec(`UPDATE _collections SET listRule = 'tags ?= ''featured''' WHERE name = 'posts'`)
+	testutil.NoError(t, err)
+
+	pgURL := createTestDatabase(t, "e2e_unsupported_rls")
+	defer dropTestDatabase(t, pgURL, "e2e_unsupported_rls")
+
+	tmpStorage := t.TempDir()
+	opts := MigrationOptions{
+		SourcePath:  pbData,
+		DatabaseURL: pgURL,
+		StoragePath: tmpStorage,
+		Verbose:     false,
+	}
+
+	migrator, err := NewMigrator(opts)
+	testutil.NoError(t, err)
+	defer migrator.Close()
+
+	// Migrate() returns nil stats on error paths, so only check the error.
+	_, err = migrator.Migrate(context.Background())
+	testutil.True(t, err != nil, "expected Migrate() to return an error for unsupported RLS token")
+	testutil.True(t, strings.Contains(err.Error(), "failed to convert rule") ||
+		strings.Contains(err.Error(), "RLS"),
+		"error should reference RLS conversion failure, got: %s", err.Error())
+
+	// No partial schema should be committed (transaction rolled back).
+	db, err := sql.Open("pgx", pgURL)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	var postsExists bool
+	err = db.QueryRow(`SELECT to_regclass('public.posts') IS NOT NULL`).Scan(&postsExists)
+	testutil.NoError(t, err)
+	testutil.False(t, postsExists, "posts table should not exist after rollback")
+
+	// Storage directory should be empty — file phase runs after commit,
+	// so it should never execute.
+	entries, err := os.ReadDir(tmpStorage)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, len(entries))
 }

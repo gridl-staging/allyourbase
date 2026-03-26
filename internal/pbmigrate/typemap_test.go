@@ -192,17 +192,134 @@ func TestBuildCreateTableSQL(t *testing.T) {
 
 func TestBuildCreateViewSQL(t *testing.T) {
 	t.Parallel()
-	coll := PBCollection{
-		Name:      "active_users",
-		Type:      "view",
-		ViewQuery: "SELECT * FROM users WHERE active = true",
+	t.Run("valid select query", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:      "active_users",
+			Type:      "view",
+			ViewQuery: "SELECT * FROM users WHERE active = true;",
+		}
+
+		sql, err := BuildCreateViewSQL(coll)
+		testutil.NoError(t, err)
+		testutil.Contains(t, sql, "CREATE VIEW")
+		testutil.Contains(t, sql, `"active_users"`)
+		testutil.Contains(t, sql, "SELECT * FROM users WHERE active = true")
+	})
+
+	t.Run("rejects stacked statements", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:      "active_users",
+			Type:      "view",
+			ViewQuery: "SELECT * FROM users; DROP TABLE users",
+		}
+
+		_, err := BuildCreateViewSQL(coll)
+		testutil.ErrorContains(t, err, "multiple SQL statements are not allowed")
+	})
+
+	t.Run("rejects SQL comments", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:      "active_users",
+			Type:      "view",
+			ViewQuery: "SELECT * FROM users -- comment",
+		}
+
+		_, err := BuildCreateViewSQL(coll)
+		testutil.ErrorContains(t, err, "SQL comments are not allowed")
+	})
+
+	t.Run("rejects non-select view queries", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:      "active_users",
+			Type:      "view",
+			ViewQuery: "DELETE FROM users",
+		}
+
+		_, err := BuildCreateViewSQL(coll)
+		testutil.ErrorContains(t, err, "must start with SELECT or WITH")
+	})
+}
+
+func TestBuildCreateIndexSQL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		coll        PBCollection
+		expectedSQL []string
+		errContains string
+	}{
+		{
+			name: "standard index",
+			coll: PBCollection{
+				Name:    "posts",
+				Indexes: []string{"CREATE INDEX idx_posts_title ON posts (title)"},
+			},
+			expectedSQL: []string{`CREATE INDEX "idx_posts_title" ON "posts" ("title");`},
+		},
+		{
+			name: "unique index",
+			coll: PBCollection{
+				Name:    "users",
+				Indexes: []string{"CREATE UNIQUE INDEX idx_users_email ON users (email)"},
+			},
+			expectedSQL: []string{`CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email");`},
+		},
+		{
+			name: "multi column index",
+			coll: PBCollection{
+				Name:    "posts",
+				Indexes: []string{"CREATE INDEX idx_posts_title_created ON posts (title, created DESC)"},
+			},
+			expectedSQL: []string{`CREATE INDEX "idx_posts_title_created" ON "posts" ("title", "created" DESC);`},
+		},
+		{
+			name: "empty index list",
+			coll: PBCollection{
+				Name:    "posts",
+				Indexes: nil,
+			},
+			expectedSQL: []string{},
+		},
+		{
+			name: "backtick quoted identifiers",
+			coll: PBCollection{
+				Name:    "posts",
+				Indexes: []string{"CREATE UNIQUE INDEX IF NOT EXISTS `idx-users-email` ON `users` (`email`)"},
+			},
+			expectedSQL: []string{`CREATE UNIQUE INDEX IF NOT EXISTS "idx-users-email" ON "users" ("email");`},
+		},
+		{
+			name: "unsupported sqlite collate clause",
+			coll: PBCollection{
+				Name:    "posts",
+				Indexes: []string{"CREATE INDEX idx_posts_title_nocase ON posts (title COLLATE NOCASE)"},
+			},
+			errContains: "unsupported SQLite index definition",
+		},
 	}
 
-	sql := BuildCreateViewSQL(coll)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	testutil.Contains(t, sql, "CREATE VIEW")
-	testutil.Contains(t, sql, `"active_users"`)
-	testutil.Contains(t, sql, "SELECT * FROM users WHERE active = true")
+			statements, err := BuildCreateIndexSQL(tt.coll)
+			if tt.errContains != "" {
+				testutil.ErrorContains(t, err, tt.errContains)
+				return
+			}
+
+			testutil.NoError(t, err)
+			testutil.Equal(t, len(tt.expectedSQL), len(statements))
+			for idx := range tt.expectedSQL {
+				testutil.Equal(t, tt.expectedSQL[idx], statements[idx])
+			}
+		})
+	}
 }
 
 func TestSanitizeIdentifier(t *testing.T) {
@@ -244,6 +361,45 @@ func TestIsReservedWord(t *testing.T) {
 			t.Parallel()
 			result := IsReservedWord(tt.word)
 			testutil.Equal(t, tt.reserved, result)
+		})
+	}
+}
+
+func TestSanitizeIdentifier_EscapesDoubleQuotes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple name",
+			input:    "users",
+			expected: `"users"`,
+		},
+		{
+			name:     "name with double quote",
+			input:    `foo"bar`,
+			expected: `"foo""bar"`,
+		},
+		{
+			name:     "name with multiple double quotes",
+			input:    `a"b"c`,
+			expected: `"a""b""c"`,
+		},
+		{
+			name:     "injection attempt",
+			input:    `foo"; DROP TABLE users; --"`,
+			expected: `"foo""; DROP TABLE users; --"""`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := SanitizeIdentifier(tt.input)
+			if got != tt.expected {
+				t.Errorf("SanitizeIdentifier(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
 		})
 	}
 }

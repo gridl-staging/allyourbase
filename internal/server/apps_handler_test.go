@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/go-chi/chi/v5"
 )
@@ -23,6 +24,46 @@ type fakeAppManager struct {
 	createErr error
 	updateErr error
 	deleteErr error
+}
+
+func paginateApps(items []auth.App, page, perPage int) *auth.AppListResult {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	total := len(items)
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+
+	pageItems := items[start:end]
+	if pageItems == nil {
+		pageItems = []auth.App{}
+	}
+
+	totalPages := total / perPage
+	if total%perPage != 0 {
+		totalPages++
+	}
+
+	return &auth.AppListResult{
+		Items:      pageItems,
+		Page:       page,
+		PerPage:    perPage,
+		TotalItems: total,
+		TotalPages: totalPages,
+	}
 }
 
 func (f *fakeAppManager) CreateApp(_ context.Context, name, description, ownerUserID string) (*auth.App, error) {
@@ -59,43 +100,20 @@ func (f *fakeAppManager) ListApps(_ context.Context, page, perPage int) (*auth.A
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
+	return paginateApps(f.apps, page, perPage), nil
+}
 
-	total := len(f.apps)
-	start := (page - 1) * perPage
-	if start > total {
-		start = total
+func (f *fakeAppManager) ListAppsByTenant(_ context.Context, tenantID string, page, perPage int) (*auth.AppListResult, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
 	}
-	end := start + perPage
-	if end > total {
-		end = total
+	filtered := make([]auth.App, 0, len(f.apps))
+	for _, app := range f.apps {
+		if app.TenantID != nil && *app.TenantID == tenantID {
+			filtered = append(filtered, app)
+		}
 	}
-
-	items := f.apps[start:end]
-	if items == nil {
-		items = []auth.App{}
-	}
-
-	totalPages := total / perPage
-	if total%perPage != 0 {
-		totalPages++
-	}
-
-	return &auth.AppListResult{
-		Items:      items,
-		Page:       page,
-		PerPage:    perPage,
-		TotalItems: total,
-		TotalPages: totalPages,
-	}, nil
+	return paginateApps(filtered, page, perPage), nil
 }
 
 func (f *fakeAppManager) UpdateApp(_ context.Context, id, name, description string, rateLimitRPS, rateLimitWindowSeconds int) (*auth.App, error) {
@@ -134,6 +152,15 @@ func sampleApps() []auth.App {
 		{ID: "00000000-0000-0000-0000-000000000001", Name: "Sigil Mobile", Description: "Flutter app", OwnerUserID: "00000000-0000-0000-0000-000000000011", RateLimitRPS: 100, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
 		{ID: "00000000-0000-0000-0000-000000000002", Name: "Sigil Web", Description: "Web dashboard", OwnerUserID: "00000000-0000-0000-0000-000000000011", RateLimitRPS: 200, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
 		{ID: "00000000-0000-0000-0000-000000000003", Name: "Third Party", Description: "External integration", OwnerUserID: "00000000-0000-0000-0000-000000000012", RateLimitRPS: 50, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+	}
+}
+
+func sampleAppsWithTenants() []auth.App {
+	now := time.Date(2026, 2, 21, 12, 0, 0, 0, time.UTC)
+	return []auth.App{
+		{ID: "00000000-0000-0000-0000-000000000001", Name: "Tenant A App", TenantID: strPtr("tenant-a"), OwnerUserID: "owner-1", RateLimitRPS: 100, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000002", Name: "Tenant B App", TenantID: strPtr("tenant-b"), OwnerUserID: "owner-2", RateLimitRPS: 200, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000003", Name: "No Tenant App", TenantID: nil, OwnerUserID: "owner-3", RateLimitRPS: 50, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
 	}
 }
 
@@ -690,4 +717,172 @@ func TestAdminUpdateAppNegativeWindow(t *testing.T) {
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "rate limit values must be non-negative")
+}
+
+// --- Tenant ownership guard tests ---
+
+func TestAdminGetApp_TenantMismatch(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminGetApp(mgr)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/apps/{id}", handler)
+
+	// App belongs to tenant-a, but request has tenant-b context.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps/00000000-0000-0000-0000-000000000001", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-b"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "app does not belong to tenant")
+}
+
+func TestAdminGetApp_TenantMatch(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminGetApp(mgr)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/apps/{id}", handler)
+
+	// App belongs to tenant-a, request also has tenant-a context.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps/00000000-0000-0000-0000-000000000001", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-a"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAdminGetApp_NoTenantContext(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminGetApp(mgr)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/apps/{id}", handler)
+
+	// No tenant context — passes through (admin without scoping).
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps/00000000-0000-0000-0000-000000000001", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAdminGetApp_TenantContextRejectsNilTenantApp(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminGetApp(mgr)
+
+	r := chi.NewRouter()
+	r.Get("/api/admin/apps/{id}", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps/00000000-0000-0000-0000-000000000003", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-a"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "app does not belong to tenant")
+}
+
+func TestAdminUpdateApp_TenantMismatch(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminUpdateApp(mgr)
+
+	r := chi.NewRouter()
+	r.Put("/api/admin/apps/{id}", handler)
+
+	body := `{"name":"Updated","description":"new"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/apps/00000000-0000-0000-0000-000000000001", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-b"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "app does not belong to tenant")
+}
+
+func TestAdminDeleteApp_TenantMismatch(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminDeleteApp(mgr)
+
+	r := chi.NewRouter()
+	r.Delete("/api/admin/apps/{id}", handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/apps/00000000-0000-0000-0000-000000000001", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-b"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+	testutil.Contains(t, w.Body.String(), "app does not belong to tenant")
+}
+
+func TestAdminListApps_TenantScoped(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminListApps(mgr)
+
+	// Request with tenant-a context should only see tenant-a apps.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-a"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	var result auth.AppListResult
+	err := json.NewDecoder(w.Body).Decode(&result)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, len(result.Items))
+	testutil.Equal(t, "Tenant A App", result.Items[0].Name)
+}
+
+func TestAdminListApps_NoTenantContextReturnsAll(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAppManager{apps: sampleAppsWithTenants()}
+	handler := handleAdminListApps(mgr)
+
+	// No tenant context — returns all apps.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	var result auth.AppListResult
+	err := json.NewDecoder(w.Body).Decode(&result)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, len(result.Items))
+}
+
+func TestAdminListApps_TenantScopedPaginationUsesTenantDataset(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 2, 21, 12, 0, 0, 0, time.UTC)
+	mgr := &fakeAppManager{apps: []auth.App{
+		{ID: "00000000-0000-0000-0000-000000000021", Name: "Tenant B 1", TenantID: strPtr("tenant-b"), OwnerUserID: "owner-b", RateLimitRPS: 100, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000022", Name: "Tenant A 1", TenantID: strPtr("tenant-a"), OwnerUserID: "owner-a", RateLimitRPS: 100, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000023", Name: "Tenant A 2", TenantID: strPtr("tenant-a"), OwnerUserID: "owner-a", RateLimitRPS: 100, RateLimitWindowSeconds: 60, CreatedAt: now, UpdatedAt: now},
+	}}
+	handler := handleAdminListApps(mgr)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/apps?page=1&perPage=1", nil)
+	req = req.WithContext(tenant.ContextWithTenantID(req.Context(), "tenant-a"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	var result auth.AppListResult
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+	testutil.Equal(t, 1, len(result.Items))
+	testutil.Equal(t, "Tenant A 1", result.Items[0].Name)
+	testutil.Equal(t, 2, result.TotalItems)
+	testutil.Equal(t, 2, result.TotalPages)
 }

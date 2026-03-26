@@ -103,8 +103,19 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 			return
 		}
 
+		// Close rows so CommandTag() is available for DML row counts.
+		rows.Close()
+
 		if resultRows == nil {
 			resultRows = [][]any{}
+		}
+
+		// For SELECT, rowCount is the number of returned rows.
+		// For INSERT/UPDATE/DELETE (no RETURNING), resultRows is empty
+		// so we fall back to CommandTag.RowsAffected().
+		rowCount := len(resultRows)
+		if rowCount == 0 {
+			rowCount = int(rows.CommandTag().RowsAffected())
 		}
 
 		// Reload schema cache synchronously after DDL so the next
@@ -120,7 +131,7 @@ func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc
 		httputil.WriteJSON(w, http.StatusOK, sqlResponse{
 			Columns:    columns,
 			Rows:       resultRows,
-			RowCount:   len(resultRows),
+			RowCount:   rowCount,
 			DurationMs: duration.Milliseconds(),
 		})
 	}

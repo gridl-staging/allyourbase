@@ -1,3 +1,4 @@
+// Package sms TelnyxProvider implements SMS delivery via the Telnyx REST API.
 package sms
 
 import (
@@ -32,6 +33,7 @@ func NewTelnyxProvider(apiKey, fromNumber, baseURL string) *TelnyxProvider {
 	}
 }
 
+// Send transmits an SMS via the Telnyx REST API using the provider's configured API key and from number, returning the message ID and response type or an error.
 func (p *TelnyxProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/v2/messages"
 

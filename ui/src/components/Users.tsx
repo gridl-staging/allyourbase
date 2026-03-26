@@ -13,7 +13,7 @@ import {
   CheckCircle,
   XCircle,
 } from "lucide-react";
-import { ToastContainer, useToast } from "./Toast";
+import { useAppToast } from "./ToastProvider";
 
 const PER_PAGE = 20;
 
@@ -30,7 +30,7 @@ export function Users() {
   const [appliedSearch, setAppliedSearch] = useState("");
   const [modal, setModal] = useState<Modal>({ kind: "none" });
   const [deleting, setDeleting] = useState(false);
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -74,7 +74,7 @@ export function Users() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading users...
       </div>
@@ -106,7 +106,7 @@ export function Users() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Users</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage registered user accounts
           </p>
         </div>
@@ -114,8 +114,8 @@ export function Users() {
 
       {/* Search bar */}
       <div className="mb-4 flex items-center gap-2">
-        <div className="flex items-center gap-2 flex-1 max-w-md border rounded px-3 py-1.5 bg-white">
-          <Search className="w-4 h-4 text-gray-400" />
+        <div className="flex items-center gap-2 flex-1 max-w-md border rounded px-3 py-1.5 bg-white dark:bg-gray-800">
+          <Search className="w-4 h-4 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             value={search}
@@ -132,7 +132,7 @@ export function Users() {
                 setAppliedSearch("");
                 setPage(1);
               }}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300"
               aria-label="Clear search"
             >
               <X className="w-4 h-4" />
@@ -141,16 +141,16 @@ export function Users() {
         </div>
         <button
           onClick={handleSearch}
-          className="px-3 py-1.5 text-xs bg-gray-200 hover:bg-gray-300 rounded font-medium"
+          className="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 rounded font-medium"
         >
           Search
         </button>
       </div>
 
       {data && data.items.length === 0 ? (
-        <div className="text-center py-16 border rounded-lg bg-gray-50">
-          <UsersIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">
+        <div className="text-center py-16 border rounded-lg bg-gray-50 dark:bg-gray-800">
+          <UsersIcon className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             {appliedSearch ? "No users matching search" : "No users registered yet"}
           </p>
         </div>
@@ -158,18 +158,18 @@ export function Users() {
         <>
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
+              <thead className="bg-gray-50 dark:bg-gray-800 border-b">
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Email
                   </th>
-                  <th className="text-center px-4 py-2 font-medium text-gray-600">
+                  <th className="text-center px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Verified
                   </th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Created
                   </th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">
+                  <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Actions
                   </th>
                 </tr>
@@ -178,11 +178,11 @@ export function Users() {
                 {data.items.map((user) => (
                   <tr
                     key={user.id}
-                    className="border-b last:border-0 hover:bg-gray-50"
+                    className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                   >
                     <td className="px-4 py-2.5">
                       <span className="font-mono text-xs">{user.email}</span>
-                      <div className="text-[10px] text-gray-400 mt-0.5">
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
                         {user.id}
                       </div>
                     </td>
@@ -190,17 +190,17 @@ export function Users() {
                       {user.emailVerified ? (
                         <CheckCircle className="w-4 h-4 text-green-500 inline" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-gray-300 inline" />
+                        <XCircle className="w-4 h-4 text-gray-300 dark:text-gray-500 inline" />
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs">
+                    <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-end">
                         <button
                           onClick={() => setModal({ kind: "delete", user })}
-                          className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                           title="Delete user"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -214,7 +214,7 @@ export function Users() {
           </div>
 
           {/* Pagination */}
-          <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+          <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
             <span>
               {data.totalItems} user{data.totalItems !== 1 ? "s" : ""}
             </span>
@@ -222,7 +222,7 @@ export function Users() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-30"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -232,7 +232,7 @@ export function Users() {
               <button
                 onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
                 disabled={page >= data.totalPages}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-30"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -244,18 +244,18 @@ export function Users() {
       {/* Delete confirmation */}
       {modal.kind === "delete" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="font-semibold mb-2">Delete User</h3>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               This will permanently delete the user and all their sessions.
             </p>
-            <p className="text-xs font-mono text-gray-500 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
               {modal.user.email}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -271,7 +271,6 @@ export function Users() {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/allyourbase/ayb/internal/mailer"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -38,11 +37,11 @@ func (s *Service) MagicLinkDuration() time.Duration {
 // RequestMagicLink generates a magic link token and emails it.
 // Always returns nil to prevent email enumeration.
 func (s *Service) RequestMagicLink(ctx context.Context, email string) error {
-	if s.mailer == nil {
+	if !s.emailDeliveryConfigured() {
 		return nil
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
-	if err := validateEmail(email); err != nil {
+	if err := validateAuthEmail(email); err != nil {
 		return nil // don't leak validation errors
 	}
 
@@ -75,12 +74,7 @@ func (s *Service) RequestMagicLink(ctx context.Context, email string) error {
 		return fmt.Errorf("rendering magic link email: %w", err)
 	}
 
-	if err := s.mailer.Send(ctx, &mailer.Message{
-		To:      email,
-		Subject: subject,
-		HTML:    html,
-		Text:    text,
-	}); err != nil {
+	if err := s.sendAuthEmail(ctx, email, subject, html, text, "magiclink"); err != nil {
 		s.logger.Error("failed to send magic link email", "error", err, "email", email)
 	}
 	return nil
@@ -110,9 +104,9 @@ func (s *Service) ConfirmMagicLink(ctx context.Context, token string) (*User, st
 	// Find existing user by email.
 	var user User
 	err = s.pool.QueryRow(ctx,
-		`SELECT id, email, created_at, updated_at FROM _ayb_users WHERE LOWER(email) = $1`,
+		`SELECT id, COALESCE(email, ''), is_anonymous, created_at, updated_at FROM _ayb_users WHERE LOWER(email) = $1`,
 		strings.ToLower(email),
-	).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Create new user with random password (same pattern as OAuth).
@@ -128,17 +122,17 @@ func (s *Service) ConfirmMagicLink(ctx context.Context, token string) (*User, st
 		err = s.pool.QueryRow(ctx,
 			`INSERT INTO _ayb_users (email, password_hash, email_verified)
 			 VALUES ($1, $2, true)
-			 RETURNING id, email, created_at, updated_at`,
+			 RETURNING id, COALESCE(email, ''), is_anonymous, created_at, updated_at`,
 			email, pwHash,
-		).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+		).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			// Handle race: another request might have created this user.
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				err2 := s.pool.QueryRow(ctx,
-					`SELECT id, email, created_at, updated_at FROM _ayb_users WHERE LOWER(email) = $1`,
+					`SELECT id, COALESCE(email, ''), is_anonymous, created_at, updated_at FROM _ayb_users WHERE LOWER(email) = $1`,
 					strings.ToLower(email),
-				).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+				).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 				if err2 != nil {
 					return nil, "", "", fmt.Errorf("querying user after conflict: %w", err2)
 				}
@@ -159,13 +153,13 @@ func (s *Service) ConfirmMagicLink(ctx context.Context, token string) (*User, st
 		user.ID,
 	)
 
-	// If user has MFA enrolled, return a pending token instead of full tokens.
-	hasMFA, err := s.HasSMSMFA(ctx, user.ID)
+	// If user has any MFA factor enrolled, return a pending token instead of full tokens.
+	hasMFA, _, err := s.HasAnyMFA(ctx, user.ID)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
 	}
 	if hasMFA {
-		pendingToken, err := s.generateMFAPendingToken(&user)
+		pendingToken, err := s.generateMFAPendingTokenWithMethod(&user, "magic_link")
 		if err != nil {
 			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 // parseFilter parses a filter expression string and returns parameterized SQL.
@@ -375,7 +376,7 @@ func (p *parser) parseComparison() (filterNode, error) {
 	if col == nil {
 		return nil, fmt.Errorf("unknown column: %s", ident.value)
 	}
-	quotedCol := quoteIdent(ident.value)
+	quotedCol := sqlutil.QuoteIdent(ident.value)
 
 	// Check for IN.
 	next := p.peek()

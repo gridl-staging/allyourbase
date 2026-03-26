@@ -1,3 +1,4 @@
+// Package cli Provides CLI commands for managing custom email templates through admin API requests.
 package cli
 
 import (
@@ -103,6 +104,7 @@ func init() {
 	rootCmd.AddCommand(emailTemplatesCmd)
 }
 
+// lists all email templates, displaying them in a table or JSON format based on the output format flag.
 func runEmailTemplatesList(cmd *cobra.Command, _ []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -150,6 +152,7 @@ func runEmailTemplatesList(cmd *cobra.Command, _ []string) error {
 	return w.Flush()
 }
 
+// retrieves and displays the effective template for the given key, including subject, HTML, variables, and source information.
 func runEmailTemplatesGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	outFmt := outputFormat(cmd)
@@ -192,6 +195,7 @@ func runEmailTemplatesGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// creates or updates a custom email template override for the given key, reading the subject and HTML template from command flags.
 func runEmailTemplatesSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	outFmt := outputFormat(cmd)
@@ -250,6 +254,7 @@ func runEmailTemplatesDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// previews a template with the given variables, rendering both subject and HTML output; uses explicit preview content if provided, otherwise previews the effective template.
 func runEmailTemplatesPreview(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	outFmt := outputFormat(cmd)
@@ -338,6 +343,7 @@ func runEmailTemplatesPreview(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// enables or disables a custom template override for the given key based on the enabled parameter.
 func runEmailTemplatesSetEnabled(cmd *cobra.Command, key string, enabled bool) error {
 	outFmt := outputFormat(cmd)
 	payload := map[string]bool{"enabled": enabled}
@@ -368,6 +374,7 @@ func runEmailTemplatesSetEnabled(cmd *cobra.Command, key string, enabled bool) e
 	return nil
 }
 
+// sends an email using the template identified by the given key, with the specified recipient and template variables.
 func runEmailTemplatesSend(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	to, _ := cmd.Flags().GetString("to")

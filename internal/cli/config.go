@@ -1,3 +1,4 @@
+// Package cli Provides CLI commands for displaying, retrieving, and modifying AYB configuration stored in ayb.toml, with secrets masked for safety.
 package cli
 
 import (
@@ -49,6 +50,7 @@ func init() {
 	configCmd.AddCommand(configSetCmd)
 }
 
+// loads and prints the resolved AYB configuration, masking secrets and supporting both JSON and TOML output formats. A note about redacted secrets is printed to stderr.
 func runConfig(cmd *cobra.Command, args []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 	jsonOut, _ := cmd.Flags().GetBool("json")
@@ -74,6 +76,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// retrieves and prints the value of a specific configuration key using dotted path notation, with optional JSON output.
 func runConfigGet(cmd *cobra.Command, args []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 
@@ -82,7 +85,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	value, err := config.GetValue(cfg, args[0])
+	value, err := config.GetValue(cfg.MaskedCopy(), args[0])
 	if err != nil {
 		return err
 	}
@@ -96,6 +99,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// sets a configuration value in ayb.toml, validating both the key format and the resulting configuration. warns if the resulting configuration has errors but returns success, allowing users to set values incrementally.
 func runConfigSet(cmd *cobra.Command, args []string) error {
 	configPath, _ := cmd.Flags().GetString("config")
 	if configPath == "" {

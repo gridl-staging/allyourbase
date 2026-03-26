@@ -1,3 +1,4 @@
+// Package jobs defines types for a distributed job queue system including job lifecycle management, scheduling, and task handler interfaces.
 package jobs
 
 import (
@@ -18,6 +19,7 @@ const (
 )
 
 // Job represents a row in _ayb_jobs.
+// Job represents a task in the job queue with lifecycle state tracking, retry management, idempotent deduplication, and distributed worker assignment via leasing.
 type Job struct {
 	ID             string          `json:"id"`
 	Type           string          `json:"type"`
@@ -67,10 +69,10 @@ type JobHandler func(ctx context.Context, payload json.RawMessage) error
 
 // QueueStats holds aggregate counts by job state.
 type QueueStats struct {
-	Queued    int       `json:"queued"`
-	Running   int       `json:"running"`
-	Completed int       `json:"completed"`
-	Failed    int       `json:"failed"`
-	Canceled  int       `json:"canceled"`
-	OldestAge *float64  `json:"oldestQueuedAgeSec,omitempty"` // seconds since oldest queued job's run_at
+	Queued    int      `json:"queued"`
+	Running   int      `json:"running"`
+	Completed int      `json:"completed"`
+	Failed    int      `json:"failed"`
+	Canceled  int      `json:"canceled"`
+	OldestAge *float64 `json:"oldestQueuedAgeSec,omitempty"` // seconds since oldest queued job's run_at
 }

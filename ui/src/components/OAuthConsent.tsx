@@ -65,7 +65,7 @@ export function OAuthConsent() {
         message: e instanceof Error ? e.message : "Authorization check failed",
       });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     checkAuth();
@@ -102,10 +102,10 @@ export function OAuthConsent() {
 
   if (state.kind === "loading" || state.kind === "redirecting") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-800">
         <div className="text-center">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400 dark:text-gray-500 mx-auto mb-2" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {state.kind === "loading"
               ? "Checking authorization..."
               : "Redirecting..."}
@@ -117,10 +117,10 @@ export function OAuthConsent() {
 
   if (state.kind === "error") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4 text-center">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-800">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-md w-full mx-4 text-center">
           <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
-          <h2 className="font-semibold text-gray-900 mb-2">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">
             Authorization Error
           </h2>
           <p className="text-sm text-red-600">{state.message}</p>
@@ -132,31 +132,31 @@ export function OAuthConsent() {
   const { prompt } = state;
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+    <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-800">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
         <div className="text-center mb-6">
           <Shield className="w-10 h-10 text-blue-500 mx-auto mb-3" />
-          <h1 className="text-lg font-semibold text-gray-900">
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Authorization Request
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
             <strong>{prompt.client_name}</strong> wants access to your account
           </p>
         </div>
 
-        <div className="border rounded-lg p-4 mb-6 bg-gray-50">
-          <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+        <div className="border rounded-lg p-4 mb-6 bg-gray-50 dark:bg-gray-800">
+          <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
             Permissions requested
           </h2>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-              <span className="text-sm text-gray-700">
+              <span className="text-sm text-gray-700 dark:text-gray-200">
                 {getScopeDescription(prompt.scope)}
               </span>
             </div>
             {prompt.allowed_tables && prompt.allowed_tables.length > 0 && (
-              <div className="ml-4 text-xs text-gray-500">
+              <div className="ml-4 text-xs text-gray-500 dark:text-gray-400">
                 Tables: {prompt.allowed_tables.join(", ")}
               </div>
             )}
@@ -167,7 +167,7 @@ export function OAuthConsent() {
           <button
             onClick={() => handleDecision("deny")}
             disabled={submitting}
-            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 disabled:opacity-50"
           >
             Deny
           </button>

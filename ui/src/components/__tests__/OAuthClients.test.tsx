@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { OAuthClients } from "../OAuthClients";
 import {
@@ -122,13 +123,13 @@ describe("OAuthClients", () => {
   it("shows loading state", () => {
     mockListApps.mockReturnValue(new Promise(() => {}));
     mockListOAuthClients.mockReturnValue(new Promise(() => {}));
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
     expect(screen.getByText("Loading OAuth clients...")).toBeInTheDocument();
   });
 
   it("shows error state with retry", async () => {
     mockListOAuthClients.mockRejectedValueOnce(new Error("connection refused"));
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("connection refused")).toBeInTheDocument();
@@ -138,7 +139,7 @@ describe("OAuthClients", () => {
 
   it("shows empty state when no clients", async () => {
     mockListOAuthClients.mockResolvedValueOnce(makeListResponse([]));
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -149,7 +150,7 @@ describe("OAuthClients", () => {
 
   it("retry button refetches after error", async () => {
     mockListOAuthClients.mockRejectedValueOnce(new Error("network down"));
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("network down")).toBeInTheDocument();
@@ -179,7 +180,7 @@ describe("OAuthClients", () => {
       }),
     ];
     mockListOAuthClients.mockResolvedValueOnce(makeListResponse(clients));
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("Web App Client")).toBeInTheDocument();
@@ -191,7 +192,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ clientType: "confidential" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("confidential")).toBeInTheDocument();
@@ -202,7 +203,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ clientType: "public" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("public")).toBeInTheDocument();
@@ -213,7 +214,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ revokedAt: null })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("Active")).toBeInTheDocument();
@@ -226,7 +227,7 @@ describe("OAuthClients", () => {
         makeClient({ revokedAt: "2026-02-22T00:00:00Z" }),
       ]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("Revoked")).toBeInTheDocument();
@@ -240,7 +241,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ appId: "a1" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("Frontend App")).toBeInTheDocument();
@@ -251,7 +252,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ scopes: ["readonly", "readwrite"] })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("readonly, readwrite")).toBeInTheDocument();
@@ -275,7 +276,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([client as unknown as OAuthClientResponse]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -293,7 +294,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()], { totalItems: 1 }),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("1 client")).toBeInTheDocument();
@@ -308,7 +309,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse(clients, { totalItems: 2 }),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("2 clients")).toBeInTheDocument();
@@ -323,7 +324,7 @@ describe("OAuthClients", () => {
         page: 1,
       }),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("45 clients")).toBeInTheDocument();
@@ -342,7 +343,7 @@ describe("OAuthClients", () => {
         }),
       ]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -357,7 +358,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -377,7 +378,7 @@ describe("OAuthClients", () => {
       client: makeClient({ name: "New Client" }),
     };
     mockCreateOAuthClient.mockResolvedValueOnce(created);
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -425,7 +426,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -445,7 +446,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -467,7 +468,7 @@ describe("OAuthClients", () => {
       clientSecret: "ayb_cs_test",
       client: makeClient({ name: "Test" }),
     });
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -499,7 +500,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -518,7 +519,7 @@ describe("OAuthClients", () => {
       clientSecret: "",
       client: makeClient({ clientType: "public" }),
     });
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -549,7 +550,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -568,7 +569,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -590,7 +591,7 @@ describe("OAuthClients", () => {
       makeListResponse([makeClient()]),
     );
     mockRevokeOAuthClient.mockResolvedValueOnce(undefined);
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -618,7 +619,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient()]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -640,7 +641,7 @@ describe("OAuthClients", () => {
         makeClient({ revokedAt: "2026-02-22T00:00:00Z" }),
       ]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("Revoked")).toBeInTheDocument();
@@ -659,7 +660,7 @@ describe("OAuthClients", () => {
     mockRotateOAuthClientSecret.mockResolvedValueOnce({
       clientSecret: "ayb_cs_newsecret999",
     });
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -696,7 +697,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ clientType: "public" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("My OAuth Client")).toBeInTheDocument();
@@ -716,7 +717,7 @@ describe("OAuthClients", () => {
         }),
       ]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -731,7 +732,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ createdAt: "2026-02-21T00:00:00Z" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       const expectedDate = new Date(
@@ -746,7 +747,7 @@ describe("OAuthClients", () => {
     mockListOAuthClients.mockResolvedValueOnce(
       makeListResponse([makeClient({ appId: "unknown-app-id" })]),
     );
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(screen.getByText("unknown-app-id")).toBeInTheDocument();
@@ -763,7 +764,7 @@ describe("OAuthClients", () => {
         clientId: "ayb_cid_newclientid123456789012345678901234567890ab",
       }),
     });
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(
@@ -797,7 +798,7 @@ describe("OAuthClients", () => {
       clientSecret: "",
       client: makeClient({ clientType: "public" }),
     });
-    render(<OAuthClients />);
+    renderWithProviders(<OAuthClients />);
 
     await waitFor(() => {
       expect(

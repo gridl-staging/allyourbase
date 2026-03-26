@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   EmailTemplateEffective,
   EmailTemplateListResponse,
@@ -15,14 +15,10 @@ import {
 } from "../api";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { formatDate } from "./shared/format";
+import { useAppToast } from "./ToastProvider";
 
 const PREVIEW_DEBOUNCE_MS = 350;
-
-function formatDate(iso?: string): string {
-  if (!iso) return "-";
-  return new Date(iso).toLocaleString();
-}
 
 function defaultVariableValue(name: string): string {
   if (name === "AppName") return "Allyourbase";
@@ -91,8 +87,9 @@ export function EmailTemplates() {
   const [toggling, setToggling] = useState(false);
   const [sendTo, setSendTo] = useState("");
   const [sending, setSending] = useState(false);
+  const effectiveLoadSeqRef = useRef(0);
 
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const selectedItem = useMemo(() => {
     if (!list || !selectedKey) return null;
@@ -116,9 +113,11 @@ export function EmailTemplates() {
   }, []);
 
   const loadEffective = useCallback(async (key: string) => {
+    const requestSeq = ++effectiveLoadSeqRef.current;
     setLoadingEffective(true);
     try {
       const res = await getEmailTemplate(key);
+      if (effectiveLoadSeqRef.current !== requestSeq) return;
       setEffective(res);
       setSubjectTemplate(res.subjectTemplate);
       setHTMLTemplate(res.htmlTemplate);
@@ -127,10 +126,12 @@ export function EmailTemplates() {
       setPreviewError(null);
       setSendTo("");
     } catch (e) {
+      if (effectiveLoadSeqRef.current !== requestSeq) return;
       setEffective(null);
       setPreviewResult(null);
       setPreviewError(e instanceof Error ? e.message : "Failed to load template");
     } finally {
+      if (effectiveLoadSeqRef.current !== requestSeq) return;
       setLoadingEffective(false);
     }
   }, []);
@@ -231,7 +232,7 @@ export function EmailTemplates() {
     try {
       await deleteEmailTemplate(selectedKey);
       addToast("success", isSystemKey ? `Reset ${selectedKey} to default` : `Deleted ${selectedKey}`);
-      await loadList();
+      await Promise.all([loadList(), loadEffective(selectedKey)]);
     } catch (e) {
       addToast("error", e instanceof Error ? e.message : "Failed to delete template");
     } finally {
@@ -271,7 +272,7 @@ export function EmailTemplates() {
 
   if (loadingList && !list) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading email templates...
       </div>
@@ -302,14 +303,14 @@ export function EmailTemplates() {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-lg font-semibold">Email Templates</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
           Customize built-in auth emails and manage app-specific templates
         </p>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-6">
         <section className="border rounded-lg overflow-hidden">
-          <div className="bg-gray-50 border-b px-4 py-2 text-xs font-medium text-gray-600 uppercase tracking-wider">
+          <div className="bg-gray-50 dark:bg-gray-800 border-b px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
             Template Keys
           </div>
           {list && list.items.length > 0 ? (
@@ -319,16 +320,16 @@ export function EmailTemplates() {
                   <button
                     onClick={() => setSelectedKey(item.templateKey)}
                     className={cn(
-                      "w-full text-left px-4 py-2.5 hover:bg-gray-50",
-                      selectedKey === item.templateKey && "bg-gray-100",
+                      "w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800",
+                      selectedKey === item.templateKey && "bg-gray-100 dark:bg-gray-700",
                     )}
                   >
-                    <div className="font-mono text-xs text-gray-800">{item.templateKey}</div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
+                    <div className="font-mono text-xs text-gray-800 dark:text-gray-200">{item.templateKey}</div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
                       <span
                         className={cn(
                           "px-1.5 py-0.5 rounded",
-                          item.source === "custom" ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-700",
+                          item.source === "custom" ? "bg-blue-100 text-blue-700" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200",
                         )}
                       >
                         {item.source}
@@ -341,15 +342,15 @@ export function EmailTemplates() {
               ))}
             </ul>
           ) : (
-            <div className="px-4 py-8 text-sm text-gray-500">No templates found.</div>
+            <div className="px-4 py-8 text-sm text-gray-500 dark:text-gray-400">No templates found.</div>
           )}
         </section>
 
         <section className="border rounded-lg p-4">
           {!selectedKey ? (
-            <div className="text-sm text-gray-500">Select a template key to edit.</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Select a template key to edit.</div>
           ) : loadingEffective ? (
-            <div className="flex items-center text-sm text-gray-400">
+            <div className="flex items-center text-sm text-gray-400 dark:text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
               Loading template...
             </div>
@@ -358,7 +359,7 @@ export function EmailTemplates() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-base font-semibold">{selectedKey}</h2>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Editing {effective?.source ?? selectedItem?.source ?? "template"} template
                   </p>
                 </div>
@@ -367,7 +368,7 @@ export function EmailTemplates() {
                     <button
                       onClick={handleToggle}
                       disabled={toggling}
-                      className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-60"
+                      className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 disabled:opacity-60"
                     >
                       {selectedItem.enabled ? "Disable Override" : "Enable Override"}
                     </button>
@@ -377,7 +378,7 @@ export function EmailTemplates() {
                     <button
                       onClick={handleDeleteOrReset}
                       disabled={deleting}
-                      className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 disabled:opacity-60"
+                      className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 disabled:opacity-60"
                     >
                       {isSystemKey ? "Reset to Default" : "Delete Template"}
                     </button>
@@ -394,7 +395,7 @@ export function EmailTemplates() {
               </div>
 
               <div>
-                <label htmlFor="email-template-subject" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="email-template-subject" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Subject Template
                 </label>
                 <input
@@ -407,7 +408,7 @@ export function EmailTemplates() {
               </div>
 
               <div>
-                <label htmlFor="email-template-html" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="email-template-html" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   HTML Template
                 </label>
                 <textarea
@@ -421,7 +422,7 @@ export function EmailTemplates() {
               </div>
 
               <div>
-                <label htmlFor="email-template-vars" className="block text-sm text-gray-700 mb-1">
+                <label htmlFor="email-template-vars" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                   Preview Variables (JSON)
                 </label>
                 <textarea
@@ -436,7 +437,7 @@ export function EmailTemplates() {
 
               <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
                 <div>
-                  <label htmlFor="email-template-send-to" className="block text-sm text-gray-700 mb-1">
+                  <label htmlFor="email-template-send-to" className="block text-sm text-gray-700 dark:text-gray-200 mb-1">
                     Test Recipient
                   </label>
                   <input
@@ -451,37 +452,40 @@ export function EmailTemplates() {
                 <button
                   onClick={handleSendTest}
                   disabled={sending}
-                  className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-60"
+                  className="px-3 py-2 text-sm border rounded hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 disabled:opacity-60"
                 >
                   Send Test Email
                 </button>
               </div>
 
-              <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+              <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 space-y-2">
                 <h3 className="text-sm font-medium">Preview</h3>
                 {previewLoading ? (
-                  <p className="text-xs text-gray-500">Rendering preview...</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Rendering preview...</p>
                 ) : previewError ? (
                   <p className="text-xs text-red-600">{previewError}</p>
                 ) : previewResult ? (
                   <div className="space-y-2 text-xs">
                     <div>
-                      <p className="font-medium text-gray-700 mb-1">Subject</p>
-                      <pre className="whitespace-pre-wrap border rounded bg-white p-2">{previewResult.subject}</pre>
+                      <p className="font-medium text-gray-700 dark:text-gray-200 mb-1">Subject</p>
+                      <pre className="whitespace-pre-wrap border rounded bg-white dark:bg-gray-800 p-2">{previewResult.subject}</pre>
                     </div>
                     <div>
-                      <p className="font-medium text-gray-700 mb-1">HTML</p>
-                      <pre className="whitespace-pre-wrap border rounded bg-white p-2 max-h-36 overflow-auto">
+                      <p className="font-medium text-gray-700 dark:text-gray-200 mb-1">HTML</p>
+                      <pre
+                        data-testid="email-template-preview-html"
+                        className="whitespace-pre-wrap border rounded bg-white dark:bg-gray-800 p-2 max-h-36 overflow-auto"
+                      >
                         {previewResult.html}
                       </pre>
                     </div>
                     <div>
-                      <p className="font-medium text-gray-700 mb-1">Plaintext</p>
-                      <pre className="whitespace-pre-wrap border rounded bg-white p-2">{previewResult.text}</pre>
+                      <p className="font-medium text-gray-700 dark:text-gray-200 mb-1">Plaintext</p>
+                      <pre className="whitespace-pre-wrap border rounded bg-white dark:bg-gray-800 p-2">{previewResult.text}</pre>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-500">Preview will appear after template or variables change.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Preview will appear after template or variables change.</p>
                 )}
               </div>
             </div>
@@ -489,7 +493,6 @@ export function EmailTemplates() {
         </section>
       </div>
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

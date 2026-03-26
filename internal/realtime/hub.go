@@ -14,9 +14,10 @@ const eventBufferSize = 256
 
 // Event represents a data change on a table.
 type Event struct {
-	Action string         `json:"action"` // "create", "update", "delete"
-	Table  string         `json:"table"`
-	Record map[string]any `json:"record"`
+	Action    string         `json:"action"` // "create", "update", "delete"
+	Table     string         `json:"table"`
+	Record    map[string]any `json:"record"`
+	OldRecord map[string]any `json:"old_record,omitempty"` // for UPDATE events
 }
 
 // Hub manages realtime SSE client connections and broadcasts events.
@@ -25,6 +26,7 @@ type Hub struct {
 	mu      sync.RWMutex
 	clients map[string]*Client
 	nextID  atomic.Uint64
+	dropped atomic.Uint64
 	logger  *slog.Logger
 }
 
@@ -32,6 +34,7 @@ type Hub struct {
 type Client struct {
 	ID      string
 	tables  map[string]bool
+	filters Filters
 	events  chan *Event
 	oauthCh chan *auth.OAuthEvent // non-nil only for OAuth SSE clients
 }
@@ -39,6 +42,11 @@ type Client struct {
 // Events returns a read-only channel of table events for this client.
 func (c *Client) Events() <-chan *Event {
 	return c.events
+}
+
+// Filters returns the column-level filters for this client.
+func (c *Client) Filters() Filters {
+	return c.filters
 }
 
 // OAuthEvents returns a read-only channel of OAuth events, or nil for non-OAuth clients.
@@ -56,18 +64,24 @@ func NewHub(logger *slog.Logger) *Hub {
 
 // Subscribe creates a new client subscribed to the given tables and registers it.
 func (h *Hub) Subscribe(tables map[string]bool) *Client {
+	return h.SubscribeWithFilter(tables, nil)
+}
+
+// SubscribeWithFilter creates a new client subscribed to the given tables with column-level filters.
+func (h *Hub) SubscribeWithFilter(tables map[string]bool, filters Filters) *Client {
 	id := fmt.Sprintf("c%d", h.nextID.Add(1))
 	client := &Client{
-		ID:     id,
-		tables: tables,
-		events: make(chan *Event, eventBufferSize),
+		ID:      id,
+		tables:  tables,
+		filters: filters,
+		events:  make(chan *Event, eventBufferSize),
 	}
 
 	h.mu.Lock()
 	h.clients[id] = client
 	h.mu.Unlock()
 
-	h.logger.Debug("client subscribed", "id", id, "tables", tables)
+	h.logger.Debug("client subscribed", "id", id, "tables", tables, "filters", filters)
 	return client
 }
 
@@ -122,6 +136,27 @@ func (h *Hub) PublishOAuth(clientID string, event *auth.OAuthEvent) {
 	}
 }
 
+// SetTables atomically replaces the subscription tables for a client.
+// This enables dynamic subscription changes (e.g. WebSocket clients)
+// without unsubscribe/re-subscribe cycling. No-op if the client doesn't exist.
+func (h *Hub) SetTables(clientID string, tables map[string]bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if client, ok := h.clients[clientID]; ok {
+		client.tables = tables
+	}
+}
+
+// SetFilters atomically replaces the subscription filters for a client.
+// No-op if the client doesn't exist.
+func (h *Hub) SetFilters(clientID string, filters Filters) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if client, ok := h.clients[clientID]; ok {
+		client.filters = filters
+	}
+}
+
 // Unsubscribe removes a client and closes its event channel(s).
 func (h *Hub) Unsubscribe(clientID string) {
 	h.mu.Lock()
@@ -153,6 +188,7 @@ func (h *Hub) Publish(event *Event) {
 		select {
 		case client.events <- event:
 		default:
+			h.dropped.Add(1)
 			h.logger.Warn("client buffer full, dropping event", "clientID", client.ID)
 		}
 	}

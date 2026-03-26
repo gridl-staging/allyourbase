@@ -645,3 +645,23 @@ func TestHandleAdminDisableSchedule(t *testing.T) {
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &sched))
 	testutil.False(t, sched.Enabled, "schedule should be disabled")
 }
+
+func TestServerHandleJobsListReturnsServiceUnavailableWithoutJobService(t *testing.T) {
+	srv := &Server{}
+	req := httptest.NewRequest("GET", "/api/admin/jobs", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleJobsList(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestServerHandleSchedulesListReturnsServiceUnavailableWithoutJobService(t *testing.T) {
+	srv := &Server{}
+	req := httptest.NewRequest("GET", "/api/admin/schedules", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleSchedulesList(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+}

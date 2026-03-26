@@ -1,0 +1,39 @@
+# Stage 4 deferred oversized Go files.
+# Format: path:line_count
+internal/server/auth_providers_handler.go:593
+# Deferred split: provider-specific flow extraction is still pending.
+internal/auth/oauth_clients.go:593
+internal/emailtemplates/emailtemplates.go:584
+internal/fbmigrate/migrator.go:583
+internal/cli/deploy_fly.go:580
+internal/jobs/handlers.go:576
+internal/tenant/migration.go:575
+internal/pbmigrate/migrator.go:575
+# Deferred split: store query/transaction families remain tightly coupled.
+internal/jobs/store.go:569
+internal/ws/handler.go:560
+# Deferred split: template additions pushed this file slightly higher; keep
+# allowlist exact until scaffold templates are broken into smaller units.
+internal/scaffold/scaffold_templates.go:523
+internal/schemadiff/diff.go:542
+# Deferred split: startup wiring remains in one bootstrap unit for now.
+internal/server/server_init.go:542
+internal/cli/deploy_digitalocean.go:529
+internal/auth/oauth_standard_providers.go:529
+internal/auth/saml.go:526
+internal/server/custom_domains_store.go:523
+internal/fdw/fdw.go:520
+# importQuerier added in PM-6 Stage 1 for full-mode transaction atomicity.
+# Extra comment/error-handling lines pushed the file slightly higher; keep the
+# count exact until import helpers are split out.
+internal/api/import.go:525
+internal/server/tenant_middleware.go:563
+# Tenant middleware remains intentionally centralized while request/header fallback,
+# tenant guard, quota, and breaker concerns are still being separated.
+internal/auth/totp_mfa.go:521
+# Deferred split: shared HTTP middleware chain still co-located intentionally.
+internal/server/middleware.go:518
+internal/cli/deploy.go:511
+internal/config/config_validate_runtime.go:507
+internal/server/rls_handler.go:540
+internal/jobs/service.go:523

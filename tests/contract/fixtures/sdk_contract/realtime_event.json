@@ -1,0 +1,1 @@
+{"action":"UPDATE","table":"posts","record":{"id":"rec_1","title":"after"},"oldRecord":{"id":"rec_1","title":"before"}}

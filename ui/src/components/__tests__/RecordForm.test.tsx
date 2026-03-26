@@ -438,4 +438,35 @@ describe("RecordForm", () => {
     const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
     expect(JSON.parse(textarea.value)).toEqual({ foo: "bar" });
   });
+
+  it("applies dark mode classes to drawer chrome and form controls", () => {
+    render(
+      <RecordForm
+        columns={[titleCol]}
+        primaryKey={[]}
+        onSubmit={onSubmit}
+        onClose={onClose}
+        mode="create"
+      />,
+    );
+
+    const panel = screen.getByText("New Record").closest("div.relative") as HTMLElement;
+    expect(panel).toHaveClass("dark:bg-gray-900");
+
+    const header = screen.getByText("New Record").closest("div.border-b") as HTMLElement;
+    expect(header).toHaveClass("dark:border-gray-700");
+    expect(header).toHaveClass("dark:bg-gray-900");
+
+    const titleLabel = screen.getByText("title").closest("label") as HTMLElement;
+    expect(titleLabel).toHaveClass("dark:text-gray-300");
+
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea).toHaveClass("dark:border-gray-700");
+    expect(textarea).toHaveClass("dark:bg-gray-800");
+    expect(textarea).toHaveClass("dark:text-gray-100");
+
+    const footer = screen.getByRole("button", { name: "Cancel" }).closest("div.border-t") as HTMLElement;
+    expect(footer).toHaveClass("dark:border-gray-700");
+    expect(footer).toHaveClass("dark:bg-gray-900");
+  });
 });

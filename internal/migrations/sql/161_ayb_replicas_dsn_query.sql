@@ -1,0 +1,2 @@
+ALTER TABLE _ayb_replicas
+	ADD COLUMN IF NOT EXISTS dsn_query TEXT NOT NULL DEFAULT '';

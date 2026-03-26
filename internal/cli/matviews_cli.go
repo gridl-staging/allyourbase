@@ -1,3 +1,4 @@
+// Package cli Provides CLI commands for listing, registering, updating, and refreshing materialized view registrations.
 package cli
 
 import (
@@ -69,6 +70,7 @@ func init() {
 	rootCmd.AddCommand(matviewsCmd)
 }
 
+// runMatviewsList retrieves and displays registered materialized views as JSON or formatted table output depending on the output format flag.
 func runMatviewsList(cmd *cobra.Command, _ []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -121,6 +123,7 @@ func runMatviewsList(cmd *cobra.Command, _ []string) error {
 	return w.Flush()
 }
 
+// runMatviewsRegister registers a materialized view for refresh management with the specified schema, view name, and refresh mode, validating that the view name and mode are correctly specified.
 func runMatviewsRegister(cmd *cobra.Command, _ []string) error {
 	schema, _ := cmd.Flags().GetString("schema")
 	view, _ := cmd.Flags().GetString("view")
@@ -160,6 +163,7 @@ func runMatviewsRegister(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// runMatviewsUpdate changes the refresh mode of a registered materialized view by ID.
 func runMatviewsUpdate(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	mode, _ := cmd.Flags().GetString("mode")
@@ -210,6 +214,7 @@ func runMatviewsUnregister(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runMatviewsRefresh triggers an immediate refresh of a materialized view identified by ID or schema.view reference, reporting the duration of the operation.
 func runMatviewsRefresh(cmd *cobra.Command, args []string) error {
 	id, err := resolveMatviewRefreshID(cmd, args[0])
 	if err != nil {
@@ -236,6 +241,7 @@ func runMatviewsRefresh(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveMatviewRefreshID converts a materialized view reference into its ID, accepting either a direct ID or resolving a schema.view format reference through an API query.
 func resolveMatviewRefreshID(cmd *cobra.Command, target string) (string, error) {
 	if !strings.Contains(target, ".") {
 		return target, nil

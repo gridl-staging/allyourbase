@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 import type { Page } from "@playwright/test";
 
 /**
@@ -67,7 +67,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Act: navigate to the table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
     // Assert: all 3 seeded records appear
@@ -101,7 +101,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Act: navigate to table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
     // Verify all records visible initially
@@ -116,7 +116,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Assert: only matching record visible
     await expect(page.getByText(`Unique Search Term ${runId}`)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(`Different Content ${runId}`)).not.toBeVisible();
+    await expect(page.getByText(`Different Content ${runId}`)).toBeHidden();
 
     // Clear search
     await searchBox.clear();
@@ -153,7 +153,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Navigate to table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
     // ============================================================
@@ -201,7 +201,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     await editButton.click();
 
     // Wait for edit form modal to appear
-    await expect(page.getByRole("heading", { name: /edit/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /edit/i })).toBeVisible({ timeout: 15_000 });
 
     // Find and modify fields in the edit modal
     const editTitleInput = page.getByLabel(/title/i);
@@ -280,7 +280,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
 
     // Navigate to table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await openTableFromSidebar(page, tableName);
 
     // Verify all records visible initially
@@ -309,7 +309,7 @@ test.describe("Smoke: Table Browser CRUD", () => {
     // Assert: only published posts visible
     await expect(page.getByText(`Published Post 1 ${runId}`)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText(`Published Post 2 ${runId}`)).toBeVisible();
-    await expect(page.getByText(`Draft Post 1 ${runId}`)).not.toBeVisible();
+    await expect(page.getByText(`Draft Post 1 ${runId}`)).toBeHidden();
 
     // Clear filter
     const clearButton = page

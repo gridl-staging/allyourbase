@@ -1,3 +1,4 @@
+// Package mailer WebhookMailer sends email messages via HTTP webhooks to a user-configured endpoint.
 package mailer
 
 import (
@@ -43,14 +44,17 @@ type webhookPayload struct {
 	Subject string `json:"subject"`
 	HTML    string `json:"html"`
 	Text    string `json:"text"`
+	From    string `json:"from,omitempty"`
 }
 
+// Send marshals the message to JSON and posts it to the configured webhook URL. If a secret is configured, it includes an HMAC-SHA256 signature in the X-AYB-Signature header. Returns an error if the request fails or the webhook returns a non-2xx status code.
 func (m *WebhookMailer) Send(ctx context.Context, msg *Message) error {
 	payload, err := json.Marshal(webhookPayload{
 		To:      msg.To,
 		Subject: msg.Subject,
 		HTML:    msg.HTML,
 		Text:    msg.Text,
+		From:    msg.From,
 	})
 	if err != nil {
 		return fmt.Errorf("marshaling webhook payload: %w", err)

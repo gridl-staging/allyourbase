@@ -1,5 +1,8 @@
 #!/usr/bin/env tsx
 /**
+ * @module Pre-test validation script that checks if the AYB server, database, and admin credentials are properly configured before executing browser tests.
+ */
+/**
  * Pre-test validation script.
  *
  * Checks that all prerequisites are met before running browser tests:
@@ -29,6 +32,10 @@ interface ValidationError {
 
 const errors: ValidationError[] = [];
 
+/**
+ * Validates prerequisites for running browser tests: server connectivity, admin authentication, database connectivity, and schema initialization. Logs detailed progress messages and error hints to console.
+ * @returns - True if all validation checks pass; false if any errors are encountered.
+ */
 async function validate(): Promise<boolean> {
   console.log("🔍 Validating browser test prerequisites...\n");
 

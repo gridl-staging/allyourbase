@@ -1,3 +1,4 @@
+// Package cli provides the query command for fetching records from tables via the running AYB server's REST API. It supports filtering, sorting, field selection, pagination, and multiple output formats.
 package cli
 
 import (
@@ -37,6 +38,7 @@ func init() {
 	queryCmd.Flags().String("url", "", "Server URL (default http://127.0.0.1:8090)")
 }
 
+// runQuery is the handler for the query command that fetches records from a table on the running AYB server via REST API. It supports filtering, sorting, field selection, pagination, and outputs results in JSON, CSV, or table format based on the output format flag.
 func runQuery(cmd *cobra.Command, args []string) error {
 	table := args[0]
 	token, _ := cmd.Flags().GetString("admin-token")

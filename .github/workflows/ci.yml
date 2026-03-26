@@ -7,19 +7,69 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install Admin UI dependencies
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint Admin UI source
+        working-directory: ui
+        run: pnpm exec eslint src/
+
+      - name: Test Admin UI
+        working-directory: ui
+        run: pnpm test
+
+      - name: Lint unmocked browser test source
+        working-directory: ui
+        run: npm run lint:browser-tests
+
+      - name: Lint mocked browser test source
+        working-directory: ui
+        run: npm run lint:browser-tests:mocked
+
+      - name: Check browser coverage matrix
+        run: bash scripts/check-coverage-matrix.sh
+
       - name: Build Admin UI
         working-directory: ui
-        run: npm install --legacy-peer-deps && npm run build
+        run: pnpm build
+
+      - name: Install Playwright Chromium for mocked browser suite
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run mocked browser suite
+        working-directory: ui
+        run: pnpm test:browser:mocked
+
+      - name: Upload mocked Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mocked-playwright-artifacts
+          path: |
+            ui/playwright-report/
+            ui/test-results/
+          if-no-files-found: warn
 
       - name: Build demo apps
         run: |
@@ -30,17 +80,37 @@ jobs:
         with:
           go-version: "1.25"
 
-      - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - name: Check gofmt
+        run: |
+          FILES_NEEDING_FMT="$(find . -name '*.go' -type f ! -path './vendor/*' ! -path './_dev/*' -print0 | xargs -0 gofmt -l)"
+          test -z "$FILES_NEEDING_FMT" || (echo "Files need formatting:" && echo "$FILES_NEEDING_FMT" && exit 1)
+
+      - name: Lint Go (golangci-lint)
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: ./...
+
+      - name: Go file-size guardrail
+        run: bash scripts/check-file-sizes.sh
+
+      - name: Generate deadcode report (informational)
+        continue-on-error: true
+        run: |
+          # Informational only: deadcode has no ignore directives and currently reports many baseline findings.
+          go install golang.org/x/tools/cmd/deadcode@latest
+          "$(go env GOPATH)/bin/deadcode" ./... > deadcode-report.txt
+
+      - name: Upload deadcode report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deadcode-report
+          path: deadcode-report.txt
+          if-no-files-found: warn
 
       - name: Build
         run: go build ./cmd/ayb
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Staticcheck
-        run: $(go env GOPATH)/bin/staticcheck ./...
 
       - name: Test
         run: go test -race -count=1 ./...
@@ -52,6 +122,8 @@ jobs:
         working-directory: sdk
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -90,14 +162,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
       - name: Build Admin UI
         working-directory: ui
-        run: npm install --legacy-peer-deps && npm run build
+        run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build demo apps
         run: |
@@ -119,3 +196,195 @@ jobs:
         run: >
           go test -race -count=1 -tags=integration ./internal/sbmigrate
           -run 'TestE2E_AnalyzeWithoutIsAnonymousColumn|TestE2E_AuthMigrationWithoutIsAnonymousColumn|TestE2E_OAuthMigrationWithoutIdentityDataAndCreatedAt|TestE2E_IntrospectTablesFiltersHostedManagedTables|TestE2E_SchemaMigrationSkipsIncompatibleFKChain'
+
+  # test-cli-e2e runs the 29 CLI end-to-end integration tests as a dedicated
+  # signal, in parallel with the broader test-integration suite. The same tests
+  # are still included in test-integration (via `./...`); the overlap is
+  # intentional for visibility and CI throughput until test-integration is
+  # refactored to exclude them.
+  test-cli-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ayb_test
+          POSTGRES_PASSWORD: ayb_test
+          POSTGRES_DB: ayb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Build Admin UI
+        working-directory: ui
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: CLI E2E integration tests
+        env:
+          TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
+        run: go tool gotestsum --format testdox -- -race -count=1 -tags=integration -run 'TestCLI_E2E' ./internal/cli/...
+
+  test-browser:
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
+      AYB_ADMIN_PASSWORD: ${{ format('ci-browser-admin-{0}-{1}', github.run_id, github.run_attempt) }}
+      AYB_START_COMMAND: ./ayb start --foreground --database-url "$TEST_DATABASE_URL"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ayb_test
+          POSTGRES_PASSWORD: ayb_test
+          POSTGRES_DB: ayb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Build Admin UI
+        working-directory: ui
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build AYB binary
+        run: go build ./cmd/ayb
+
+      - name: Install Playwright Chromium for unmocked browser suite
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run unmocked smoke browser suite
+        run: |
+          bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser -- --project=smoke && bash ../scripts/check-playwright-executed.sh playwright-report/results.json smoke'
+
+      - name: Run unmocked full browser suite (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser -- --project=full && bash ../scripts/check-playwright-executed.sh playwright-report/results.json full'
+
+      - name: Upload unmocked Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unmocked-playwright-artifacts
+          path: |
+            /tmp/ayb-e2e.log
+            ui/playwright-report/
+          if-no-files-found: warn
+
+  test-sdk-integration:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 10
+    env:
+      TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
+      AYB_START_COMMAND: ./ayb start --foreground --database-url "$TEST_DATABASE_URL"
+      AYB_STORAGE_ENABLED: "true"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ayb_test
+          POSTGRES_PASSWORD: ayb_test
+          POSTGRES_DB: ayb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Build Admin UI
+        working-directory: ui
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build demo apps
+        run: |
+          cd examples/kanban && npm ci && VITE_AYB_URL="" npx vite build
+          cd ../../examples/live-polls && npm ci && VITE_AYB_URL="" npx vite build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build AYB binary
+        run: go build ./cmd/ayb
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: npm ci
+
+      - name: Run SDK integration tests
+        run: bash scripts/run-with-ayb.sh 'cd sdk && npm run test:integration'
+
+      - name: Upload SDK integration artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-integration-artifacts
+          path: /tmp/ayb-e2e.log
+          if-no-files-found: warn

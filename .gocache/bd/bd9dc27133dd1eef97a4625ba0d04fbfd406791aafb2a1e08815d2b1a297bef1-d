@@ -1,5 +1,0 @@
-./cache.go
-./introspect.go
-./schema.go
-./typemap.go
-./watcher.go

@@ -5,6 +5,7 @@ package jobs_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -103,6 +104,93 @@ func TestWebhookDeliveryPruneHandlerDefaultRetention(t *testing.T) {
 	handler := jobs.WebhookDeliveryPruneHandler(pool, testutil.DiscardLogger())
 	err := handler(ctx, nil)
 	testutil.NoError(t, err) // no deliveries, no error
+}
+
+func TestAuditLogRetentionHandlerDefaultRetention(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_audit_log (table_name, operation, timestamp) VALUES
+		 ('orders', 'INSERT', NOW() - interval '120 days'),
+		 ('orders', 'UPDATE', NOW() - interval '91 days'),
+		 ('orders', 'DELETE', NOW() - interval '89 days'),
+		 ('orders', 'INSERT', NOW() - interval '1 day')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.AuditLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_audit_log`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+}
+
+func TestAuditLogRetentionHandlerPayloadOverridesDefault(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_audit_log (table_name, operation, timestamp) VALUES
+		 ('orders', 'INSERT', NOW() - interval '40 days'),
+		 ('orders', 'UPDATE', NOW() - interval '20 days')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.AuditLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, json.RawMessage(`{"retention_days": 30}`))
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_audit_log`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
+}
+
+func TestRequestLogRetentionHandlerDefaultRetention(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_request_logs (method, path, status_code, timestamp) VALUES
+		 ('GET', '/old', 200, NOW() - interval '120 days'),
+		 ('GET', '/young', 200, NOW() - interval '10 days'),
+		 ('POST', '/younger', 201, NOW() - interval '1 day')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.RequestLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_request_logs`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+}
+
+func TestRequestLogRetentionHandlerPayloadOverridesDefault(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO _ayb_request_logs (method, path, status_code, timestamp) VALUES
+		 ('GET', '/old', 200, NOW() - interval '40 days'),
+		 ('GET', '/young', 200, NOW() - interval '20 days')`)
+	testutil.NoError(t, err)
+
+	handler := jobs.RequestLogRetentionHandler(pool, 90, testutil.DiscardLogger())
+	err = handler(ctx, json.RawMessage(`{"retention_days": 30}`))
+	testutil.NoError(t, err)
+
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_request_logs`).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
 }
 
 func TestExpiredOAuthCleanupHandler(t *testing.T) {
@@ -362,4 +450,70 @@ func TestHandlersRunThroughService(t *testing.T) {
 	err = sharedPG.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_sessions`).Scan(&count)
 	testutil.NoError(t, err)
 	testutil.Equal(t, 0, count)
+}
+
+func TestResumableUploadCleanupHandler(t *testing.T) {
+	setupHandlerDB(t)
+	ctx := context.Background()
+	pool := sharedPG.Pool
+
+	var userID string
+	err := pool.QueryRow(ctx,
+		`INSERT INTO _ayb_users (email, password_hash) VALUES ('resumable@example.com', 'hash')
+		 RETURNING id`).Scan(&userID)
+	testutil.NoError(t, err)
+
+	path := "/tmp/resumable_cleanup_test.tmp"
+	err = os.WriteFile(path, []byte("payload"), 0o600)
+	testutil.NoError(t, err)
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO _ayb_storage_uploads (bucket, name, path, user_id, total_size, uploaded_size, status, expires_at)
+		 VALUES ('test-bucket', 'test.txt', $1, $2, 100, 100, 'active', NOW() - interval '1 hour')`, path, userID)
+	testutil.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `INSERT INTO _ayb_storage_uploads (bucket, name, path, user_id, total_size, uploaded_size, status, expires_at)
+		VALUES ('test-bucket', 'test2.txt', '/does/not/exist', $1, 100, 100, 'active', NOW() + interval '1 day')`, userID)
+	testutil.NoError(t, err)
+
+	handler := jobs.ResumableUploadCleanupHandler(pool, testutil.DiscardLogger())
+	err = handler(ctx, nil)
+	testutil.NoError(t, err)
+
+	var expiredCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_storage_uploads WHERE bucket = 'test-bucket'`).Scan(&expiredCount)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, expiredCount)
+
+	_, err = os.Stat(path)
+	testutil.True(t, os.IsNotExist(err))
+}
+
+type fakeProviderTokenRefreshService struct {
+	calls  int
+	window time.Duration
+	err    error
+}
+
+func (f *fakeProviderTokenRefreshService) RefreshExpiringProviderTokens(_ context.Context, window time.Duration) error {
+	f.calls++
+	f.window = window
+	return f.err
+}
+
+func TestProviderTokenRefreshJobHandler(t *testing.T) {
+	svc := &fakeProviderTokenRefreshService{}
+	handler := jobs.ProviderTokenRefreshJobHandler(svc)
+
+	err := handler(context.Background(), nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, svc.calls)
+	testutil.Equal(t, 10*time.Minute, svc.window)
+
+	svc = &fakeProviderTokenRefreshService{}
+	handler = jobs.ProviderTokenRefreshJobHandler(svc)
+	err = handler(context.Background(), json.RawMessage(`{"window_seconds": 120}`))
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, svc.calls)
+	testutil.Equal(t, 120*time.Second, svc.window)
 }

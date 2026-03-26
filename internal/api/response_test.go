@@ -108,6 +108,27 @@ func TestMapPGError(t *testing.T) {
 			wantResult: true,
 		},
 		{
+			name:       "postgis invalid geometry parse error returns 400 with doc_url",
+			err:        &pgconn.PgError{Code: "XX000", Message: "parse error - invalid geometry"},
+			wantCode:   http.StatusBadRequest,
+			wantMsg:    "invalid GeoJSON geometry",
+			wantDocURL: constraintDoc,
+			wantResult: true,
+		},
+		{
+			name:       "postgis geojson parameter error returns 400 with doc_url",
+			err:        &pgconn.PgError{Code: "22023", Message: "The 'type' member is required in GeoJSON"},
+			wantCode:   http.StatusBadRequest,
+			wantMsg:    "invalid GeoJSON geometry",
+			wantDocURL: constraintDoc,
+			wantResult: true,
+		},
+		{
+			name:       "unrelated internal error remains unhandled",
+			err:        &pgconn.PgError{Code: "XX000", Message: "cache lookup failed for relation 12345"},
+			wantResult: false,
+		},
+		{
 			name:       "unhandled PG error code returns false",
 			err:        &pgconn.PgError{Code: "42P01", Message: "relation does not exist"},
 			wantResult: false,

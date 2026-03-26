@@ -1,19 +1,52 @@
+<!-- audited 2026-03-20 -->
+
 # Realtime
 
-AYB streams database changes in real time using Server-Sent Events (SSE). Subscribe to specific tables and receive create, update, and delete events filtered by Row-Level Security policies.
+AYB streams database changes in real time using Server-Sent Events (SSE) and WebSockets. Subscribe to specific tables and receive create, update, and delete events filtered by Row-Level Security policies.
 
 ## Endpoint
 
 ```
 GET /api/realtime?tables=posts,comments
+GET /api/realtime/ws
 ```
 
 ### With authentication
 
-Pass the JWT token as a query parameter:
+Prefer `Authorization: Bearer ...` when the client can set headers.
+Use the `token` query parameter only for clients such as browser
+`EventSource` that cannot attach custom auth headers, and avoid putting
+long-lived or admin tokens in URLs because they can leak via browser
+history, logs, and intermediaries.
+
+For SSE, you can authenticate with either an `Authorization` header or a
+`token` query parameter:
 
 ```
 GET /api/realtime?tables=posts&token=eyJhbG...
+```
+
+### Optional SSE filter parameter
+
+You can narrow already-authorized events with `filter`:
+
+```
+GET /api/realtime?tables=posts&filter=status=eq.published
+```
+
+Filter format: `column=operator.value` (comma-separated for AND conditions). Supported operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`.
+
+## Configuration
+
+Realtime behavior can be tuned in `ayb.toml` under `[realtime]`:
+
+```toml
+[realtime]
+max_connections_per_user = 100
+heartbeat_interval_seconds = 25
+broadcast_rate_limit_per_second = 100
+broadcast_max_message_bytes = 262144
+presence_leave_timeout_seconds = 10
 ```
 
 ## Event format
@@ -38,10 +71,11 @@ Actions: `create`, `update`, `delete`.
 ## Browser usage
 
 ```js
-const params = new URLSearchParams({
-  tables: "posts,comments",
-  token: "eyJhbG...", // optional, for authenticated streams
-});
+const params = new URLSearchParams({ tables: "posts,comments" });
+
+// If the stream must be authenticated in a browser EventSource client,
+// add a short-lived user token here because custom auth headers are not available.
+params.set("token", "eyJhbG...");
 
 const es = new EventSource(`http://localhost:8090/api/realtime?${params}`);
 
@@ -59,6 +93,58 @@ es.close();
 ```
 
 `EventSource` automatically reconnects on connection loss.
+
+## WebSocket usage
+
+```js
+const ws = new WebSocket("ws://localhost:8090/api/realtime/ws");
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: "auth", token: "eyJhbG..." }));
+  ws.send(JSON.stringify({
+    type: "subscribe",
+    tables: ["posts", "comments"],
+    filter: "status=eq.published",  // optional
+    ref: "sub1",                     // optional — server echoes ref in reply
+  }));
+};
+
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  switch (msg.type) {
+    case "connected":
+      console.log("Connected, client ID:", msg.client_id);
+      break;
+    case "reply":
+      console.log(msg.ref, msg.status, msg.message);  // "ok" or "error"
+      break;
+    case "event":
+      console.log(msg.action, msg.table, msg.record);
+      break;
+  }
+};
+```
+
+### Client→server message types
+
+| Type | Fields | Purpose |
+|------|--------|---------|
+| `auth` | `token` | Authenticate after connect |
+| `subscribe` | `tables`, `filter?`, `ref?` | Subscribe to table events |
+| `unsubscribe` | `tables`, `ref?` | Unsubscribe from tables |
+
+### Server→client message types
+
+| Type | Fields | Purpose |
+|------|--------|---------|
+| `connected` | `client_id` | Sent immediately on connect |
+| `reply` | `ref`, `status`, `message?` | Acknowledgement (`"ok"` or `"error"`) |
+| `event` | `action`, `table`, `record` | Database change event |
+| `error` | `message` | Top-level error |
+
+Post-connect auth keeps tokens out of the URL and is the preferred browser
+WebSocket pattern. Query-string tokens should be reserved for clients that
+cannot send an auth message after connect.
 
 ## JavaScript SDK
 

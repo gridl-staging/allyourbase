@@ -8,6 +8,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 )
 
 const maxExpandDepth = 2
@@ -108,7 +109,7 @@ func collectUniqueValues(records []map[string]any, col string) []any {
 	return values
 }
 
-// fetchRelated runs a batch SELECT * FROM relTable WHERE targetCol IN (...values).
+// fetchRelated runs a batch SELECT FROM relTable WHERE targetCol IN (...values).
 // Returns the matching rows, or nil on error (errors are logged, not returned).
 func fetchRelated(ctx context.Context, pool Querier, relTable *schema.Table, targetCol string, values []any, logger *slog.Logger, relName string) []map[string]any {
 	placeholders := make([]string, len(values))
@@ -116,9 +117,10 @@ func fetchRelated(ctx context.Context, pool Querier, relTable *schema.Table, tar
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s IN (%s)",
-		tableRef(relTable),
-		quoteIdent(targetCol),
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s IN (%s)",
+		buildColumnList(relTable, nil),
+		sqlutil.QuoteQualifiedName(relTable.Schema, relTable.Name),
+		sqlutil.QuoteIdent(targetCol),
 		strings.Join(placeholders, ", "),
 	)
 

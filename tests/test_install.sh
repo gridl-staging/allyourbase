@@ -40,6 +40,39 @@ section() {
   printf "\n\033[1m%s\033[0m\n" "$1"
 }
 
+allowlisted_github_repo_slug() {
+  printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+}
+
+install_script_matches() {
+  grep "$@" "$INSTALL_SCRIPT" >/dev/null 2>&1
+}
+
+assert_install_script_match() {
+  assert_pass_message="$1"
+  assert_fail_message="$2"
+  shift 2
+
+  if install_script_matches "$@"; then
+    pass "$assert_pass_message"
+  else
+    fail "$assert_fail_message"
+  fi
+}
+
+install_succeeds() {
+  install_target_dir="$1"
+  install_version="${2:-}"
+
+  if [ -n "$install_version" ]; then
+    NO_MODIFY_PATH=1 AYB_INSTALL="$install_target_dir" GITHUB_TOKEN="$GITHUB_TOKEN" \
+      sh "$INSTALL_SCRIPT" "$install_version" 2>&1 | grep -q "installed successfully"
+  else
+    NO_MODIFY_PATH=1 AYB_INSTALL="$install_target_dir" GITHUB_TOKEN="$GITHUB_TOKEN" \
+      sh "$INSTALL_SCRIPT" 2>&1 | grep -q "installed successfully"
+  fi
+}
+
 # ── Unit Tests: Syntax & Structure ──────────────────────────────────────────
 
 section "Install Script Syntax & Structure"
@@ -60,11 +93,7 @@ else
 fi
 
 # Test: set -eu is present (fail-fast)
-if grep -q '^set -eu' "$INSTALL_SCRIPT"; then
-  pass "set -eu present (fail-fast mode)"
-else
-  fail "set -eu not found — script won't fail on errors"
-fi
+assert_install_script_match "set -eu present (fail-fast mode)" "set -eu not found — script won't fail on errors" '^set -eu'
 
 # Test: Script is executable
 if [ -x "$INSTALL_SCRIPT" ]; then
@@ -84,26 +113,24 @@ section "Configuration Defaults"
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   case "$GITHUB_REPOSITORY" in
     gridlhq-staging/allyourbase)
-      if grep -q 'REPO=.*gridlhq-staging/allyourbase' "$INSTALL_SCRIPT"; then
-        pass "Default REPO is gridlhq-staging/allyourbase (staging environment)"
-      else
-        fail "Default REPO should be gridlhq-staging/allyourbase in staging environment"
-      fi
+      assert_install_script_match \
+        "Default REPO is gridlhq-staging/allyourbase (staging environment)" \
+        "Default REPO should be gridlhq-staging/allyourbase in staging environment" \
+        'REPO=.*gridlhq-staging/allyourbase'
       ;;
     gridlhq/allyourbase)
-      if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT" && ! grep -q 'gridlhq-staging' "$INSTALL_SCRIPT"; then
+      if install_script_matches 'REPO=.*gridlhq/allyourbase' && ! install_script_matches 'gridlhq-staging'; then
         pass "Default REPO is gridlhq/allyourbase (production environment)"
       else
         fail "Default REPO should be gridlhq/allyourbase in production environment"
       fi
       ;;
-    gridlhq/allyourbase_dev)
-      # Dev repo: install.sh defaults to gridlhq/allyourbase (sync rewrites for staging/prod)
-      if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT"; then
-        pass "Default REPO is gridlhq/allyourbase (dev environment)"
-      else
-        fail "Default REPO should be gridlhq/allyourbase in dev environment"
-      fi
+    gridlhq/allyourbase_dev|gridl-dev/allyourbase_dev)
+      # Dev repo: install.sh still defaults to the public repo identity after sync.
+      assert_install_script_match \
+        "Default REPO is gridlhq/allyourbase (dev environment)" \
+        "Default REPO should be gridlhq/allyourbase in dev environment" \
+        'REPO=.*gridlhq/allyourbase'
       ;;
     *)
       fail "Unexpected GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
@@ -111,7 +138,7 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   esac
 else
   # Local: accept either repo (dev has prod default, staging sync rewrites it)
-  if grep -q 'REPO=.*gridlhq/allyourbase' "$INSTALL_SCRIPT"; then
+  if install_script_matches 'REPO=.*gridlhq/allyourbase'; then
     pass "Default REPO is set (local environment)"
   else
     fail "Default REPO should be gridlhq/allyourbase or gridlhq-staging/allyourbase"
@@ -119,18 +146,10 @@ else
 fi
 
 # Test: BINARY_NAME is ayb
-if grep -q 'BINARY_NAME="ayb"' "$INSTALL_SCRIPT"; then
-  pass "BINARY_NAME is ayb"
-else
-  fail "BINARY_NAME is not ayb"
-fi
+assert_install_script_match "BINARY_NAME is ayb" "BINARY_NAME is not ayb" 'BINARY_NAME="ayb"'
 
 # Test: Install dir defaults to ~/.ayb/bin
-if grep -q 'INSTALL_DIR=.*HOME/.ayb.*/bin' "$INSTALL_SCRIPT"; then
-  pass "Default install dir is ~/.ayb/bin"
-else
-  fail "Default install dir not ~/.ayb/bin"
-fi
+assert_install_script_match "Default install dir is ~/.ayb/bin" "Default install dir not ~/.ayb/bin" 'INSTALL_DIR=.*HOME/.ayb.*/bin'
 
 # ── Unit Tests: Platform Detection ──────────────────────────────────────────
 
@@ -161,47 +180,27 @@ else
 fi
 
 # Test: Rosetta 2 detection exists
-if grep -q "sysctl.proc_translated" "$INSTALL_SCRIPT"; then
-  pass "Rosetta 2 detection present"
-else
-  fail "Rosetta 2 detection missing"
-fi
+assert_install_script_match "Rosetta 2 detection present" "Rosetta 2 detection missing" "sysctl.proc_translated"
 
 # Test: Windows detection with helpful error
-if grep -q "MINGW\|MSYS\|CYGWIN" "$INSTALL_SCRIPT"; then
-  pass "Windows detection present (with error message)"
-else
-  fail "Windows detection missing"
-fi
+assert_install_script_match "Windows detection present (with error message)" "Windows detection missing" "MINGW\\|MSYS\\|CYGWIN"
 
 # ── Unit Tests: Download Tool Detection ─────────────────────────────────────
 
 section "Download Tool Detection"
 
 # Test: curl support
-if grep -q 'command -v curl' "$INSTALL_SCRIPT"; then
-  pass "curl detection present"
-else
-  fail "curl detection missing"
-fi
+assert_install_script_match "curl detection present" "curl detection missing" 'command -v curl'
 
 # Test: wget fallback
-if grep -q 'command -v wget' "$INSTALL_SCRIPT"; then
-  pass "wget fallback present"
-else
-  fail "wget fallback missing"
-fi
+assert_install_script_match "wget fallback present" "wget fallback missing" 'command -v wget'
 
 # ── Unit Tests: Version Resolution ──────────────────────────────────────────
 
 section "Version Resolution"
 
 # Test: AYB_VERSION env var support
-if grep -q 'AYB_VERSION' "$INSTALL_SCRIPT"; then
-  pass "AYB_VERSION env var support"
-else
-  fail "AYB_VERSION env var not supported"
-fi
+assert_install_script_match "AYB_VERSION env var support" "AYB_VERSION env var not supported" 'AYB_VERSION'
 
 # Test: CLI argument version pinning
 if grep -q '${1:-}' "$INSTALL_SCRIPT" || grep -q '"$1"' "$INSTALL_SCRIPT"; then
@@ -211,18 +210,10 @@ else
 fi
 
 # Test: GitHub API latest release detection
-if grep -q 'api.github.com/repos.*releases/latest' "$INSTALL_SCRIPT"; then
-  pass "GitHub API latest release detection"
-else
-  fail "GitHub API latest release detection missing"
-fi
+assert_install_script_match "GitHub API latest release detection" "GitHub API latest release detection missing" 'api.github.com/repos.*releases/latest'
 
 # Test: Version number stripped from tag (v prefix handling)
-if grep -q "sed 's/^v//'" "$INSTALL_SCRIPT"; then
-  pass "Version v-prefix stripping (goreleaser compat)"
-else
-  fail "No v-prefix stripping — goreleaser archives use version without v"
-fi
+assert_install_script_match "Version v-prefix stripping (goreleaser compat)" "No v-prefix stripping — goreleaser archives use version without v" "sed 's/^v//'"
 
 # ── Unit Tests: Security Features ───────────────────────────────────────────
 
@@ -243,25 +234,13 @@ else
 fi
 
 # Test: GITHUB_TOKEN support for private repos
-if grep -q 'GITHUB_TOKEN' "$INSTALL_SCRIPT"; then
-  pass "GITHUB_TOKEN support for private repos"
-else
-  fail "GITHUB_TOKEN support missing"
-fi
+assert_install_script_match "GITHUB_TOKEN support for private repos" "GITHUB_TOKEN support missing" 'GITHUB_TOKEN'
 
 # Test: GitHub API asset download (for private repos)
-if grep -q 'application/octet-stream' "$INSTALL_SCRIPT"; then
-  pass "GitHub API asset download (Accept: application/octet-stream)"
-else
-  fail "GitHub API asset download not implemented"
-fi
+assert_install_script_match "GitHub API asset download (Accept: application/octet-stream)" "GitHub API asset download not implemented" 'application/octet-stream'
 
 # Test: Temp directory cleanup
-if grep -q 'trap.*rm -rf' "$INSTALL_SCRIPT"; then
-  pass "Temp directory cleanup on exit (trap)"
-else
-  fail "No temp directory cleanup"
-fi
+assert_install_script_match "Temp directory cleanup on exit (trap)" "No temp directory cleanup" 'trap.*rm -rf'
 
 # ── Unit Tests: PATH Management ─────────────────────────────────────────────
 
@@ -275,50 +254,26 @@ else
 fi
 
 # Test: Zsh profile update
-if grep -q '.zshrc' "$INSTALL_SCRIPT"; then
-  pass "Zsh profile update (.zshrc)"
-else
-  fail "Zsh profile update missing"
-fi
+assert_install_script_match "Zsh profile update (.zshrc)" "Zsh profile update missing" '.zshrc'
 
 # Test: Fish config update
-if grep -q 'config.fish' "$INSTALL_SCRIPT"; then
-  pass "Fish config update"
-else
-  fail "Fish config update missing"
-fi
+assert_install_script_match "Fish config update" "Fish config update missing" 'config.fish'
 
 # Test: NO_MODIFY_PATH support
-if grep -q 'NO_MODIFY_PATH' "$INSTALL_SCRIPT"; then
-  pass "NO_MODIFY_PATH env var supported"
-else
-  fail "NO_MODIFY_PATH not supported"
-fi
+assert_install_script_match "NO_MODIFY_PATH env var supported" "NO_MODIFY_PATH not supported" 'NO_MODIFY_PATH'
 
 # Test: Idempotent PATH update (won't add duplicate)
-if grep -q 'grep -qF.*INSTALL_DIR' "$INSTALL_SCRIPT"; then
-  pass "Idempotent PATH update (checks for existing entry)"
-else
-  fail "PATH update may not be idempotent"
-fi
+assert_install_script_match "Idempotent PATH update (checks for existing entry)" "PATH update may not be idempotent" 'grep -qF.*INSTALL_DIR'
 
 # Test: Permission-denied handling for shell profiles
-if grep -q 'permission denied' "$INSTALL_SCRIPT"; then
-  pass "Permission-denied handling for shell profiles"
-else
-  fail "No permission-denied handling for shell profiles"
-fi
+assert_install_script_match "Permission-denied handling for shell profiles" "No permission-denied handling for shell profiles" 'permission denied'
 
 # ── Unit Tests: Environment Variable Overrides ──────────────────────────────
 
 section "Environment Variable Overrides"
 
 for var in AYB_INSTALL AYB_REPO AYB_VERSION GITHUB_TOKEN NO_MODIFY_PATH; do
-  if grep -q "$var" "$INSTALL_SCRIPT"; then
-    pass "Env var override: $var"
-  else
-    fail "Env var override missing: $var"
-  fi
+  assert_install_script_match "Env var override: $var" "Env var override missing: $var" "$var"
 done
 
 # ── Unit Tests: Output & UX ────────────────────────────────────────────────
@@ -326,64 +281,36 @@ done
 section "Output & UX"
 
 # Test: Colored output with terminal detection
-if grep -q '\[ -t 1 \]' "$INSTALL_SCRIPT"; then
-  pass "Color output with terminal detection"
-else
-  fail "No terminal detection for colors"
-fi
+assert_install_script_match "Color output with terminal detection" "No terminal detection for colors" '\[ -t 1 \]'
 
 # Test: Success message with getting-started instructions
-if grep -q 'ayb start' "$INSTALL_SCRIPT"; then
-  pass "Getting-started instructions in success output"
-else
-  fail "No getting-started instructions"
-fi
+assert_install_script_match "Getting-started instructions in success output" "No getting-started instructions" 'ayb start'
 
 # Test: PATH reminder when binary not in PATH
-if grep -q 'Restart your terminal' "$INSTALL_SCRIPT"; then
-  pass "PATH reminder for new installs"
-else
-  fail "No PATH reminder"
-fi
+assert_install_script_match "PATH reminder for new installs" "No PATH reminder" 'Restart your terminal'
 
 # Test: Archive name uses goreleaser format
-if grep -q 'ayb_.*_.*_.*\.tar\.gz' "$INSTALL_SCRIPT"; then
-  pass "Archive name matches goreleaser format (ayb_{ver}_{os}_{arch}.tar.gz)"
-else
-  fail "Archive name doesn't match goreleaser format"
-fi
+assert_install_script_match "Archive name matches goreleaser format (ayb_{ver}_{os}_{arch}.tar.gz)" "Archive name doesn't match goreleaser format" 'ayb_.*_.*_.*\.tar\.gz'
 
 # Test: Downloads checksums.txt (goreleaser format)
-if grep -q 'checksums.txt' "$INSTALL_SCRIPT"; then
-  pass "Uses checksums.txt (goreleaser format)"
-else
-  fail "Does not reference checksums.txt"
-fi
+assert_install_script_match "Uses checksums.txt (goreleaser format)" "Does not reference checksums.txt" 'checksums.txt'
 
 # ── Unit Tests: Install to User Directory ───────────────────────────────────
 
 section "Install Location"
 
 # Test: Installs to user directory (no sudo by default)
-if grep -q 'HOME/.ayb' "$INSTALL_SCRIPT"; then
-  pass "Default install to ~/.ayb (no sudo required)"
-else
-  fail "Does not install to user directory by default"
-fi
+assert_install_script_match "Default install to ~/.ayb (no sudo required)" "Does not install to user directory by default" 'HOME/.ayb'
 
 # Test: No sudo in the script
-if grep -q 'sudo' "$INSTALL_SCRIPT"; then
+if install_script_matches 'sudo'; then
   fail "Script contains sudo — should install to user directory"
 else
   pass "No sudo in install script"
 fi
 
 # Test: mkdir -p for install directory
-if grep -q 'mkdir -p.*INSTALL_DIR' "$INSTALL_SCRIPT"; then
-  pass "Creates install directory with mkdir -p"
-else
-  fail "No mkdir -p for install directory"
-fi
+assert_install_script_match "Creates install directory with mkdir -p" "No mkdir -p for install directory" 'mkdir -p.*INSTALL_DIR'
 
 # ── Release API Reachability (public, no token needed) ────────────────────────
 
@@ -392,27 +319,40 @@ section "Release API Reachability"
 # Extract the default REPO from install.sh
 default_repo=$(grep 'AYB_REPO:-' "$INSTALL_SCRIPT" | sed 's/.*AYB_REPO:-//;s/}.*//;s/"//g')
 
-# Test: GitHub API /releases/latest returns a valid tag_name
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+# Test: install.sh default repo stays constrained to a GitHub owner/repo slug
+if allowlisted_github_repo_slug "$default_repo"; then
+  pass "Default REPO uses a safe GitHub owner/repo slug"
 else
-  api_resp=$(curl -fsSL "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+  fail "Default REPO must be a safe GitHub owner/repo slug" "$default_repo"
 fi
-if echo "$api_resp" | grep -q '"tag_name"'; then
+
+# Test: GitHub API /releases/latest returns a valid tag_name
+if allowlisted_github_repo_slug "$default_repo"; then
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+  else
+    api_resp=$(curl -fsSL "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+  fi
+else
+  api_resp=''
+fi
+if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"tag_name"'; then
   latest_tag=$(echo "$api_resp" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
   pass "GitHub API releases/latest returns tag: ${latest_tag}"
 else
   # No release yet is acceptable (staging may not have any)
-  if echo "$api_resp" | grep -q '"message".*"Not Found"'; then
+  if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"message".*"Not Found"'; then
     pass "GitHub API reachable (no releases yet for ${default_repo})"
-  else
+  elif allowlisted_github_repo_slug "$default_repo"; then
     fail "GitHub API releases/latest for ${default_repo} failed" \
       "Got: $(echo "$api_resp" | head -3)"
+  else
+    fail "Skipped GitHub API releases/latest due to unsafe default REPO" "$default_repo"
   fi
 fi
 
 # Test: If releases exist, check for .tar.gz assets
-if echo "$api_resp" | grep -q '"tag_name"'; then
+if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"tag_name"'; then
   if echo "$api_resp" | grep -q 'ayb_.*\.tar\.gz'; then
     pass "Release has .tar.gz assets"
   else
@@ -433,6 +373,8 @@ fi
 
 if [ -z "${GITHUB_TOKEN:-}" ]; then
   printf "  \033[1;33mSkipped\033[0m (set GITHUB_TOKEN or install gh CLI for integration tests)\n"
+elif ! allowlisted_github_repo_slug "$default_repo"; then
+  printf "  \033[1;33mSkipped\033[0m (default REPO is not a safe GitHub owner/repo slug)\n"
 else
   # Resolve a pinned version dynamically (use the latest release tag)
   PIN_VERSION=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
@@ -447,7 +389,7 @@ else
     trap_cleanup() { rm -rf "$test_dir"; }
     trap trap_cleanup EXIT
 
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" 2>&1 | grep -q "installed successfully"; then
+    if install_succeeds "$test_dir" "$PIN_VERSION"; then
       pass "Full install with version pinning (${PIN_VERSION})"
     else
       fail "Full install with version pinning failed (${PIN_VERSION})"
@@ -469,7 +411,7 @@ else
 
     # Test: Latest version auto-detection
     test_dir2=$(mktemp -d)
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir2" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" 2>&1 | grep -q "installed successfully"; then
+    if install_succeeds "$test_dir2"; then
       pass "Latest version auto-detection works"
     else
       fail "Latest version auto-detection failed"
@@ -489,7 +431,7 @@ else
 
     # Test: Custom install directory
     test_dir4=$(mktemp -d)
-    if NO_MODIFY_PATH=1 AYB_INSTALL="$test_dir4/custom" GITHUB_TOKEN="$GITHUB_TOKEN" sh "$INSTALL_SCRIPT" "$PIN_VERSION" 2>&1 | grep -q "installed successfully"; then
+    if install_succeeds "$test_dir4/custom" "$PIN_VERSION"; then
       pass "Custom install directory (AYB_INSTALL)"
     else
       fail "Custom install directory failed"

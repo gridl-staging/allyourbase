@@ -1,11 +1,10 @@
+// Package server Email template administration handlers provide HTTP endpoints for managing, previewing, and sending email templates with variable substitution.
 package server
 
 import (
 	"context"
 	"errors"
 	"net/http"
-	"net/mail"
-	"strings"
 
 	"github.com/allyourbase/ayb/internal/emailtemplates"
 	"github.com/allyourbase/ayb/internal/httputil"
@@ -20,6 +19,7 @@ type emailTemplateAdmin interface {
 	SetEnabled(ctx context.Context, key string, enabled bool) error
 	GetEffective(ctx context.Context, key string) (*emailtemplates.EffectiveTemplate, error)
 	Preview(ctx context.Context, key, subjectTpl, htmlTpl string, vars map[string]string) (*emailtemplates.RenderedEmail, error)
+	Render(ctx context.Context, key string, vars map[string]string) (*emailtemplates.RenderedEmail, error)
 	Send(ctx context.Context, key, to string, vars map[string]string) error
 	SystemKeys() []emailtemplates.EffectiveTemplate
 }
@@ -75,6 +75,7 @@ type effectiveTemplateResponse struct {
 	Variables       []string `json:"variables,omitempty"`
 }
 
+// Returns an HTTP handler that lists all email templates, merging system-provided builtin templates with user-created custom overrides and returning them with their source, subject, enabled status, and last update time.
 func handleAdminListEmailTemplates(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		custom, err := svc.List(r.Context())
@@ -136,6 +137,7 @@ func handleAdminListEmailTemplates(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that retrieves the effective email template for a given key from the URL path, returning the merged result of any custom override and the system template, including all rendered variables.
 func handleAdminGetEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -164,6 +166,7 @@ func handleAdminGetEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that creates or updates an email template identified by key in the URL, accepting a subject and HTML template body in the request, validating the template syntax before persisting.
 func handleAdminUpsertEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -203,6 +206,7 @@ func handleAdminUpsertEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that deletes the custom email template identified by key in the URL, returning no content on success.
 func handleAdminDeleteEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -223,6 +227,7 @@ func handleAdminDeleteEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that updates only the enabled status of an email template identified by key in the URL, accepting a boolean enabled field in the request.
 func handleAdminPatchEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -258,6 +263,7 @@ func handleAdminPatchEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that renders an email template with provided variables for preview purposes without sending or persisting, accepting subject, HTML template, and variable map in the request.
 func handleAdminPreviewEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := chi.URLParam(r, "key")
@@ -303,6 +309,7 @@ func handleAdminPreviewEmailTemplate(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that sends an email using a stored template, accepting the template key, recipient address, and template variables in the request, validating the recipient email format before transmission.
 func handleAdminSendEmail(svc emailTemplateAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req sendEmailRequest
@@ -322,7 +329,7 @@ func handleAdminSendEmail(svc emailTemplateAdmin) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "to is required")
 			return
 		}
-		if !isValidEmailAddress(req.To) {
+		if err := httputil.ValidateEmail(req.To); err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "invalid email address")
 			return
 		}
@@ -354,27 +361,60 @@ func handleAdminSendEmail(svc emailTemplateAdmin) http.HandlerFunc {
 	}
 }
 
-// isValidEmailAddress performs basic email format validation at the API boundary.
-func isValidEmailAddress(email string) bool {
-	email = strings.TrimSpace(email)
-	if email == "" || strings.ContainsAny(email, "\r\n") {
-		return false
+// --- Server delegation methods (nil-check + dispatch) ---
+
+func (s *Server) handleEmailTemplatesList(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
 	}
-	addr, err := mail.ParseAddress(email)
-	if err != nil {
-		return false
+	handleAdminListEmailTemplates(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailTemplatesGet(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
 	}
-	// Only accept plain addr-spec form (no display names).
-	if addr.Address != email {
-		return false
+	handleAdminGetEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailTemplatesUpsert(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
 	}
-	atIdx := strings.LastIndex(email, "@")
-	if atIdx < 1 || atIdx == len(email)-1 {
-		return false
+	handleAdminUpsertEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailTemplatesDelete(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
 	}
-	domain := email[atIdx+1:]
-	if strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || strings.Contains(domain, "..") {
-		return false
+	handleAdminDeleteEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailTemplatesPatch(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
 	}
-	return strings.Contains(domain, ".")
+	handleAdminPatchEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailTemplatesPreview(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
+	}
+	handleAdminPreviewEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmailSend(w http.ResponseWriter, r *http.Request) {
+	if s.emailTplSvc == nil {
+		serviceUnavailable(w, serviceUnavailableEmailTemplates)
+		return
+	}
+	handleAdminSendEmail(s.emailTplSvc).ServeHTTP(w, r)
 }

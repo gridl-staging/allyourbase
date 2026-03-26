@@ -18,11 +18,15 @@ func NewLogMailer(logger *slog.Logger) *LogMailer {
 }
 
 func (m *LogMailer) Send(_ context.Context, msg *Message) error {
-	m.logger.Info("email (dev mode — not sent)",
+	attrs := []any{
 		"to", msg.To,
 		"subject", msg.Subject,
 		"text", msg.Text,
 		"html_length", len(msg.HTML),
-	)
+	}
+	if msg.From != "" {
+		attrs = append(attrs, "from", msg.From)
+	}
+	m.logger.Info("email (dev mode — not sent)", attrs...)
 	return nil
 }

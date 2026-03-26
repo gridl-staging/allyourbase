@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/migrations"
+	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestUserRunnerBootstrap(t *testing.T) {
@@ -189,4 +191,146 @@ func TestUserRunnerStatus(t *testing.T) {
 	// Third should be pending.
 	testutil.Equal(t, "20260203_c.sql", status[2].Name)
 	testutil.Nil(t, status[2].AppliedAt)
+}
+
+func postGISPoolForMigrations(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	url := os.Getenv("AYB_TEST_POSTGIS_URL")
+	if url == "" {
+		t.Skip("AYB_TEST_POSTGIS_URL not set — skipping PostGIS migration test")
+	}
+	pool, err := pgxpool.New(context.Background(), url)
+	if err != nil {
+		t.Fatalf("connecting to PostGIS database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func resetPostGISDBForMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+	if err != nil {
+		t.Fatalf("resetting PostGIS schema: %v", err)
+	}
+	_, err = pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS postgis")
+	if err != nil {
+		t.Fatalf("creating PostGIS extension: %v", err)
+	}
+}
+
+func TestUserRunnerPostGISSpatialDDLAndReload(t *testing.T) {
+	ctx := context.Background()
+	pool := postGISPoolForMigrations(t)
+	resetPostGISDBForMigrations(t, ctx, pool)
+
+	dir := t.TempDir()
+	runner := migrations.NewUserRunner(pool, dir, testutil.DiscardLogger())
+	testutil.NoError(t, runner.Bootstrap(ctx))
+
+	err := os.WriteFile(filepath.Join(dir, "20260223_create_spatial_places.sql"), []byte(`
+		CREATE TABLE spatial_places (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			location geometry(Point, 4326)
+		);
+		CREATE INDEX idx_spatial_places_location ON spatial_places USING GIST (location);
+	`), 0o644)
+	testutil.NoError(t, err)
+
+	cacheHolder := schema.NewCacheHolder(pool, testutil.DiscardLogger())
+	testutil.NoError(t, cacheHolder.Load(ctx))
+	testutil.Nil(t, cacheHolder.Get().Tables["public.spatial_places"])
+
+	applied, err := runner.Up(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, applied)
+
+	testutil.NoError(t, cacheHolder.Reload(ctx))
+	cacheAfterCreate := cacheHolder.Get()
+	testutil.True(t, cacheAfterCreate.HasPostGIS, "cache should detect PostGIS extension")
+
+	places := cacheAfterCreate.Tables["public.spatial_places"]
+	testutil.NotNil(t, places)
+	testutil.True(t, places.HasGeometry(), "spatial_places should have geometry after migration")
+
+	locationCol := places.ColumnByName("location")
+	testutil.NotNil(t, locationCol)
+	testutil.True(t, locationCol.IsGeometry, "location should be geometry")
+	testutil.Equal(t, "Point", locationCol.GeometryType)
+	testutil.Equal(t, 4326, locationCol.SRID)
+	testutil.Equal(t, "object", locationCol.JSONType)
+
+	var gistIdx *schema.Index
+	for _, idx := range places.Indexes {
+		if idx.Name == "idx_spatial_places_location" {
+			gistIdx = idx
+			break
+		}
+	}
+	testutil.NotNil(t, gistIdx)
+	testutil.Equal(t, "gist", gistIdx.Method)
+
+	err = os.WriteFile(filepath.Join(dir, "20260224_drop_spatial_location.sql"), []byte(`
+		ALTER TABLE spatial_places DROP COLUMN location;
+	`), 0o644)
+	testutil.NoError(t, err)
+
+	applied, err = runner.Up(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, applied)
+
+	testutil.NoError(t, cacheHolder.Reload(ctx))
+	cacheAfterDrop := cacheHolder.Get()
+	placesAfterDrop := cacheAfterDrop.Tables["public.spatial_places"]
+	testutil.NotNil(t, placesAfterDrop)
+	testutil.False(t, placesAfterDrop.HasGeometry(), "spatial_places should not have geometry after drop migration")
+	testutil.Nil(t, placesAfterDrop.ColumnByName("location"))
+}
+
+func TestUserRunnerWithSchemaAppliesMigrationsInTenantSchema(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t, ctx)
+
+	schemaName := "runner_schema_test"
+	_, err := sharedPG.Pool.Exec(ctx, `CREATE SCHEMA "runner_schema_test"`)
+	testutil.NoError(t, err)
+
+	dir := t.TempDir()
+	runner := migrations.NewUserRunnerWithSchema(sharedPG.Pool, dir, schemaName, testutil.DiscardLogger())
+	testutil.NoError(t, runner.Bootstrap(ctx))
+
+	err = os.WriteFile(filepath.Join(dir, "20260304_create_schema_items.sql"), []byte(`
+		CREATE TABLE tenant_items (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL
+		)
+	`), 0o644)
+	testutil.NoError(t, err)
+
+	applied, err := runner.Up(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, applied)
+
+	var tableInSchema bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = $1 AND table_name = 'tenant_items'
+		)`,
+		schemaName,
+	).Scan(&tableInSchema)
+	testutil.NoError(t, err)
+	testutil.True(t, tableInSchema, "tenant_items should exist in tenant schema")
+
+	var trackingInSchema bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = $1 AND table_name = '_ayb_user_migrations'
+		)`,
+		schemaName,
+	).Scan(&trackingInSchema)
+	testutil.NoError(t, err)
+	testutil.True(t, trackingInSchema, "_ayb_user_migrations should exist in tenant schema")
 }

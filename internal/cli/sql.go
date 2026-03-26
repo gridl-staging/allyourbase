@@ -1,3 +1,4 @@
+// Package cli defines the sql command for executing arbitrary SQL against a running AYB server via its admin API. It handles authentication, query input, and supports multiple output formats.
 package cli
 
 import (
@@ -5,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -20,8 +23,9 @@ var sqlCmd = &cobra.Command{
 Requires admin authentication if an admin password is set.
 
 Authentication is resolved in order: --admin-token flag, AYB_ADMIN_TOKEN env var,
-~/.ayb/admin-token file (auto-saved by ayb start). The saved password is
-exchanged for a session token automatically.
+~/.ayb/admin-token file (auto-saved by ayb start) for loopback servers only.
+For backward compatibility, the file may contain either a bearer token or a
+legacy password value.
 
 Examples:
   ayb sql "SELECT * FROM users LIMIT 10"
@@ -35,39 +39,22 @@ func init() {
 	sqlCmd.Flags().String("url", "", "Server URL (default http://127.0.0.1:8090)")
 }
 
+// TODO: Document runSQL.
 func runSQL(cmd *cobra.Command, args []string) error {
 	token, _ := cmd.Flags().GetString("admin-token")
 	baseURL, _ := cmd.Flags().GetString("url")
 
-	if token == "" {
-		token = os.Getenv("AYB_ADMIN_TOKEN")
-	}
 	if baseURL == "" {
 		baseURL = serverURL()
 	}
-
-	// If no explicit token, try to log in with the saved admin password.
-	if token == "" {
-		if tokenPath, err := aybAdminTokenPath(); err == nil {
-			if data, err := os.ReadFile(tokenPath); err == nil {
-				password := strings.TrimSpace(string(data))
-				if t, err := adminLogin(baseURL, password); err == nil {
-					token = t
-				}
-			}
-		}
+	token = resolveCLIAdminToken(token, baseURL)
+	if token == "" && !isLoopbackAdminURL(baseURL) {
+		return fmt.Errorf("saved admin auth from ~/.ayb/admin-token is only used for local loopback servers; pass --admin-token or set AYB_ADMIN_TOKEN for %s", baseURL)
 	}
 
-	// Get query from args or stdin.
-	var query string
-	if len(args) > 0 {
-		query = strings.Join(args, " ")
-	} else {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("reading stdin: %w", err)
-		}
-		query = strings.TrimSpace(string(data))
+	query, err := readSQLQuery(args, os.Stdin)
+	if err != nil {
+		return err
 	}
 	if query == "" {
 		return fmt.Errorf("query is required (pass as argument or pipe to stdin)")
@@ -124,27 +111,7 @@ func runSQL(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing response: %w", err)
 	}
 
-	// Build string rows for both table and CSV output.
-	strRows := make([][]string, len(result.Rows))
-	for i, row := range result.Rows {
-		vals := make([]string, len(row))
-		for j, cell := range row {
-			var v any
-			if err := json.Unmarshal(cell, &v); err != nil {
-				// Fallback: use raw JSON string if cell can't be parsed.
-				vals[j] = string(cell)
-			} else if v == nil {
-				if outFmt == "csv" {
-					vals[j] = ""
-				} else {
-					vals[j] = "NULL"
-				}
-			} else {
-				vals[j] = fmt.Sprint(v)
-			}
-		}
-		strRows[i] = vals
-	}
+	strRows := stringifySQLRows(result.Rows, outFmt)
 
 	if outFmt == "csv" {
 		return writeCSVStdout(result.Columns, strRows)
@@ -160,6 +127,54 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	w.Flush()
 	fmt.Printf("\n%s\n", dim(fmt.Sprintf("(%d rows, %.1fms)", result.RowCount, result.DurationMs), useColor))
 	return nil
+}
+
+func resolveCLIAdminToken(explicitToken, baseURL string) string {
+	if explicitToken != "" {
+		return explicitToken
+	}
+	if token := os.Getenv("AYB_ADMIN_TOKEN"); token != "" {
+		return token
+	}
+	return resolveSavedAdminToken(baseURL)
+}
+
+func readSQLQuery(args []string, stdin io.Reader) (string, error) {
+	if len(args) > 0 {
+		return strings.Join(args, " "), nil
+	}
+
+	data, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("reading stdin: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// TODO: Document stringifySQLRows.
+func stringifySQLRows(rows [][]json.RawMessage, outFmt string) [][]string {
+	strRows := make([][]string, len(rows))
+	for i, row := range rows {
+		vals := make([]string, len(row))
+		for j, cell := range row {
+			var v any
+			if err := json.Unmarshal(cell, &v); err != nil {
+				vals[j] = string(cell)
+				continue
+			}
+			if v == nil {
+				if outFmt == "csv" {
+					vals[j] = ""
+				} else {
+					vals[j] = "NULL"
+				}
+				continue
+			}
+			vals[j] = fmt.Sprint(v)
+		}
+		strRows[i] = vals
+	}
+	return strRows
 }
 
 // adminLogin exchanges an admin password for a bearer token via /api/admin/auth.
@@ -183,6 +198,58 @@ func adminLogin(baseURL, password string) (string, error) {
 		return "", err
 	}
 	return result.Token, nil
+}
+
+// resolveSavedAdminToken resolves auth from ~/.ayb/admin-token.
+// New servers save a bearer token; older versions saved a password.
+func resolveSavedAdminToken(baseURL string) string {
+	if !isLoopbackAdminURL(baseURL) {
+		return ""
+	}
+	_, saved, err := readSavedAdminTokenFile()
+	if err != nil || saved == "" {
+		return ""
+	}
+	return exchangeSavedAdminAuth(baseURL, saved)
+}
+
+func readSavedAdminTokenFile() (string, string, error) {
+	tokenPath, err := aybAdminTokenPath()
+	if err != nil {
+		return "", "", err
+	}
+
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return tokenPath, "", err
+	}
+	return tokenPath, strings.TrimSpace(string(data)), nil
+}
+
+func exchangeSavedAdminAuth(baseURL, saved string) string {
+	if exchanged, err := adminLogin(baseURL, saved); err == nil {
+		exchanged = strings.TrimSpace(exchanged)
+		if exchanged != "" {
+			return exchanged
+		}
+	}
+	return saved
+}
+
+func isLoopbackAdminURL(baseURL string) bool {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSpace(parsedURL.Hostname())
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // serverURL returns the base URL for the running AYB server.

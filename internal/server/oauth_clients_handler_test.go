@@ -17,13 +17,13 @@ import (
 
 // fakeOAuthClientManager is an in-memory fake implementing oauthClientManager.
 type fakeOAuthClientManager struct {
-	clients []auth.OAuthClient
-	listErr error
-	getErr       error
-	registerErr  error
-	revokeErr    error
-	rotateErr    error
-	updateErr    error
+	clients     []auth.OAuthClient
+	listErr     error
+	getErr      error
+	registerErr error
+	revokeErr   error
+	rotateErr   error
+	updateErr   error
 }
 
 func (f *fakeOAuthClientManager) RegisterOAuthClient(_ context.Context, appID, name, clientType string, redirectURIs, scopes []string) (string, *auth.OAuthClient, error) {

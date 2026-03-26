@@ -1,7 +1,9 @@
+/**
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_2_auth_jwt_and_private_function_proof/allyourbase_dev/ui/browser-tests-unmocked/auth.setup.ts.
+ */
 import { test as setup, expect } from "@playwright/test";
-import { readFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
+import { getBrowserUnmockedSkipReason } from "./browser-preflight";
+import { resolveAdminBootstrapCredential } from "./admin-bootstrap";
 
 /**
  * AUTH SETUP: Log into the admin dashboard and save auth state.
@@ -10,30 +12,45 @@ import { homedir } from "os";
  * The saved storageState includes the JWT token in localStorage,
  * which is automatically loaded before each test.
  *
- * Password resolution order:
+ * Admin auth resolution order:
  * 1. AYB_ADMIN_PASSWORD env var
- * 2. ~/.ayb/admin-token file (written by `ayb start`)
+ * 2. ~/.ayb/admin-token file (written by `ayb start`, usually a bearer token)
  */
 
 const authFile = "browser-tests-unmocked/.auth/admin.json";
+const browserSkipReason = getBrowserUnmockedSkipReason();
 
-function resolveAdminPassword(): string {
-  if (process.env.AYB_ADMIN_PASSWORD) {
-    return process.env.AYB_ADMIN_PASSWORD;
-  }
+if (browserSkipReason) {
+  setup.skip(true, browserSkipReason);
+}
+
+/**
+ * TODO: Document bootstrapWithSavedToken.
+ */
+async function bootstrapWithSavedToken(page: import("@playwright/test").Page, token: string): Promise<boolean> {
+  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((savedToken: string) => {
+    window.localStorage.setItem("ayb_admin_token", savedToken);
+  }, token);
+  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
   try {
-    const tokenPath = join(homedir(), ".ayb", "admin-token");
-    return readFileSync(tokenPath, "utf-8").trim();
+    await expect(page.getByRole("navigation")).toBeVisible({ timeout: 5000 });
+    return true;
   } catch {
-    throw new Error(
-      "No admin password found. Either set AYB_ADMIN_PASSWORD or ensure `ayb start` is running (writes ~/.ayb/admin-token)."
-    );
+    // If the saved file contains a legacy password rather than a bearer token,
+    // clear the invalid token and continue with password-form login.
+    await page.evaluate(() => {
+      window.localStorage.removeItem("ayb_admin_token");
+    });
+    return false;
   }
 }
 
-setup("authenticate as admin", async ({ page }) => {
-  // Navigate to admin login
-  await page.goto("/admin/");
+/**
+ * TODO: Document loginWithPassword.
+ */
+async function loginWithPassword(page: import("@playwright/test").Page, password: string): Promise<void> {
+  await page.goto("/admin/", { waitUntil: "domcontentloaded" });
 
   // Wait for login form
   await expect(page.getByText("Enter the admin password")).toBeVisible({
@@ -41,58 +58,41 @@ setup("authenticate as admin", async ({ page }) => {
   });
 
   // Enter admin password
-  const adminPassword = resolveAdminPassword();
-  console.log(`Using admin password: ${adminPassword}`);
-  await page.getByLabel("Password").fill(adminPassword);
+  await page.getByLabel("Password").fill(password);
 
   // Click Sign in
   await page.getByRole("button", { name: "Sign in" }).click();
 
-  // Wait a moment for any error messages to appear
-  await page.waitForTimeout(1000);
-
-  // Check for error messages
-  const errorElement = page.locator('.bg-red-50, [role="alert"], .text-red-700');
-  const hasError = await errorElement.isVisible().catch(() => false);
-  if (hasError) {
-    const errorText = await errorElement.textContent();
-    throw new Error(`Login failed with error: ${errorText}`);
-  }
-
-  // Wait for dashboard to load — check for something that only exists on dashboard, not login page
-  // The login page has "Allyourbase" too, so we need to check for actual dashboard content
-  // Wait for URL to change from /admin/ to /admin/something or for dashboard-specific element
-  await Promise.race([
-    page.waitForURL(/\/admin\/.+/, { timeout: 10000 }),
-    // Or wait for a dashboard-specific element like the sidebar nav
-    expect(page.getByRole("navigation")).toBeVisible({ timeout: 10000 }),
-  ]);
-
-  // Additional verification: make sure we're NOT on the login page
-  const isStillOnLogin = await page.getByLabel("Password").isVisible().catch(() => false);
-  if (isStillOnLogin) {
-    throw new Error("Login failed - still on login page");
-  }
-
-  // CRITICAL: Wait for localStorage to be populated with the admin token
-  // The adminLogin() function calls setToken() which writes to localStorage
+  // The admin SPA writes the JWT to localStorage immediately after the API
+  // call succeeds (before the boot/schema-fetch cycle even starts), so the
+  // token appearing in localStorage is the fastest reliable signal that login
+  // worked.  The SPA never changes the URL from /admin/ — all routing is
+  // client-side state — so a URL-based wait would hang forever.
   await page.waitForFunction(
     () => {
       const token = localStorage.getItem("ayb_admin_token");
       return token !== null && token.length > 0;
     },
-    { timeout: 5000 }
+    { timeout: 15000 },
   );
 
-  // Verify token is actually in localStorage
-  const hasToken = await page.evaluate(() => {
-    const token = localStorage.getItem("ayb_admin_token");
-    console.log("Admin token in localStorage:", token?.substring(0, 20) + "...");
-    return !!token;
-  });
+  // Wait for the dashboard to finish booting — the sidebar <nav> only renders
+  // once the schema has loaded and Layout mounts.  We intentionally skip a
+  // generic .bg-red-50 error check here: the token wait already proves login
+  // succeeded, and the dashboard may legitimately show red-styled elements
+  // (e.g. a table-browser query error) that are NOT login failures.
+  await expect(page.getByRole("navigation")).toBeVisible({ timeout: 15000 });
+}
 
-  if (!hasToken) {
-    throw new Error("Admin token not found in localStorage after login");
+setup("authenticate as admin", async ({ page }) => {
+  const credential = resolveAdminBootstrapCredential();
+  if (credential.source === "saved-admin-auth") {
+    const didBootstrapFromToken = await bootstrapWithSavedToken(page, credential.value);
+    if (!didBootstrapFromToken) {
+      await loginWithPassword(page, credential.value);
+    }
+  } else {
+    await loginWithPassword(page, credential.value);
   }
 
   // Save auth state (localStorage with JWT token)

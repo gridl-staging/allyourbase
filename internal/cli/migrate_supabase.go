@@ -1,3 +1,4 @@
+// Package cli Implements the CLI command for migrating data tables, auth users, OAuth identities, and RLS policies from Supabase to AYB, with support for dry-run, skip options, and Supabase storage file migration.
 package cli
 
 import (
@@ -86,6 +87,7 @@ func init() {
 	migrateSupabaseCmd.MarkFlagRequired("database-url")
 }
 
+// runMigrateSupabase handles the supabase migration CLI command, parsing flags, analyzing the source Supabase database, prompting for confirmation, executing the migration in a transaction, and outputting results as JSON or a human-readable summary.
 func runMigrateSupabase(cmd *cobra.Command, args []string) error {
 	sourceURL, _ := cmd.Flags().GetString("source-url")
 	databaseURL, _ := cmd.Flags().GetString("database-url")
@@ -170,6 +172,7 @@ func runMigrateSupabase(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// normalizeSupabaseSummaryReport returns a copy of the analysis report with fields zeroed out based on which migration components were skipped, used to produce accurate validation summaries that reflect what was actually migrated.
 func normalizeSupabaseSummaryReport(
 	report *migrate.AnalysisReport,
 	skipData bool,

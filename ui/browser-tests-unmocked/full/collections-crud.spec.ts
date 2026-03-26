@@ -1,4 +1,4 @@
-import { test, expect, execSQL, seedRecord } from "../fixtures";
+import { test, expect, execSQL, seedRecord, waitForDashboard } from "../fixtures";
 
 /**
  * FULL E2E TEST: Collections CRUD Operations
@@ -42,7 +42,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
 
     // Act: navigate to the table
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const sidebar = page.locator("aside");
     await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });
     await sidebar.getByText("crud_test_products", { exact: true }).click();
@@ -60,7 +60,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // Setup: Create test table
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
@@ -86,7 +86,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // CREATE: Add a new product
     // ============================================================
     await page.reload();
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await expect(sidebar).toBeVisible();
 
     await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });

@@ -11,7 +11,7 @@ import {
 // NOTE: Drag-and-drop tests require low-level mouse APIs (boundingBox, mouse.move/down/up)
 // and library-specific data attributes ([data-rfd-*]) because Playwright has no native
 // DnD API that works with @hello-pangea/dnd. These patterns are pragmatically necessary
-// and documented as exceptions to BROWSER_TESTING_STANDARDS_2.md Rule 4/5.
+// and documented as exceptions to BROWSER_TESTING_STANDARDS_3.md Rule 4/5.
 
 test.describe("Drag and Drop", () => {
   test.beforeEach(async ({ page }) => {

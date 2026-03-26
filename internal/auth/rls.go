@@ -6,12 +6,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-)
 
-// quoteIdent quotes a SQL identifier with double quotes for safe use in queries.
-func quoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
+	"github.com/allyourbase/ayb/internal/sqlutil"
+)
 
 // AuthenticatedRole is the Postgres role used for authenticated API requests.
 // SET LOCAL ROLE switches to this role within each request transaction so
@@ -24,14 +21,21 @@ func escapeLiteral(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-// rlsStatements returns the three SET LOCAL SQL statements that
-// SetRLSContext executes. Extracted so tests can verify SQL generation
-// without requiring a live database connection.
-func rlsStatements(claims *Claims) (roleSQL, userIDSQL, emailSQL string) {
-	roleSQL = "SET LOCAL ROLE " + quoteIdent(AuthenticatedRole)
-	userIDSQL = "SET LOCAL ayb.user_id = '" + escapeLiteral(claims.Subject) + "'"
-	emailSQL = "SET LOCAL ayb.user_email = '" + escapeLiteral(claims.Email) + "'"
-	return
+// rlsStatements returns the SET LOCAL SQL statements that SetRLSContext
+// executes. Always includes role, user_id, and email. Conditionally
+// includes tenant_id when claims.TenantID is non-empty. Extracted so
+// tests can verify SQL generation without a live database connection.
+func rlsStatements(claims *Claims) []string {
+	stmts := []string{
+		"SET LOCAL ROLE " + sqlutil.QuoteIdent(AuthenticatedRole),
+		"SET LOCAL ayb.user_id = '" + escapeLiteral(claims.Subject) + "'",
+		"SET LOCAL ayb.user_email = '" + escapeLiteral(claims.Email) + "'",
+	}
+	tenantID := strings.TrimSpace(claims.TenantID)
+	if tenantID != "" {
+		stmts = append(stmts, "SET LOCAL ayb.tenant_id = '"+escapeLiteral(tenantID)+"'")
+	}
+	return stmts
 }
 
 // SetRLSContext switches to the authenticated role and sets Postgres session
@@ -47,21 +51,12 @@ func SetRLSContext(ctx context.Context, tx pgx.Tx, claims *Claims) error {
 		return nil
 	}
 
-	roleSQL, userIDSQL, emailSQL := rlsStatements(claims)
-
-	// Switch to the authenticated role so RLS policies are enforced.
-	if _, err := tx.Exec(ctx, roleSQL); err != nil {
-		return fmt.Errorf("setting role: %w", err)
-	}
-
 	// Use SET LOCAL instead of SELECT set_config() to avoid leaving unread
 	// result rows on the pgx connection, which causes "conn busy" on commit.
-	if _, err := tx.Exec(ctx, userIDSQL); err != nil {
-		return fmt.Errorf("setting ayb.user_id: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, emailSQL); err != nil {
-		return fmt.Errorf("setting ayb.user_email: %w", err)
+	for _, stmt := range rlsStatements(claims) {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("rls context: %w", err)
+		}
 	}
 
 	return nil

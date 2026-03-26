@@ -39,6 +39,14 @@ func NoError(t testing.TB, err error) {
 	}
 }
 
+// Error fails the test if err is nil.
+func Error(t testing.TB, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 // ErrorContains fails the test if err is nil or doesn't contain substr.
 func ErrorContains(t testing.TB, err error, substr string) {
 	t.Helper()
@@ -109,14 +117,6 @@ func SliceLen[T any](t testing.TB, slice []T, wantLen int) {
 	t.Helper()
 	if len(slice) != wantLen {
 		t.Errorf("slice length: got %d, want %d", len(slice), wantLen)
-	}
-}
-
-// MapLen fails the test if the map doesn't have the expected length.
-func MapLen[K comparable, V any](t testing.TB, m map[K]V, wantLen int) {
-	t.Helper()
-	if len(m) != wantLen {
-		t.Errorf("map length: got %d, want %d", len(m), wantLen)
 	}
 }
 

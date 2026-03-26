@@ -1,0 +1,26 @@
+name: allyourbase
+description: Pure Dart SDK for the Allyourbase API.
+version: 0.1.0
+homepage: https://allyourbase.io
+repository: https://github.com/allyourbase/allyourbase
+issue_tracker: https://github.com/allyourbase/allyourbase/issues
+topics:
+  - dart
+  - flutter
+  - sdk
+  - postgres
+  - backend
+screenshots:
+  - description: Flutter app using the Allyourbase Dart SDK for auth, records, realtime, and storage.
+    path: assets/flutter-sdk-example.png
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  http: ^1.2.0
+  http_parser: ^4.0.0
+
+dev_dependencies:
+  lints: ^5.1.1
+  test: ^1.25.8

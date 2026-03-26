@@ -14,6 +14,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,13 +27,20 @@ import (
 // buildTestBinary builds the ayb binary into a temp directory and returns its path.
 func buildTestBinary(t *testing.T) string {
 	t.Helper()
-	binDir := t.TempDir()
-	binPath := filepath.Join(binDir, "ayb")
+	binPath, err := buildBinaryAtDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binPath
+}
 
-	// Find the module root (where go.mod is).
+// buildBinaryAtDir compiles cmd/ayb to a provided directory.
+// It is used by TestMain harness setup and regular integration tests.
+func buildBinaryAtDir(binDir string) (string, error) {
+	binPath := filepath.Join(binDir, "ayb")
 	modRoot, err := findModRoot()
 	if err != nil {
-		t.Fatalf("finding module root: %v", err)
+		return "", fmt.Errorf("finding module root: %w", err)
 	}
 
 	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/ayb")
@@ -40,9 +48,9 @@ func buildTestBinary(t *testing.T) string {
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("building ayb binary: %v\n%s", err, out)
+		return "", fmt.Errorf("building ayb binary: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
-	return binPath
+	return binPath, nil
 }
 
 func findModRoot() (string, error) {
@@ -92,24 +100,56 @@ func waitForNoHealthPort(port int, timeout time.Duration) bool {
 	return false
 }
 
+// startArgs returns the base arguments for "ayb start" including the port,
+// and—when running under testpg—the --database-url flag so the spawned
+// binary reuses testpg's managed Postgres instead of launching its own
+// (which would conflict on the default embedded Postgres port).
+func startArgs(port int, extraFlags ...string) []string {
+	args := []string{"start", "--port", fmt.Sprintf("%d", port)}
+	if dbURL := os.Getenv("TEST_DATABASE_URL"); dbURL != "" {
+		args = append(args, "--database-url", dbURL)
+	}
+	return append(args, extraFlags...)
+}
+
+func backgroundCommand(homeDir, bin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), "HOME="+homeDir)
+	return cmd
+}
+
+func backgroundStatePath(homeDir, name string) string {
+	return filepath.Join(homeDir, ".ayb", name)
+}
+
+func extractAdminPasswordFromBanner(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if _, value, ok := strings.Cut(line, "Admin password:"); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 // TestBackgroundStartStopCycle tests 7.5 (start), 7.7 (double-start), and 7.6 (stop).
 func TestBackgroundStartStopCycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test, skipping with -short")
 	}
 
+	homeDir := t.TempDir()
 	bin := buildTestBinary(t)
 	port := 18090
 
 	// Ensure clean state.
-	stopCmd := exec.Command(bin, "stop")
+	stopCmd := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 	stopCmd.Run()
 	time.Sleep(500 * time.Millisecond)
 
 	// ── 7.5: ayb start → background, banner, status ──
 
 	t.Run("7.5_start_background", func(t *testing.T) {
-		cmd := exec.Command(bin, "start", "--port", fmt.Sprintf("%d", port))
+		cmd := backgroundCommand(homeDir, bin, startArgs(port)...)
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 
@@ -130,26 +170,43 @@ func TestBackgroundStartStopCycle(t *testing.T) {
 		if !strings.Contains(output, "Admin password:") {
 			t.Error("banner missing generated admin password")
 		}
+		adminPassword := extractAdminPasswordFromBanner(output)
+		if adminPassword == "" {
+			t.Fatal("banner did not include a readable admin password value")
+		}
 
 		// Health check.
 		if !waitForHealthPort(port, 5*time.Second) {
 			t.Fatal("health endpoint not responding after start")
 		}
+		resp, err := http.Post(
+			fmt.Sprintf("http://127.0.0.1:%d/api/admin/auth", port),
+			"application/json",
+			strings.NewReader(fmt.Sprintf(`{"password":"%s"}`, adminPassword)),
+		)
+		if err != nil {
+			t.Fatalf("admin auth with banner password failed: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected banner password to authenticate, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
 
 		// PID file.
-		pidPath, _ := aybPIDPath()
+		pidPath := backgroundStatePath(homeDir, "ayb.pid")
 		if _, err := os.Stat(pidPath); err != nil {
 			t.Errorf("PID file not found: %v", err)
 		}
 
 		// Admin token file.
-		tokenPath, _ := aybAdminTokenPath()
+		tokenPath := backgroundStatePath(homeDir, "admin-token")
 		if _, err := os.Stat(tokenPath); err != nil {
 			t.Errorf("admin token file not found: %v", err)
 		}
 
 		// ayb status.
-		statusCmd := exec.Command(bin, "status", "--json")
+		statusCmd := backgroundCommand(homeDir, bin, "status", "--json")
 		statusOut, err := statusCmd.CombinedOutput()
 		if err != nil {
 			t.Errorf("ayb status failed: %v", err)
@@ -163,7 +220,7 @@ func TestBackgroundStartStopCycle(t *testing.T) {
 	// ── 7.7: double-start → already running ──
 
 	t.Run("7.7_double_start", func(t *testing.T) {
-		cmd := exec.Command(bin, "start", "--port", fmt.Sprintf("%d", port))
+		cmd := backgroundCommand(homeDir, bin, startArgs(port)...)
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 
@@ -178,7 +235,7 @@ func TestBackgroundStartStopCycle(t *testing.T) {
 	// ── 7.6: ayb stop → clean shutdown ──
 
 	t.Run("7.6_stop_clean", func(t *testing.T) {
-		cmd := exec.Command(bin, "stop")
+		cmd := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 
@@ -195,24 +252,24 @@ func TestBackgroundStartStopCycle(t *testing.T) {
 		}
 
 		// PID and token files should be cleaned up.
-		pidPath, _ := aybPIDPath()
+		pidPath := backgroundStatePath(homeDir, "ayb.pid")
 		if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
 			t.Error("PID file still exists after stop")
 		}
-		tokenPath, _ := aybAdminTokenPath()
+		tokenPath := backgroundStatePath(homeDir, "admin-token")
 		if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
 			t.Error("admin token file still exists after stop")
 		}
 
 		// ayb status should show not running.
-		statusCmd := exec.Command(bin, "status")
+		statusCmd := backgroundCommand(homeDir, bin, "status")
 		statusOut, _ := statusCmd.CombinedOutput()
 		if !strings.Contains(string(statusOut), "not running") {
 			t.Errorf("expected 'not running', got: %s", statusOut)
 		}
 
 		// Idempotent: stop on stopped server should be safe.
-		stopAgain := exec.Command(bin, "stop")
+		stopAgain := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 		stopOut, err := stopAgain.CombinedOutput()
 		if err != nil {
 			t.Errorf("stop on stopped server should not error: %v", err)
@@ -230,15 +287,16 @@ func TestBackgroundForegroundSignal(t *testing.T) {
 		t.Skip("integration test, skipping with -short")
 	}
 
+	homeDir := t.TempDir()
 	bin := buildTestBinary(t)
 	port := 18091
 
 	// Ensure clean state.
-	stopCmd := exec.Command(bin, "stop")
+	stopCmd := backgroundCommand(homeDir, bin, "stop", "--port", fmt.Sprintf("%d", port))
 	stopCmd.Run()
 	time.Sleep(500 * time.Millisecond)
 
-	cmd := exec.Command(bin, "start", "--foreground", "--port", fmt.Sprintf("%d", port))
+	cmd := backgroundCommand(homeDir, bin, startArgs(port, "--foreground")...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	cmd.Stdout = &stderr

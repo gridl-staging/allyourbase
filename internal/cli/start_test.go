@@ -2,19 +2,156 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/caddyserver/certmagic"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/billing"
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/support"
 	"github.com/allyourbase/ayb/internal/testutil"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestBuildBillingService_DisabledProviderReturnsNoop(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Billing.Provider = ""
+	svc := buildBillingService(cfg, nil, testNoopLogger())
+
+	customer, err := svc.CreateCustomer(context.Background(), "tenant-1")
+	testutil.NoError(t, err)
+	testutil.Equal(t, "tenant-1", customer.TenantID)
+}
+
+func TestBuildBillingService_StripeWithoutPoolFallsBackNoop(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Billing.Provider = "stripe"
+	cfg.Billing.StripeSecretKey = "sk_test_123"
+	cfg.Billing.StripeWebhookSecret = "whsec_123"
+	cfg.Billing.StripeStarterPriceID = "price_starter"
+	cfg.Billing.StripeProPriceID = "price_pro"
+	cfg.Billing.StripeEnterprisePriceID = "price_enterprise"
+
+	svc := buildBillingService(cfg, nil, testNoopLogger())
+
+	checkout, err := svc.CreateCheckoutSession(context.Background(), "tenant-1", "starter", "https://ok", "https://cancel")
+	testutil.NoError(t, err)
+	testutil.Equal(t, "tenant-1", checkout.TenantID)
+}
+
+func TestBuildSupportService_DisabledReturnsNoop(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Support.Enabled = false
+
+	svc := buildSupportService(cfg, nil)
+	tickets, err := svc.ListTickets(context.Background(), "tenant-1", support.TicketFilters{})
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, tickets, 0)
+}
+
+func TestBuildSupportService_EnabledWithoutPoolFallsBackNoop(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Support.Enabled = true
+
+	svc := buildSupportService(cfg, nil)
+	tickets, err := svc.ListTickets(context.Background(), "tenant-1", support.TicketFilters{})
+	testutil.NoError(t, err)
+	testutil.SliceLen(t, tickets, 0)
+}
+
+func TestWireBillingUsageSyncJobs_RegisterWhenStripe(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Billing.Provider = "stripe"
+	cfg.Billing.UsageSyncIntervalSecs = 3600
+
+	billingSvc := billing.NewNoopBillingService()
+	var handlerRegistered, scheduleRegistered bool
+	var gotPool *pgxpool.Pool
+	var gotInterval int
+	var gotBillingSvc billing.BillingService
+	var gotHandlerSvc *jobs.Service
+
+	origRegisterHandler := registerBillingUsageSyncHandler
+	origRegisterSchedule := registerBillingUsageSyncSchedule
+	t.Cleanup(func() {
+		registerBillingUsageSyncHandler = origRegisterHandler
+		registerBillingUsageSyncSchedule = origRegisterSchedule
+	})
+
+	registerBillingUsageSyncHandler = func(svc *jobs.Service, bSvc billing.BillingService, pool *pgxpool.Pool) {
+		handlerRegistered = true
+		gotBillingSvc = bSvc
+		gotHandlerSvc = svc
+		gotPool = pool
+	}
+	registerBillingUsageSyncSchedule = func(_ context.Context, svc *jobs.Service, interval int) error {
+		scheduleRegistered = true
+		gotInterval = interval
+		return nil
+	}
+
+	wireBillingUsageSyncJobs(
+		context.Background(),
+		cfg,
+		&jobs.Service{},
+		billingSvc,
+		&pgxpool.Pool{},
+		testNoopLogger(),
+	)
+
+	testutil.True(t, handlerRegistered)
+	testutil.True(t, scheduleRegistered)
+	testutil.True(t, gotBillingSvc == billingSvc)
+	testutil.True(t, gotHandlerSvc != nil)
+	testutil.True(t, gotPool != nil)
+	testutil.Equal(t, 3600, gotInterval)
+}
+
+func TestWireBillingUsageSyncJobs_SkipsWhenNotStripe(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Billing.Provider = "mock"
+
+	var handlerRegistered, scheduleRegistered bool
+	origRegisterHandler := registerBillingUsageSyncHandler
+	origRegisterSchedule := registerBillingUsageSyncSchedule
+	t.Cleanup(func() {
+		registerBillingUsageSyncHandler = origRegisterHandler
+		registerBillingUsageSyncSchedule = origRegisterSchedule
+	})
+
+	registerBillingUsageSyncHandler = func(_ *jobs.Service, _ billing.BillingService, _ *pgxpool.Pool) {
+		handlerRegistered = true
+	}
+	registerBillingUsageSyncSchedule = func(_ context.Context, _ *jobs.Service, _ int) error {
+		scheduleRegistered = true
+		return nil
+	}
+
+	wireBillingUsageSyncJobs(
+		context.Background(),
+		cfg,
+		&jobs.Service{},
+		billing.NewNoopBillingService(),
+		&pgxpool.Pool{},
+		testNoopLogger(),
+	)
+
+	testutil.False(t, handlerRegistered)
+	testutil.False(t, scheduleRegistered)
+}
 
 // --- portError ---
 
@@ -353,6 +490,89 @@ func TestParseSlogLevel(t *testing.T) {
 	}
 }
 
+// --- TOTP encryption key resolution ---
+
+func TestResolveTOTPEncryptionKey_UsesConfiguredHex(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.EncryptionKey = strings.Repeat("ab", 32)
+
+	key, err := resolveTOTPEncryptionKey(cfg.Auth)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 32, len(key))
+	testutil.Equal(t, 0xab, int(key[0]))
+}
+
+func TestResolveTOTPEncryptionKey_UsesConfiguredBase64(t *testing.T) {
+	raw := make([]byte, 32)
+	for i := range raw {
+		raw[i] = byte(i + 1)
+	}
+
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.EncryptionKey = base64.StdEncoding.EncodeToString(raw)
+
+	key, err := resolveTOTPEncryptionKey(cfg.Auth)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 32, len(key))
+	testutil.Equal(t, int(raw[0]), int(key[0]))
+	testutil.Equal(t, int(raw[31]), int(key[31]))
+}
+
+func TestResolveTOTPEncryptionKey_DerivesStableKeyFromJWTSecret(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+
+	key1, err1 := resolveTOTPEncryptionKey(cfg.Auth)
+	key2, err2 := resolveTOTPEncryptionKey(cfg.Auth)
+
+	testutil.NoError(t, err1)
+	testutil.NoError(t, err2)
+	testutil.Equal(t, 32, len(key1))
+	testutil.Equal(t, string(key1), string(key2))
+}
+
+func TestResolveTOTPEncryptionKey_RejectsInvalidConfiguredKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.EncryptionKey = "not-hex-or-base64"
+
+	_, err := resolveTOTPEncryptionKey(cfg.Auth)
+	testutil.NotNil(t, err)
+	testutil.Contains(t, err.Error(), "hex or base64")
+}
+
+func TestResolveTOTPEncryptionKey_RequiresJWTSecretWhenNoConfiguredKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = ""
+	cfg.Auth.EncryptionKey = ""
+
+	_, err := resolveTOTPEncryptionKey(cfg.Auth)
+	testutil.NotNil(t, err)
+	testutil.Contains(t, err.Error(), "jwt_secret")
+}
+
+// --- TOTP key wiring: always-set policy ---
+
+// TestResolveTOTPEncryptionKey_SucceedsEvenWhenTOTPDisabled verifies that the
+// encryption key can be derived when TOTP is disabled in config, which is required
+// because users may enable TOTP at runtime via the admin API.
+func TestResolveTOTPEncryptionKey_SucceedsEvenWhenTOTPDisabled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+	cfg.Auth.TOTPEnabled = false
+	cfg.Auth.EncryptionKey = ""
+
+	key, err := resolveTOTPEncryptionKey(cfg.Auth)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 32, len(key))
+
+	// The key should be usable by the auth service.
+	authSvc := auth.NewService(nil, cfg.Auth.JWTSecret, time.Hour, 24*time.Hour, 8, slog.Default())
+	testutil.NoError(t, authSvc.SetEncryptionKey(key))
+}
+
 // --- multiHandler ---
 
 func TestMultiHandlerFanOut(t *testing.T) {
@@ -414,6 +634,10 @@ func TestMultiHandlerWithGroup(t *testing.T) {
 	logger.Info("grouped", "key", "val")
 
 	testutil.Contains(t, buf.String(), "mygroup")
+}
+
+func testNoopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // --- aybPIDPath / aybAdminTokenPath / aybResetResultPath ---
@@ -620,6 +844,47 @@ func TestApplyOAuthProviderModeConfig_EnabledAppliesDurations(t *testing.T) {
 	testutil.Equal(t, 3*time.Minute, stub.cfg.AuthCodeDuration)
 }
 
+func TestBuildEdgeFuncRuntimeConfig_UsesConfiguredValues(t *testing.T) {
+	cfg := config.Default()
+	cfg.EdgeFunctions.PoolSize = 3
+	cfg.EdgeFunctions.DefaultTimeoutMs = 7000
+	cfg.EdgeFunctions.MaxRequestBodyBytes = 2048
+	cfg.EdgeFunctions.FetchDomainAllowlist = []string{"api.example.com"}
+	cfg.EdgeFunctions.MemoryLimitMB = 192
+	cfg.EdgeFunctions.MaxConcurrentInvocations = 80
+	cfg.EdgeFunctions.CodeCacheSize = 333
+
+	got := buildEdgeFuncRuntimeConfig(cfg)
+
+	testutil.Equal(t, 3, got.PoolSize)
+	testutil.Equal(t, 7*time.Second, got.DefaultTimeout)
+	testutil.Equal(t, int64(2048), got.MaxRequestBodyBytes)
+	testutil.SliceLen(t, got.FetchDomainAllowlist, 1)
+	testutil.Equal(t, "api.example.com", got.FetchDomainAllowlist[0])
+	testutil.Equal(t, 192, got.MemoryLimitMB)
+	testutil.Equal(t, 80, got.MaxConcurrentInvocations)
+	testutil.Equal(t, 333, got.CodeCacheSize)
+}
+
+func TestBuildEdgeFuncRuntimeConfig_FallsBackToSafeDefaults(t *testing.T) {
+	cfg := config.Default()
+	cfg.EdgeFunctions.PoolSize = 0
+	cfg.EdgeFunctions.DefaultTimeoutMs = 0
+	cfg.EdgeFunctions.MaxRequestBodyBytes = 0
+	cfg.EdgeFunctions.MemoryLimitMB = 0
+	cfg.EdgeFunctions.MaxConcurrentInvocations = 0
+	cfg.EdgeFunctions.CodeCacheSize = 0
+
+	got := buildEdgeFuncRuntimeConfig(cfg)
+
+	testutil.Equal(t, 1, got.PoolSize)
+	testutil.Equal(t, 5*time.Second, got.DefaultTimeout)
+	testutil.Equal(t, int64(1<<20), got.MaxRequestBodyBytes)
+	testutil.Equal(t, 128, got.MemoryLimitMB)
+	testutil.Equal(t, 50, got.MaxConcurrentInvocations)
+	testutil.Equal(t, 256, got.CodeCacheSize)
+}
+
 // --- portInUse ---
 
 func TestPortInUseFreePort(t *testing.T) {
@@ -652,36 +917,61 @@ func TestPortInUseAfterRelease(t *testing.T) {
 	testutil.False(t, portInUse(addr.Port))
 }
 
-// --- healthCheckURL ---
+// configureTLSDefaults is not safe to call concurrently because it mutates
+// certmagic global state, so we serialize these tests.
+var tlsDefaultsMu sync.Mutex
 
-func TestHealthCheckURLDefaultPort(t *testing.T) {
-	cfg := defaultTestConfig()
-	cfg.Server.Port = 0
-	got := healthCheckURL(cfg)
-	testutil.Equal(t, "http://127.0.0.1:8090/health", got)
+// --- configureTLSDefaults ---
+
+func TestConfigureTLSDefaults_StagingCA(t *testing.T) {
+	tlsDefaultsMu.Lock()
+	defer tlsDefaultsMu.Unlock()
+
+	cfg := config.Default()
+	cfg.Server.TLSStaging = true
+	cfg.Server.TLSEmail = "ops@example.com"
+	logger := slog.Default()
+
+	configureTLSDefaults(cfg, logger)
+
+	testutil.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", certmagic.DefaultACME.CA)
+	testutil.Equal(t, "ops@example.com", certmagic.DefaultACME.Email)
 }
 
-func TestHealthCheckURLCustomPort(t *testing.T) {
-	cfg := defaultTestConfig()
-	cfg.Server.Port = 3000
-	got := healthCheckURL(cfg)
-	testutil.Equal(t, "http://127.0.0.1:3000/health", got)
+func TestConfigureTLSDefaults_ProductionCA(t *testing.T) {
+	tlsDefaultsMu.Lock()
+	defer tlsDefaultsMu.Unlock()
+
+	// Reset to a known state so test is hermetic.
+	certmagic.DefaultACME.CA = ""
+	certmagic.DefaultACME.Email = ""
+
+	cfg := config.Default()
+	cfg.Server.TLSStaging = false
+	cfg.Server.TLSEmail = "admin@example.com"
+	logger := slog.Default()
+
+	configureTLSDefaults(cfg, logger)
+
+	// When staging is false, CA should remain at default (not staging URL).
+	testutil.True(t, certmagic.DefaultACME.CA != "https://acme-staging-v02.api.letsencrypt.org/directory",
+		"expected production CA, got staging")
+	testutil.Equal(t, "admin@example.com", certmagic.DefaultACME.Email)
 }
 
-func TestHealthCheckURLWithTLS(t *testing.T) {
-	cfg := defaultTestConfig()
-	cfg.Server.TLSEnabled = true
-	cfg.Server.TLSDomain = "api.example.com"
-	got := healthCheckURL(cfg)
-	testutil.Equal(t, "https://127.0.0.1:443/health", got)
-}
+func TestConfigureTLSDefaults_NoEmail(t *testing.T) {
+	tlsDefaultsMu.Lock()
+	defer tlsDefaultsMu.Unlock()
 
-func TestHealthCheckURLTLSIgnoresPort(t *testing.T) {
-	cfg := defaultTestConfig()
-	cfg.Server.TLSEnabled = true
-	cfg.Server.TLSDomain = "api.example.com"
-	cfg.Server.Port = 3000
-	got := healthCheckURL(cfg)
-	// TLS always uses 443, regardless of configured port.
-	testutil.Equal(t, "https://127.0.0.1:443/health", got)
+	certmagic.DefaultACME.Email = ""
+
+	cfg := config.Default()
+	cfg.Server.TLSStaging = true
+	cfg.Server.TLSEmail = ""
+	logger := slog.Default()
+
+	configureTLSDefaults(cfg, logger)
+
+	testutil.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", certmagic.DefaultACME.CA)
+	testutil.Equal(t, "", certmagic.DefaultACME.Email)
 }

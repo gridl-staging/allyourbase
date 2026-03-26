@@ -1,3 +1,4 @@
+// Package auth provides SMS MFA handlers that manage enrollment, challenge, and verification of SMS-based multi-factor authentication.
 package auth
 
 import (
@@ -25,6 +26,7 @@ type mfaPendingResponse struct {
 	MFAToken   string `json:"mfa_token"`
 }
 
+// handleMFAEnroll initiates SMS MFA enrollment by sending a verification code to the provided phone number. It requires an authenticated non-anonymous user, enforces additional authentication (AAL2) if the user already has an MFA factor enrolled, and validates the phone number format.
 func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
@@ -35,6 +37,15 @@ func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
 		httputil.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if claims.IsAnonymous {
+		httputil.WriteError(w, http.StatusForbidden, ErrAnonymousMFABlock.Error())
+		return
+	}
+
+	// If user already has an enabled MFA factor, require AAL2 to enroll additional factors.
+	if h.enforceAAL2ForExistingMFA(w, r, claims) {
 		return
 	}
 
@@ -65,6 +76,7 @@ func (h *Handler) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMFAEnrollConfirm completes SMS MFA enrollment by validating the verification code sent to the user's phone. It requires authentication and confirms the code before enabling the MFA factor.
 func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
@@ -75,6 +87,10 @@ func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request)
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
 		httputil.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if claims.IsAnonymous {
+		httputil.WriteError(w, http.StatusForbidden, ErrAnonymousMFABlock.Error())
 		return
 	}
 
@@ -106,6 +122,7 @@ func (h *Handler) handleMFAEnrollConfirm(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// handleMFAChallenge requests that a verification code be sent to the user's enrolled phone during MFA verification. It requires an active MFA challenge pending in the user's session.
 func (h *Handler) handleMFAChallenge(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
@@ -130,6 +147,7 @@ func (h *Handler) handleMFAChallenge(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMFAVerify validates the verification code provided by the user to complete the MFA challenge. It enforces cumulative failure lockout tracking, records failed attempts for rate limiting, and on success returns access and refresh tokens.
 func (h *Handler) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
@@ -152,9 +170,19 @@ func (h *Handler) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, accessToken, refreshToken, err := h.auth.VerifySMSMFA(r.Context(), claims.Subject, req.Code)
+	// Check cumulative lockout before attempting verification.
+	if h.auth.IsMFALocked(claims.Subject) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		return
+	}
+
+	user, accessToken, refreshToken, err := h.auth.VerifySMSMFA(
+		r.Context(), claims.Subject, req.Code, firstFactorMethodFromPendingClaims(claims),
+	)
 	if err != nil {
 		if errors.Is(err, ErrInvalidSMSCode) {
+			// Record failure for cumulative lockout tracking.
+			h.auth.RecordMFAFailure(claims.Subject)
 			httputil.WriteError(w, http.StatusUnauthorized, "invalid or expired code")
 			return
 		}
@@ -162,6 +190,9 @@ func (h *Handler) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	// Reset failure tracker on successful verification.
+	h.auth.ResetMFAFailures(claims.Subject)
 
 	httputil.WriteJSON(w, http.StatusOK, authResponse{
 		Token:        accessToken,

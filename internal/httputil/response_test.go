@@ -37,6 +37,31 @@ func TestWriteJSONCustomStatus(t *testing.T) {
 	}
 }
 
+func TestWriteJSONMarshalFailureReturnsInternalError(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+
+	// Channels are not JSON-marshalable and should not return a success status.
+	WriteJSON(w, http.StatusOK, map[string]any{"bad": make(chan int)})
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected application/json, got %q", ct)
+	}
+	var resp ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected code 500, got %d", resp.Code)
+	}
+	if resp.Message != "internal error" {
+		t.Fatalf("expected message 'internal error', got %q", resp.Message)
+	}
+}
+
 func TestWriteError(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
@@ -180,6 +205,29 @@ func TestExtractBearerTokenEmptyToken(t *testing.T) {
 	_, ok := ExtractBearerToken(r)
 	if ok {
 		t.Fatal("expected ok to be false for empty token after Bearer")
+	}
+}
+
+func TestCheckWebSocketOriginAllowsEmptyOrigin(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("GET", "http://api.example.com/ws", nil)
+	if !CheckWebSocketOrigin(r) {
+		t.Fatal("expected empty origin to be allowed")
+	}
+}
+
+func TestCheckWebSocketOriginValidatesAgainstHost(t *testing.T) {
+	t.Parallel()
+	sameOrigin := httptest.NewRequest("GET", "http://api.example.com/ws", nil)
+	sameOrigin.Header.Set("Origin", "http://api.example.com")
+	if !CheckWebSocketOrigin(sameOrigin) {
+		t.Fatal("expected same-host origin to be allowed")
+	}
+
+	otherOrigin := httptest.NewRequest("GET", "http://api.example.com/ws", nil)
+	otherOrigin.Header.Set("Origin", "https://evil.example")
+	if CheckWebSocketOrigin(otherOrigin) {
+		t.Fatal("expected cross-host origin to be rejected")
 	}
 }
 

@@ -1,3 +1,4 @@
+// Package mailer provides an SMTP email sender using the go-mail library. SMTPMailer sends emails with configurable TLS, authentication, and message formatting.
 package mailer
 
 import (
@@ -29,9 +30,14 @@ func NewSMTPMailer(cfg SMTPConfig) *SMTPMailer {
 	return &SMTPMailer{cfg: cfg}
 }
 
+// Send transmits the email message to recipients via SMTP with the configured host and authentication. The from address can be overridden by msg.From; otherwise the configured From address is used. HTML content is sent as the primary body with optional plain text as an alternative. TLS and authentication are applied based on the SMTPConfig settings. Returns an error if client creation or message transmission fails.
 func (m *SMTPMailer) Send(ctx context.Context, msg *Message) error {
 	message := mail.NewMsg()
-	if err := message.From(m.formatFrom()); err != nil {
+	from := m.formatFrom()
+	if msg.From != "" {
+		from = msg.From
+	}
+	if err := message.From(from); err != nil {
 		return fmt.Errorf("setting from address: %w", err)
 	}
 	if err := message.To(msg.To); err != nil {

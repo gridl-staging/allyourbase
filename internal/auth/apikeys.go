@@ -1,3 +1,4 @@
+// Package auth implements API key creation, validation, listing, and revocation with support for key scopes, expiration, and app-specific rate limiting.
 package auth
 
 import (
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -34,6 +36,12 @@ var ErrInvalidScope = errors.New("invalid scope: must be *, readonly, or readwri
 // ErrInvalidAppID is returned when an API key references a non-existent app.
 var ErrInvalidAppID = errors.New("app not found")
 
+// ErrInvalidOrgID is returned when an API key references a non-existent org.
+var ErrInvalidOrgID = errors.New("org not found")
+
+// ErrAppOrgScopeConflict is returned when both appId and orgId are specified.
+var ErrAppOrgScopeConflict = errors.New("app and org scopes are mutually exclusive")
+
 // APIKey represents an API key record (without the secret).
 type APIKey struct {
 	ID            string     `json:"id"`
@@ -43,6 +51,7 @@ type APIKey struct {
 	Scope         string     `json:"scope"`
 	AllowedTables []string   `json:"allowedTables"`
 	AppID         *string    `json:"appId"`
+	OrgID         *string    `json:"orgId,omitempty"`
 	LastUsedAt    *time.Time `json:"lastUsedAt"`
 	ExpiresAt     *time.Time `json:"expiresAt"`
 	CreatedAt     time.Time  `json:"createdAt"`
@@ -63,6 +72,7 @@ type CreateAPIKeyOptions struct {
 	Scope         string   // "*", "readonly", "readwrite"; defaults to "*"
 	AllowedTables []string // empty = all tables
 	AppID         *string  // nil = user-scoped key (legacy); non-nil = app-scoped key
+	OrgID         *string  // nil = not org-scoped; non-nil = org-scoped key (mutually exclusive with AppID)
 }
 
 // CreateAPIKey generates a new API key for the given user.
@@ -71,16 +81,27 @@ func (s *Service) CreateAPIKey(ctx context.Context, userID, name string, opts ..
 	scope := ScopeFullAccess
 	var allowedTables []string
 	var appID *string
+	var orgID *string
 	if len(opts) > 0 {
 		if opts[0].Scope != "" {
 			scope = opts[0].Scope
 		}
 		allowedTables = opts[0].AllowedTables
 		appID = opts[0].AppID
+		orgID = opts[0].OrgID
 	}
 
 	if !ValidScopes[scope] {
 		return "", nil, ErrInvalidScope
+	}
+	if appID != nil && orgID != nil {
+		return "", nil, ErrAppOrgScopeConflict
+	}
+	if err := validateOptionalAPIKeyScopeID(appID, ErrInvalidAppID); err != nil {
+		return "", nil, err
+	}
+	if err := validateOptionalAPIKeyScopeID(orgID, ErrInvalidOrgID); err != nil {
+		return "", nil, err
 	}
 
 	if allowedTables == nil {
@@ -98,20 +119,31 @@ func (s *Service) CreateAPIKey(ctx context.Context, userID, name string, opts ..
 
 	var key APIKey
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO _ayb_api_keys (user_id, name, key_hash, key_prefix, scope, allowed_tables, app_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, user_id, name, key_prefix, scope, allowed_tables, app_id, last_used_at, expires_at, created_at, revoked_at`,
-		userID, name, hash, prefix, scope, allowedTables, appID,
+		`INSERT INTO _ayb_api_keys (user_id, name, key_hash, key_prefix, scope, allowed_tables, app_id, org_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, user_id, name, key_prefix, scope, allowed_tables, app_id, org_id, last_used_at, expires_at, created_at, revoked_at`,
+		userID, name, hash, prefix, scope, allowedTables, appID, orgID,
 	).Scan(&key.ID, &key.UserID, &key.Name, &key.KeyPrefix, &key.Scope, &key.AllowedTables,
-		&key.AppID, &key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt, &key.RevokedAt)
+		&key.AppID, &key.OrgID, &key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt, &key.RevokedAt)
 	if err != nil {
 		return "", nil, mapCreateAPIKeyInsertError(err)
 	}
 
-	s.logger.Info("api key created", "key_id", key.ID, "user_id", userID, "name", name, "scope", scope, "app_id", appID)
+	s.logger.Info("api key created", "key_id", key.ID, "user_id", userID, "name", name, "scope", scope, "app_id", appID, "org_id", orgID)
 	return plaintext, &key, nil
 }
 
+func validateOptionalAPIKeyScopeID(id *string, invalidErr error) error {
+	if id == nil {
+		return nil
+	}
+	if _, err := uuid.Parse(*id); err != nil {
+		return invalidErr
+	}
+	return nil
+}
+
+// mapCreateAPIKeyInsertError translates database errors from API key insertion to domain-specific errors, mapping PostgreSQL constraint failures to the corresponding auth-layer sentinels.
 func mapCreateAPIKeyInsertError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -122,6 +154,12 @@ func mapCreateAPIKeyInsertError(err error) error {
 				return ErrInvalidAppID
 			case "_ayb_api_keys_user_id_fkey":
 				return ErrUserNotFound
+			case "_ayb_api_keys_org_id_fkey":
+				return ErrInvalidOrgID
+			}
+		case "23514": // check_violation (scope exclusivity constraint)
+			if pgErr.ConstraintName == "_ayb_api_keys_scope_exclusivity" {
+				return ErrAppOrgScopeConflict
 			}
 		case "22P02": // invalid_text_representation (non-UUID app_id)
 			return ErrInvalidAppID
@@ -133,7 +171,7 @@ func mapCreateAPIKeyInsertError(err error) error {
 // ListAPIKeys returns all API keys for a specific user.
 func (s *Service) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, scope, allowed_tables, app_id, last_used_at, expires_at, created_at, revoked_at
+		`SELECT id, user_id, name, key_prefix, scope, allowed_tables, app_id, org_id, last_used_at, expires_at, created_at, revoked_at
 		 FROM _ayb_api_keys WHERE user_id = $1
 		 ORDER BY created_at DESC`,
 		userID,
@@ -166,7 +204,7 @@ func (s *Service) ListAllAPIKeys(ctx context.Context, page, perPage int) (*APIKe
 	}
 
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, scope, allowed_tables, app_id, last_used_at, expires_at, created_at, revoked_at
+		`SELECT id, user_id, name, key_prefix, scope, allowed_tables, app_id, org_id, last_used_at, expires_at, created_at, revoked_at
 		 FROM _ayb_api_keys
 		 ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		perPage, offset,
@@ -243,16 +281,17 @@ func (s *Service) ValidateAPIKey(ctx context.Context, plaintext string) (*Claims
 	var revokedAt, expiresAt *time.Time
 	var keyID string
 	var appID *string
+	var orgID *string
 	var appRateLimitRPS, appRateLimitWindow *int
 	err := s.pool.QueryRow(ctx,
-		`SELECT k.id, k.user_id, k.revoked_at, k.expires_at, k.scope, k.allowed_tables, k.app_id, u.email,
+		`SELECT k.id, k.user_id, k.revoked_at, k.expires_at, k.scope, k.allowed_tables, k.app_id, k.org_id, u.email,
 		        a.rate_limit_rps, a.rate_limit_window_seconds
 		 FROM _ayb_api_keys k
 		 JOIN _ayb_users u ON u.id = k.user_id
 		 LEFT JOIN _ayb_apps a ON a.id = k.app_id
 		 WHERE k.key_hash = $1`,
 		hash,
-	).Scan(&keyID, &userID, &revokedAt, &expiresAt, &scope, &allowedTables, &appID, &email,
+	).Scan(&keyID, &userID, &revokedAt, &expiresAt, &scope, &allowedTables, &appID, &orgID, &email,
 		&appRateLimitRPS, &appRateLimitWindow)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -278,10 +317,14 @@ func (s *Service) ValidateAPIKey(ctx context.Context, plaintext string) (*Claims
 			Subject: userID,
 		},
 		Email:         email,
+		APIKeyID:      keyID,
 		APIKeyScope:   scope,
 		AllowedTables: allowedTables,
 	}
 	applyAppRateLimitClaims(claims, appID, appRateLimitRPS, appRateLimitWindow)
+	if orgID != nil {
+		claims.OrgID = *orgID
+	}
 	return claims, nil
 }
 
@@ -303,12 +346,13 @@ func IsAPIKey(token string) bool {
 	return len(token) > len(APIKeyPrefix) && token[:len(APIKeyPrefix)] == APIKeyPrefix
 }
 
+// scanAPIKeys scans database query rows into APIKey structs, normalizing nil allowed_tables to empty slices, and returns the slice or any scanning error.
 func scanAPIKeys(rows pgx.Rows) ([]APIKey, error) {
 	var keys []APIKey
 	for rows.Next() {
 		var k APIKey
 		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.Scope, &k.AllowedTables,
-			&k.AppID, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.RevokedAt); err != nil {
+			&k.AppID, &k.OrgID, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.RevokedAt); err != nil {
 			return nil, fmt.Errorf("scanning api key: %w", err)
 		}
 		if k.AllowedTables == nil {

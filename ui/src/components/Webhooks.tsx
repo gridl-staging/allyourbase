@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import type { WebhookResponse, WebhookRequest, WebhookDelivery } from "../types";
+import type { WebhookResponse } from "../types";
 import {
   listWebhooks,
-  createWebhook,
   updateWebhook,
   deleteWebhook,
   testWebhook,
-  listWebhookDeliveries,
 } from "../api";
 import {
   Plus,
@@ -14,19 +12,16 @@ import {
   Pencil,
   Lock,
   Copy,
-  X,
   Loader2,
   AlertCircle,
   Webhook,
   Zap,
   History,
-  CheckCircle2,
-  XCircle,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { ToastContainer, useToast } from "./Toast";
+import { useAppToast } from "./ToastProvider";
+import { DeliveryHistoryModal } from "./WebhookDeliveryModal";
+import { WebhookFormModal } from "./WebhookFormModal";
 
 type Modal =
   | { kind: "none" }
@@ -41,7 +36,7 @@ export function Webhooks() {
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<Modal>({ kind: "none" });
   const [testingId, setTestingId] = useState<string | null>(null);
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const fetchWebhooks = useCallback(async () => {
     try {
@@ -107,7 +102,7 @@ export function Webhooks() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading webhooks...
       </div>
@@ -139,7 +134,7 @@ export function Webhooks() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Webhooks</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage event notifications sent to external URLs
           </p>
         </div>
@@ -153,10 +148,13 @@ export function Webhooks() {
       </div>
 
       {webhooks.length === 0 ? (
-        <div className="text-center py-16 border rounded-lg bg-gray-50">
-          <Webhook className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm mb-3">
+        <div className="text-center py-16 border rounded-lg bg-gray-50 dark:bg-gray-800">
+          <Webhook className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">
             No webhooks configured yet
+          </p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">
+            Deliver create, update, and delete events to external URLs in real time.
           </p>
           <button
             onClick={() => setModal({ kind: "create" })}
@@ -168,21 +166,21 @@ export function Webhooks() {
       ) : (
         <div className="border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 dark:bg-gray-800 border-b">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                   URL
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                   Events
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">
+                <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                   Tables
                 </th>
-                <th className="text-center px-4 py-2 font-medium text-gray-600">
+                <th className="text-center px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                   Enabled
                 </th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600">
+                <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                   Actions
                 </th>
               </tr>
@@ -191,7 +189,7 @@ export function Webhooks() {
               {webhooks.map((hook) => (
                 <tr
                   key={hook.id}
-                  className="border-b last:border-0 hover:bg-gray-50"
+                  className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                 >
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5 max-w-xs">
@@ -208,7 +206,7 @@ export function Webhooks() {
                       </span>
                       <button
                         onClick={() => copyToClipboard(hook.url, "URL")}
-                        className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500"
+                        className="shrink-0 p-0.5 text-gray-300 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-300 dark:text-gray-400"
                         title="Copy URL"
                         aria-label="Copy URL"
                       >
@@ -235,13 +233,13 @@ export function Webhooks() {
                   </td>
                   <td className="px-4 py-2.5">
                     {hook.tables.length === 0 ? (
-                      <span className="text-gray-400 text-xs">all tables</span>
+                      <span className="text-gray-400 dark:text-gray-500 text-xs">all tables</span>
                     ) : (
                       <div className="flex gap-1 flex-wrap">
                         {hook.tables.map((t) => (
                           <span
                             key={t}
-                            className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium"
+                            className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-medium"
                           >
                             {t}
                           </span>
@@ -263,7 +261,7 @@ export function Webhooks() {
                     >
                       <span
                         className={cn(
-                          "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
+                          "inline-block h-3.5 w-3.5 rounded-full bg-white dark:bg-gray-800 shadow transition-transform",
                           hook.enabled ? "translate-x-4.5" : "translate-x-1",
                         )}
                       />
@@ -275,7 +273,7 @@ export function Webhooks() {
                         onClick={() =>
                           setModal({ kind: "deliveries", webhook: hook })
                         }
-                        className="p-1 text-gray-400 hover:text-blue-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Delivery History"
                         aria-label="Delivery History"
                       >
@@ -284,7 +282,7 @@ export function Webhooks() {
                       <button
                         onClick={() => handleTest(hook)}
                         disabled={testingId === hook.id}
-                        className="p-1 text-gray-400 hover:text-amber-500 rounded hover:bg-gray-100 disabled:opacity-50"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-amber-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-50"
                         title="Test"
                         aria-label="Test"
                       >
@@ -298,7 +296,7 @@ export function Webhooks() {
                         onClick={() =>
                           setModal({ kind: "edit", webhook: hook })
                         }
-                        className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Edit"
                         aria-label="Edit"
                       >
@@ -308,7 +306,7 @@ export function Webhooks() {
                         onClick={() =>
                           setModal({ kind: "delete", webhook: hook })
                         }
-                        className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                         title="Delete"
                         aria-label="Delete"
                       >
@@ -346,18 +344,18 @@ export function Webhooks() {
       {/* Delete Confirmation */}
       {modal.kind === "delete" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="font-semibold mb-2">Delete Webhook</h3>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               Are you sure? This cannot be undone.
             </p>
-            <p className="text-xs font-mono text-gray-500 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
               {modal.webhook.url}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -380,458 +378,6 @@ export function Webhooks() {
         />
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Form Modal                                                         */
-/* ------------------------------------------------------------------ */
-
-const EVENT_OPTIONS = ["create", "update", "delete"] as const;
-
-interface WebhookFormModalProps {
-  initial?: WebhookResponse;
-  onClose: () => void;
-  onSaved: (hook: WebhookResponse) => void;
-}
-
-/* ------------------------------------------------------------------ */
-/* Delivery History Modal                                              */
-/* ------------------------------------------------------------------ */
-
-interface DeliveryHistoryModalProps {
-  webhook: WebhookResponse;
-  onClose: () => void;
-}
-
-function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalProps) {
-  const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalItems, setTotalItems] = useState(0);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const fetchDeliveries = useCallback(
-    async (p: number) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await listWebhookDeliveries(webhook.id, {
-          page: p,
-          perPage: 20,
-        });
-        setDeliveries(res.items);
-        setTotalPages(res.totalPages);
-        setTotalItems(res.totalItems);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load deliveries");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [webhook.id],
-  );
-
-  useEffect(() => {
-    fetchDeliveries(page);
-  }, [fetchDeliveries, page]);
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleString();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
-          <div>
-            <h3 className="font-semibold">Delivery History</h3>
-            <p className="text-xs text-gray-500 font-mono truncate max-w-md">
-              {webhook.url}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4">
-          {loading ? (
-            <div className="flex items-center justify-center h-32 text-gray-400">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              Loading deliveries...
-            </div>
-          ) : error ? (
-            <div className="text-center py-8">
-              <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          ) : deliveries.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">
-              No deliveries recorded yet
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {deliveries.map((del) => (
-                <div key={del.id} className="border rounded">
-                  <button
-                    onClick={() =>
-                      setExpandedId(expandedId === del.id ? null : del.id)
-                    }
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 text-sm"
-                  >
-                    {del.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                    )}
-                    <span className="font-mono text-xs">
-                      {del.statusCode || "ERR"}
-                    </span>
-                    <span
-                      className={cn(
-                        "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                        del.eventAction === "create" &&
-                          "bg-green-100 text-green-700",
-                        del.eventAction === "update" &&
-                          "bg-blue-100 text-blue-700",
-                        del.eventAction === "delete" &&
-                          "bg-red-100 text-red-700",
-                        del.eventAction === "test" &&
-                          "bg-amber-100 text-amber-700",
-                      )}
-                    >
-                      {del.eventAction}
-                    </span>
-                    <span className="text-gray-400 text-xs">
-                      {del.eventTable}
-                    </span>
-                    <span className="ml-auto text-gray-400 text-xs flex items-center gap-2">
-                      <span>{del.durationMs}ms</span>
-                      <span>{formatTime(del.deliveredAt)}</span>
-                      {expandedId === del.id ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                    </span>
-                  </button>
-                  {expandedId === del.id && (
-                    <div className="px-3 pb-3 border-t bg-gray-50 space-y-2">
-                      <div className="grid grid-cols-2 gap-2 text-xs pt-2">
-                        <div>
-                          <span className="text-gray-500">Attempt:</span>{" "}
-                          {del.attempt}
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Duration:</span>{" "}
-                          {del.durationMs}ms
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Status:</span>{" "}
-                          {del.statusCode || "N/A"}
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Time:</span>{" "}
-                          {formatTime(del.deliveredAt)}
-                        </div>
-                      </div>
-                      {del.error && (
-                        <div>
-                          <p className="text-[10px] font-medium text-gray-500 mb-0.5">
-                            Error
-                          </p>
-                          <pre className="text-xs bg-red-50 text-red-700 p-2 rounded border border-red-200 overflow-x-auto">
-                            {del.error}
-                          </pre>
-                        </div>
-                      )}
-                      {del.requestBody && (
-                        <div>
-                          <p className="text-[10px] font-medium text-gray-500 mb-0.5">
-                            Request Body
-                          </p>
-                          <pre className="text-xs bg-white p-2 rounded border overflow-x-auto max-h-32">
-                            {del.requestBody}
-                          </pre>
-                        </div>
-                      )}
-                      {del.responseBody && (
-                        <div>
-                          <p className="text-[10px] font-medium text-gray-500 mb-0.5">
-                            Response Body
-                          </p>
-                          <pre className="text-xs bg-white p-2 rounded border overflow-x-auto max-h-32">
-                            {del.responseBody}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t text-sm shrink-0">
-            <span className="text-gray-500 text-xs">
-              {totalItems} {totalItems === 1 ? "delivery" : "deliveries"}
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="px-2 py-1 text-xs border rounded disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <span className="text-xs text-gray-500 py-1">
-                {page} / {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="px-2 py-1 text-xs border rounded disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Form Modal                                                         */
-/* ------------------------------------------------------------------ */
-
-function WebhookFormModal({
-  initial,
-  onClose,
-  onSaved,
-}: WebhookFormModalProps) {
-  const isEdit = !!initial;
-  const [url, setUrl] = useState(initial?.url ?? "");
-  const [secret, setSecret] = useState("");
-  const [events, setEvents] = useState<string[]>(
-    initial?.events ?? ["create", "update", "delete"],
-  );
-  const [tables, setTables] = useState(initial?.tables.join(", ") ?? "");
-  const [enabled, setEnabled] = useState(initial?.enabled ?? true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const toggleEvent = (e: string) => {
-    setEvents((prev) =>
-      prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e],
-    );
-  };
-
-  const generateSecret = () => {
-    const arr = new Uint8Array(32);
-    crypto.getRandomValues(arr);
-    setSecret(
-      Array.from(arr)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(""),
-    );
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url.trim()) return;
-    setSaving(true);
-    setError(null);
-
-    const data: WebhookRequest = {
-      url: url.trim(),
-      events,
-      tables: tables
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      enabled,
-    };
-    if (secret) data.secret = secret;
-
-    try {
-      const result = isEdit
-        ? await updateWebhook(initial!.id, data)
-        : await createWebhook(data);
-      onSaved(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between px-5 py-3 border-b">
-          <h3 className="font-semibold">
-            {isEdit ? "Edit Webhook" : "New Webhook"}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {error && (
-            <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded border border-red-200">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="webhook-url" className="block text-xs font-medium text-gray-700 mb-1">
-              URL <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="webhook-url"
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com/webhook"
-              required
-              className="w-full px-3 py-1.5 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="webhook-secret" className="block text-xs font-medium text-gray-700 mb-1">
-              HMAC Secret
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="webhook-secret"
-                type="text"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                placeholder={isEdit && initial?.hasSecret ? "(unchanged)" : "Optional"}
-                className="flex-1 px-3 py-1.5 border rounded text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              />
-              <button
-                type="button"
-                onClick={generateSecret}
-                className="px-2 py-1.5 text-xs border rounded text-gray-600 hover:bg-gray-50 whitespace-nowrap"
-              >
-                Generate
-              </button>
-              {secret && (
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(secret)}
-                  className="p-1.5 border rounded text-gray-400 hover:text-gray-600"
-                  title="Copy secret"
-                  aria-label="Copy secret"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">
-              Events
-            </label>
-            <div className="flex gap-3">
-              {EVENT_OPTIONS.map((evt) => (
-                <label
-                  key={evt}
-                  className="flex items-center gap-1.5 text-sm cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={events.includes(evt)}
-                    onChange={() => toggleEvent(evt)}
-                    className="rounded border-gray-300"
-                  />
-                  {evt}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="webhook-tables" className="block text-xs font-medium text-gray-700 mb-1">
-              Tables
-            </label>
-            <input
-              id="webhook-tables"
-              type="text"
-              value={tables}
-              onChange={(e) => setTables(e.target.value)}
-              placeholder="All tables (or comma-separated: users, posts)"
-              className="w-full px-3 py-1.5 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              Leave empty to receive events from all tables
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-700">
-              Enabled
-            </label>
-            <button
-              type="button"
-              onClick={() => setEnabled(!enabled)}
-              className={cn(
-                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                enabled ? "bg-green-500" : "bg-gray-300",
-              )}
-              role="switch"
-              aria-checked={enabled}
-              aria-label="Enabled"
-            >
-              <span
-                className={cn(
-                  "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
-                  enabled ? "translate-x-4.5" : "translate-x-1",
-                )}
-              />
-            </button>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !url.trim()}
-              className="px-4 py-1.5 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
-            >
-              {saving ? "Saving..." : isEdit ? "Update" : "Create"}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

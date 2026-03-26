@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(webhooksCmd)
 	rootCmd.AddCommand(usersCmd)
 	rootCmd.AddCommand(storageCmd)
+	rootCmd.AddCommand(sitesCmd)
 	rootCmd.AddCommand(schemaCmd)
 	rootCmd.AddCommand(rpcCmd)
 	rootCmd.AddCommand(appsCmd)
@@ -67,11 +68,17 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(dbCmd)
+	rootCmd.AddCommand(walShipCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(statsCmd)
 	rootCmd.AddCommand(secretsCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(demoCmd)
+	rootCmd.AddCommand(functionsCmd)
+	rootCmd.AddCommand(promptsCmd)
+	rootCmd.AddCommand(tenantsCmd)
+	rootCmd.AddCommand(orgCmd)
+	rootCmd.AddCommand(deployCmd)
 
 	initHelp()
 }
@@ -120,25 +127,33 @@ func writeCSVStdout(cols []string, rows [][]string) error {
 // It resolves the admin token from --admin-token flag, AYB_ADMIN_TOKEN env,
 // or ~/.ayb/admin-token (auto-login); and the URL from --url flag or default.
 func adminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*http.Response, []byte, error) {
-	token, _ := cmd.Flags().GetString("admin-token")
-	baseURL, _ := cmd.Flags().GetString("url")
+	return adminRequestWithContentType(cmd, method, path, body, "application/json")
+}
 
-	if token == "" {
-		token = adminToken()
+func adminRequestWithContentType(cmd *cobra.Command, method, path string, body io.Reader, contentType string) (*http.Response, []byte, error) {
+	token, baseURL := resolveAdminRequestOptions(cmd)
+	req, err := newAuthenticatedRequest(method, baseURL, path, token, contentType, body)
+	if err != nil {
+		return nil, nil, err
 	}
-	if baseURL == "" {
-		baseURL = serverURL()
-	}
+	return doBufferedRequest(req)
+}
 
+func newAuthenticatedRequest(method, baseURL, path, token, contentType string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, baseURL+path, body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	return req, nil
+}
 
+func doBufferedRequest(req *http.Request) (*http.Response, []byte, error) {
 	resp, err := cliHTTPClient.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to server: %w", err)
@@ -149,4 +164,17 @@ func adminRequest(cmd *cobra.Command, method, path string, body io.Reader) (*htt
 		return nil, nil, fmt.Errorf("reading response: %w", err)
 	}
 	return resp, respBody, nil
+}
+
+func resolveAdminRequestOptions(cmd *cobra.Command) (string, string) {
+	token, _ := cmd.Flags().GetString("admin-token")
+	baseURL, _ := cmd.Flags().GetString("url")
+
+	if token == "" {
+		token = adminToken()
+	}
+	if baseURL == "" {
+		baseURL = serverURL()
+	}
+	return token, baseURL
 }

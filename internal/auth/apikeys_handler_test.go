@@ -144,6 +144,47 @@ func TestHandleCreateAPIKeyInvalidScope(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "doc_url")
 }
 
+func TestHandleCreateAPIKeyRejectsUnsupportedScopeFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		message string
+	}{
+		{
+			name:    "app scope not allowed",
+			body:    `{"name":"my-key","appId":"7c254770-bf4c-4cc2-8f56-9f24df29deba"}`,
+			message: "appId is not supported",
+		},
+		{
+			name:    "org scope not allowed",
+			body:    `{"name":"my-key","orgId":"7c254770-bf4c-4cc2-8f56-9f24df29deba"}`,
+			message: "orgId is not supported",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newTestService()
+			h := NewHandler(svc, testutil.DiscardLogger())
+			router := h.Routes()
+			token := generateTestToken(t, svc, "user-1", "test@example.com")
+
+			req := httptest.NewRequest(http.MethodPost, "/api-keys/", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			testutil.Equal(t, http.StatusBadRequest, w.Code)
+			testutil.Contains(t, w.Body.String(), tc.message)
+		})
+	}
+}
+
 func TestHandleAPIKeyRoutesRegistered(t *testing.T) {
 	// Verify all three API key routes are registered and accessible.
 	// Wrong methods should return 405 (Method Not Allowed), not 404.

@@ -1,3 +1,4 @@
+// Package cli This file implements CLI commands for managing background jobs and schedules, providing operations like listing, creating, updating, and controlling schedule execution via the admin API.
 package cli
 
 import (
@@ -119,6 +120,7 @@ func init() {
 	rootCmd.AddCommand(schedulesCmd)
 }
 
+// Fetches background jobs from the admin API with optional filtering by state and job type, displaying results in a table or JSON format.
 func runJobsList(cmd *cobra.Command, _ []string) error {
 	outFmt := outputFormat(cmd)
 	state, _ := cmd.Flags().GetString("state")
@@ -180,6 +182,7 @@ func runJobsList(cmd *cobra.Command, _ []string) error {
 	return w.Flush()
 }
 
+// Resets a failed job to queued state via the admin API, allowing it to be retried.
 func runJobsRetry(cmd *cobra.Command, args []string) error {
 	jobID := args[0]
 	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+jobID+"/retry", nil)
@@ -198,6 +201,7 @@ func runJobsRetry(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Sends a cancel request to the server for a queued job by its ID and reports the cancellation result.
 func runJobsCancel(cmd *cobra.Command, args []string) error {
 	jobID := args[0]
 	resp, body, err := adminRequest(cmd, "POST", "/api/admin/jobs/"+jobID+"/cancel", nil)
@@ -216,6 +220,7 @@ func runJobsCancel(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Fetches and displays all configured schedules from the admin API in either tabular or JSON format.
 func runSchedulesList(cmd *cobra.Command, _ []string) error {
 	outFmt := outputFormat(cmd)
 	resp, body, err := adminRequest(cmd, "GET", "/api/admin/schedules", nil)
@@ -257,6 +262,7 @@ func runSchedulesList(cmd *cobra.Command, _ []string) error {
 	return w.Flush()
 }
 
+// Creates a new schedule with the provided name, job type, and cron expression, optionally setting timezone and JSON payload. Returns an error if required flags are missing.
 func runSchedulesCreate(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	jobType, _ := cmd.Flags().GetString("job-type")
@@ -309,6 +315,7 @@ func runSchedulesCreate(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// Updates an existing schedule with new cron expression, timezone, payload, or enabled status. Only flags with provided values are included in the update.
 func runSchedulesUpdate(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
 	cronExpr, _ := cmd.Flags().GetString("cron")
@@ -370,6 +377,7 @@ func runSchedulesDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Enables a disabled schedule via the admin API and reports the result.
 func runSchedulesEnable(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
 	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+schedID+"/enable", nil)
@@ -388,6 +396,7 @@ func runSchedulesEnable(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Disables an enabled schedule via the admin API and reports the result.
 func runSchedulesDisable(cmd *cobra.Command, args []string) error {
 	schedID := args[0]
 	resp, respBody, err := adminRequest(cmd, "POST", "/api/admin/schedules/"+schedID+"/disable", nil)

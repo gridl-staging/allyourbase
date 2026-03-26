@@ -141,3 +141,27 @@ func TestAdminTokenConsistency(t *testing.T) {
 	testutil.Equal(t, t1, t2)
 	testutil.Equal(t, 64, len(t1))
 }
+
+func TestAdminFunctionsByNameRouteRegistered(t *testing.T) {
+	t.Parallel()
+	srv := newTestServerWithPassword(t, "pass")
+
+	loginW := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/admin/auth", strings.NewReader(`{"password":"pass"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	srv.Router().ServeHTTP(loginW, loginReq)
+	testutil.Equal(t, http.StatusOK, loginW.Code)
+
+	var loginBody map[string]string
+	testutil.NoError(t, json.Unmarshal(loginW.Body.Bytes(), &loginBody))
+	token := loginBody["token"]
+	testutil.True(t, token != "", "expected non-empty token")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/functions/by-name/my-fn", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusServiceUnavailable, w.Code)
+	testutil.Contains(t, w.Body.String(), "edge functions are not enabled")
+}

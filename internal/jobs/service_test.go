@@ -57,6 +57,32 @@ func TestBackoffExponentialWithJitter(t *testing.T) {
 	}
 }
 
+func TestRegisterBillingUsageSyncSchedule_RegistersJob(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterBillingUsageSyncSchedule(ctx, svc, 3600)
+	testutil.NoError(t, err)
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+
+	var found *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "billing_usage_sync" {
+			s := sched
+			found = &s
+			break
+		}
+	}
+	testutil.True(t, found != nil, "billing usage sync schedule should be registered")
+	testutil.Equal(t, "billing_usage_sync", found.Name)
+	testutil.Equal(t, "billing_usage_sync", found.JobType)
+	testutil.Equal(t, "0 * * * *", found.CronExpr)
+	testutil.Equal(t, "UTC", found.Timezone)
+	testutil.Equal(t, 3, found.MaxAttempts)
+	testutil.True(t, found.Enabled)
+}
+
 // --- Worker Loop Tests ---
 
 func TestWorkerProcessesJob(t *testing.T) {
@@ -162,6 +188,147 @@ func TestWorkerTerminalFailure(t *testing.T) {
 		select {
 		case <-deadline:
 			t.Fatal("timed out waiting for terminal failure")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func TestWorkerFailsAfterRetryExhaustionWithRealBackoff(t *testing.T) {
+	svc := setupService(t, func(cfg *jobs.ServiceConfig) {
+		cfg.WorkerConcurrency = 1
+		cfg.SchedulerEnabled = false
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	var attempts atomic.Int32
+	const handlerErrPrefix = "retry exhaustion failure"
+	svc.RegisterHandler("always_fail_retry_exhaustion", func(ctx context.Context, payload json.RawMessage) error {
+		n := attempts.Add(1)
+		return fmt.Errorf("%s attempt %d", handlerErrPrefix, n)
+	})
+
+	job, err := svc.Enqueue(ctx, "always_fail_retry_exhaustion", nil, jobs.EnqueueOpts{MaxAttempts: 2})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	attemptDeadline := time.After(14 * time.Second)
+	for attempts.Load() < 2 {
+		select {
+		case <-attemptDeadline:
+			t.Fatalf("timed out waiting for retry exhaustion: attempts=%d", attempts.Load())
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	terminalDeadline := time.After(3 * time.Second)
+	for {
+		persisted, err := store.Get(ctx, job.ID)
+		testutil.NoError(t, err)
+		if persisted.State == jobs.StateFailed {
+			testutil.Equal(t, 2, persisted.Attempts)
+			testutil.NotNil(t, persisted.LastError)
+			testutil.Contains(t, *persisted.LastError, handlerErrPrefix)
+			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
+			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			break
+		}
+		select {
+		case <-terminalDeadline:
+			t.Fatalf("timed out waiting for terminal failure, last state=%s attempts=%d", persisted.State, persisted.Attempts)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	// Once terminally failed, the service must stop retrying.
+	time.Sleep(500 * time.Millisecond)
+	testutil.Equal(t, int32(2), attempts.Load())
+	persisted, err := store.Get(ctx, job.ID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, jobs.StateFailed, persisted.State)
+	testutil.Equal(t, 2, persisted.Attempts)
+}
+
+func TestWorkerPersistsCompletedTerminalFields(t *testing.T) {
+	svc := setupService(t, func(cfg *jobs.ServiceConfig) {
+		cfg.WorkerConcurrency = 1
+		cfg.SchedulerEnabled = false
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	svc.RegisterHandler("persist_complete", func(ctx context.Context, payload json.RawMessage) error {
+		return nil
+	})
+
+	job, err := svc.Enqueue(ctx, "persist_complete", nil, jobs.EnqueueOpts{})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	deadline := time.After(3 * time.Second)
+	for {
+		persisted, err := store.Get(ctx, job.ID)
+		testutil.NoError(t, err)
+		if persisted.State == jobs.StateCompleted {
+			testutil.NotNil(t, persisted.CompletedAt)
+			testutil.True(t, persisted.LastError == nil, "last_error should be nil")
+			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
+			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for completed state, got state=%s", persisted.State)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func TestWorkerPersistsFailedTerminalFields(t *testing.T) {
+	svc := setupService(t, func(cfg *jobs.ServiceConfig) {
+		cfg.WorkerConcurrency = 1
+		cfg.SchedulerEnabled = false
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	const permanentErr = "terminal persistence failure"
+	svc.RegisterHandler("persist_fail", func(ctx context.Context, payload json.RawMessage) error {
+		return fmt.Errorf(permanentErr)
+	})
+
+	job, err := svc.Enqueue(ctx, "persist_fail", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	deadline := time.After(3 * time.Second)
+	for {
+		persisted, err := store.Get(ctx, job.ID)
+		testutil.NoError(t, err)
+		if persisted.State == jobs.StateFailed {
+			testutil.True(t, persisted.CompletedAt == nil, "completed_at should remain nil on terminal failure")
+			testutil.NotNil(t, persisted.LastError)
+			testutil.Equal(t, permanentErr, *persisted.LastError)
+			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
+			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for failed state, got state=%s", persisted.State)
 		default:
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -551,6 +718,118 @@ func TestGracefulShutdown(t *testing.T) {
 	testutil.Equal(t, int32(1), finished.Load())
 }
 
+func TestWorkerFailsJobWhenShutdownTimeoutCancelsHandler(t *testing.T) {
+	svc := setupService(t, func(cfg *jobs.ServiceConfig) {
+		cfg.WorkerConcurrency = 1
+		cfg.SchedulerEnabled = false
+		cfg.ShutdownTimeout = 150 * time.Millisecond
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	started := make(chan struct{}, 1)
+	svc.RegisterHandler("shutdown_timeout_cancel", func(ctx context.Context, payload json.RawMessage) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	job, err := svc.Enqueue(ctx, "shutdown_timeout_cancel", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+
+	deadline := time.After(4 * time.Second)
+	for {
+		persisted, err := store.Get(ctx, job.ID)
+		testutil.NoError(t, err)
+		if persisted.State == jobs.StateFailed {
+			testutil.NotNil(t, persisted.LastError)
+			testutil.Equal(t, context.DeadlineExceeded.Error(), *persisted.LastError)
+			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
+			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for failed row, got state=%s attempts=%d", persisted.State, persisted.Attempts)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+// TestWorkerFailsTimedOutHandlerThatReturnsNil verifies that a handler whose
+// context expired but that returned nil is still persisted as failed, not
+// completed. This guards against handlers that ignore context cancellation.
+func TestWorkerFailsTimedOutHandlerThatReturnsNil(t *testing.T) {
+	svc := setupService(t, func(cfg *jobs.ServiceConfig) {
+		cfg.WorkerConcurrency = 1
+		cfg.SchedulerEnabled = false
+		cfg.ShutdownTimeout = 150 * time.Millisecond
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	store := jobs.NewStore(sharedPG.Pool)
+	started := make(chan struct{}, 1)
+	svc.RegisterHandler("timeout_nil_return", func(ctx context.Context, payload json.RawMessage) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		// Wait for the context to expire, then return nil — simulating a
+		// handler that ignores cancellation.
+		<-ctx.Done()
+		return nil
+	})
+
+	job, err := svc.Enqueue(ctx, "timeout_nil_return", nil, jobs.EnqueueOpts{MaxAttempts: 1})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+
+	deadline := time.After(4 * time.Second)
+	for {
+		persisted, err := store.Get(ctx, job.ID)
+		testutil.NoError(t, err)
+		if persisted.State == jobs.StateFailed {
+			testutil.NotNil(t, persisted.LastError)
+			testutil.Equal(t, context.DeadlineExceeded.Error(), *persisted.LastError)
+			testutil.True(t, persisted.LeaseUntil == nil, "lease_until should be cleared")
+			testutil.True(t, persisted.WorkerID == nil, "worker_id should be cleared")
+			return
+		}
+		if persisted.State == jobs.StateCompleted {
+			t.Fatal("timed-out handler was persisted as completed — context expiry not enforced")
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for failed row, got state=%s attempts=%d", persisted.State, persisted.Attempts)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
 // --- CronNextTime Tests ---
 
 func TestCronNextTime(t *testing.T) {
@@ -595,8 +874,8 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 
 	schedules, err := svc.ListSchedules(ctx)
 	testutil.NoError(t, err)
-	testutil.True(t, len(schedules) >= 4,
-		"expected at least 4 default schedules, got %d", len(schedules))
+	testutil.True(t, len(schedules) >= 6,
+		"expected at least 6 default schedules, got %d", len(schedules))
 
 	names := map[string]bool{}
 	for _, s := range schedules {
@@ -606,6 +885,9 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 	testutil.True(t, names["webhook_delivery_prune_daily"], "missing webhook_delivery_prune_daily")
 	testutil.True(t, names["expired_oauth_cleanup_daily"], "missing expired_oauth_cleanup_daily")
 	testutil.True(t, names["expired_auth_cleanup_daily"], "missing expired_auth_cleanup_daily")
+	testutil.True(t, names["expired_resumable_upload_cleanup"], "missing expired_resumable_upload_cleanup")
+	testutil.True(t, names["audit_log_retention_daily"], "missing audit_log_retention_daily")
+	testutil.True(t, names["request_log_retention_daily"], "missing request_log_retention_daily")
 
 	// Idempotent: running again should not error or create duplicates.
 	err = svc.RegisterDefaultSchedules(ctx)
@@ -614,4 +896,111 @@ func TestRegisterDefaultSchedules(t *testing.T) {
 	schedules2, err := svc.ListSchedules(ctx)
 	testutil.NoError(t, err)
 	testutil.Equal(t, len(schedules), len(schedules2))
+}
+
+func TestRegisterDefaultSchedulesUsesConfiguredRequestLogRetentionDays(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := svc.RegisterDefaultSchedulesWithAuditRetention(ctx, 90, 42)
+	testutil.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+	var requestLogSched *jobs.Schedule
+	for _, sched := range schedules {
+		if sched.Name == "request_log_retention_daily" {
+			requestLogSched = &sched
+			break
+		}
+	}
+	testutil.True(t, requestLogSched != nil, "missing request_log_retention_daily")
+
+	var payload map[string]any
+	err = json.Unmarshal(requestLogSched.Payload, &payload)
+	testutil.NoError(t, err)
+	value, ok := payload["retention_days"].(float64)
+	testutil.True(t, ok, "retention_days should be a number in payload")
+	testutil.Equal(t, float64(42), value)
+	testutil.Equal(t, "request_log_retention", requestLogSched.JobType)
+}
+
+func TestRegisterProviderTokenRefreshSchedule(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	err := jobs.RegisterProviderTokenRefreshSchedule(ctx, svc)
+	testutil.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+	found := false
+	for _, s := range schedules {
+		if s.Name == "oauth_provider_tokens_refresh_10m" {
+			found = true
+			testutil.Equal(t, "oauth_provider_tokens_refresh", s.JobType)
+			testutil.Equal(t, "*/5 * * * *", s.CronExpr)
+			testutil.True(t, s.Enabled)
+			testutil.Equal(t, 3, s.MaxAttempts)
+			break
+		}
+	}
+	testutil.True(t, found, "provider token refresh schedule should be registered")
+
+	// Idempotent: calling again should update/fetch same schedule and keep one entry.
+	err = jobs.RegisterProviderTokenRefreshSchedule(ctx, svc)
+	testutil.NoError(t, err)
+
+	schedules2, err := svc.ListSchedules(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, len(schedules), len(schedules2))
+}
+
+type fakeProviderTokenRefreshServiceForSchedule struct {
+	calls  int32
+	window time.Duration
+}
+
+func (f *fakeProviderTokenRefreshServiceForSchedule) RefreshExpiringProviderTokens(_ context.Context, window time.Duration) error {
+	atomic.AddInt32(&f.calls, 1)
+	f.window = window
+	return nil
+}
+
+func TestProviderTokenRefreshScheduleRunsHandler(t *testing.T) {
+	svc := setupService(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	fake := &fakeProviderTokenRefreshServiceForSchedule{}
+	svc.RegisterHandler("oauth_provider_tokens_refresh", jobs.ProviderTokenRefreshJobHandler(fake))
+
+	past := time.Now().Add(-1 * time.Minute)
+	_, err := svc.CreateSchedule(ctx, &jobs.Schedule{
+		Name:        "provider_token_refresh_test_schedule",
+		JobType:     "oauth_provider_tokens_refresh",
+		CronExpr:    "*/1 * * * *",
+		Timezone:    "UTC",
+		Enabled:     true,
+		MaxAttempts: 3,
+		NextRunAt:   &past,
+		Payload:     json.RawMessage(`{"window_seconds": 90}`),
+	})
+	testutil.NoError(t, err)
+
+	svc.Start(ctx)
+	defer svc.Stop()
+
+	deadline := time.After(4 * time.Second)
+	for atomic.LoadInt32(&fake.calls) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for provider token refresh schedule to run")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	testutil.Equal(t, int32(1), atomic.LoadInt32(&fake.calls))
+	testutil.Equal(t, 90*time.Second, fake.window)
 }

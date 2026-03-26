@@ -1,3 +1,4 @@
+// Package cli Provides subcommands for managing API keys on a running AYB server, supporting listing, creating, and revoking of keys.
 package cli
 
 import (
@@ -45,13 +46,14 @@ func init() {
 	apikeysCreateCmd.Flags().String("scope", "*", "Permission scope: * (full), readonly, readwrite")
 	apikeysCreateCmd.Flags().StringSlice("tables", nil, "Restrict access to specific tables (comma-separated)")
 	apikeysCreateCmd.Flags().String("app", "", "App ID to scope key to (optional)")
+	apikeysCreateCmd.Flags().String("org", "", "Org ID to scope key to (optional, mutually exclusive with --app)")
 
 	apikeysCmd.AddCommand(apikeysListCmd)
 	apikeysCmd.AddCommand(apikeysCreateCmd)
 	apikeysCmd.AddCommand(apikeysRevokeCmd)
 }
 
-
+// runAPIKeysList handles the list subcommand, retrieving all API keys from the server and displaying them in the requested format (JSON, CSV, or table).
 func runAPIKeysList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -78,6 +80,7 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 			Scope         string   `json:"scope"`
 			AllowedTables []string `json:"allowedTables"`
 			AppID         *string  `json:"appId"`
+			OrgID         *string  `json:"orgId"`
 			LastUsedAt    *string  `json:"lastUsedAt"`
 			CreatedAt     string   `json:"createdAt"`
 			RevokedAt     *string  `json:"revokedAt"`
@@ -108,11 +111,13 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 		if len(k.AllowedTables) > 0 {
 			scope += " [" + strings.Join(k.AllowedTables, ",") + "]"
 		}
-		appCol := "-"
+		scopeCol := "-"
 		if k.AppID != nil {
-			appCol = *k.AppID
+			scopeCol = "app:" + *k.AppID
+		} else if k.OrgID != nil {
+			scopeCol = "org:" + *k.OrgID
 		}
-		rows[i] = []string{k.ID, k.UserID, k.Name, k.KeyPrefix + "...", scope, appCol, lastUsed, k.CreatedAt, status}
+		rows[i] = []string{k.ID, k.UserID, k.Name, k.KeyPrefix + "...", scope, scopeCol, lastUsed, k.CreatedAt, status}
 	}
 
 	if outFmt == "csv" {
@@ -130,6 +135,7 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runAPIKeysCreate handles the create subcommand, creating a new API key for a specified user with the provided name, scope, and optional table restrictions.
 func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	userID, _ := cmd.Flags().GetString("user-id")
@@ -137,12 +143,16 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	scope, _ := cmd.Flags().GetString("scope")
 	tables, _ := cmd.Flags().GetStringSlice("tables")
 	appID, _ := cmd.Flags().GetString("app")
+	orgID, _ := cmd.Flags().GetString("org")
 
 	if userID == "" {
 		return fmt.Errorf("--user-id is required")
 	}
 	if name == "" {
 		return fmt.Errorf("--name is required")
+	}
+	if appID != "" && orgID != "" {
+		return fmt.Errorf("--app and --org are mutually exclusive")
 	}
 
 	payload := map[string]any{
@@ -155,6 +165,9 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	}
 	if appID != "" {
 		payload["appId"] = appID
+	}
+	if orgID != "" {
+		payload["orgId"] = orgID
 	}
 	body, _ := json.Marshal(payload)
 
@@ -190,6 +203,9 @@ func runAPIKeysCreate(cmd *cobra.Command, args []string) error {
 	}
 	if appID != "" {
 		fmt.Printf("App: %s\n", appID)
+	}
+	if orgID != "" {
+		fmt.Printf("Org: %s\n", orgID)
 	}
 	fmt.Printf("\nKey: %s\n", result.Key)
 	fmt.Println("\nSave this key — it will not be shown again.")

@@ -14,19 +14,21 @@ import (
 )
 
 func newTestService() *Service {
-	return &Service{
+	svc := &Service{
 		jwtSecret:  []byte(testSecret),
 		tokenDur:   time.Hour,
 		refreshDur: 7 * 24 * time.Hour,
 		minPwLen:   8,
 		logger:     testutil.DiscardLogger(),
 	}
+	svc.InitMFAFailureTracker()
+	return svc
 }
 
 func generateTestToken(t *testing.T, svc *Service, userID, email string) string {
 	t.Helper()
 	user := &User{ID: userID, Email: email}
-	token, err := svc.generateToken(user)
+	token, err := svc.generateToken(context.Background(), user)
 	if err != nil {
 		t.Fatalf("generating test token: %v", err)
 	}
@@ -106,6 +108,42 @@ func TestRequireAuthExpiredToken(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRequireAuthTouchesActivityTrackerWithSessionID(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestService()
+	tracker := NewSessionActivityTracker(nil, time.Hour, testutil.DiscardLogger())
+	touched := make(chan string, 1)
+	tracker.updateFn = func(_ context.Context, sessionID string) error {
+		touched <- sessionID
+		return nil
+	}
+	svc.activityTracker = tracker
+
+	token, err := svc.generateTokenWithOpts(context.Background(), &User{
+		ID:    "user-1",
+		Email: "test@example.com",
+	}, &tokenOptions{SessionID: "session-123"})
+	testutil.NoError(t, err)
+
+	handler := RequireAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	select {
+	case sid := <-touched:
+		testutil.Equal(t, "session-123", sid)
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected activity tracker touch")
+	}
 }
 
 func TestOptionalAuthNoHeader(t *testing.T) {

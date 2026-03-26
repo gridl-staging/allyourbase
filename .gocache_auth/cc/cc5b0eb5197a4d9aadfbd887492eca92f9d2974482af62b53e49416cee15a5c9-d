@@ -1,5 +1,0 @@
-./log.go
-./mailer.go
-./smtp.go
-./templates.go
-./webhook.go

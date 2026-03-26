@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Webhooks } from "../Webhooks";
 import {
@@ -67,16 +68,21 @@ describe("Webhooks", () => {
 
   it("shows loading state", () => {
     mockListWebhooks.mockReturnValue(new Promise(() => {}));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     expect(screen.getByText("Loading webhooks...")).toBeInTheDocument();
   });
 
   it("displays empty state when no webhooks", async () => {
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("No webhooks configured yet"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Deliver create, update, and delete events to external URLs in real time.",
+        ),
       ).toBeInTheDocument();
     });
   });
@@ -90,7 +96,7 @@ describe("Webhooks", () => {
         enabled: false,
       }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://foo.com/hook")).toBeInTheDocument();
       expect(screen.getByText("https://bar.com/hook")).toBeInTheDocument();
@@ -101,7 +107,7 @@ describe("Webhooks", () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ events: ["create", "delete"] }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("create")).toBeInTheDocument();
       expect(screen.getByText("delete")).toBeInTheDocument();
@@ -110,7 +116,7 @@ describe("Webhooks", () => {
 
   it("shows 'all tables' when tables array is empty", async () => {
     mockListWebhooks.mockResolvedValueOnce([makeWebhook({ tables: [] })]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("all tables")).toBeInTheDocument();
     });
@@ -120,7 +126,7 @@ describe("Webhooks", () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ tables: ["posts", "users"] }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("posts")).toBeInTheDocument();
       expect(screen.getByText("users")).toBeInTheDocument();
@@ -130,7 +136,7 @@ describe("Webhooks", () => {
   it("opens create modal on Add Webhook click", async () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("No webhooks configured yet"),
@@ -149,7 +155,7 @@ describe("Webhooks", () => {
     mockCreateWebhook.mockResolvedValueOnce(
       makeWebhook({ url: "https://test.com/hook" }),
     );
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("Add Webhook")).toBeInTheDocument();
     });
@@ -172,7 +178,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     const wh = makeWebhook({ url: "https://edit-me.com/hook" });
     mockListWebhooks.mockResolvedValueOnce([wh]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://edit-me.com/hook")).toBeInTheDocument();
     });
@@ -189,7 +195,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     const wh = makeWebhook({ url: "https://delete-me.com/hook" });
     mockListWebhooks.mockResolvedValueOnce([wh]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByText("https://delete-me.com/hook"),
@@ -206,7 +212,7 @@ describe("Webhooks", () => {
     const wh = makeWebhook();
     mockListWebhooks.mockResolvedValue([wh]);
     mockDeleteWebhook.mockResolvedValueOnce();
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("https://example.com/hook")).toBeInTheDocument();
     });
@@ -229,7 +235,7 @@ describe("Webhooks", () => {
   it("closes modal on Cancel", async () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("Add Webhook")).toBeInTheDocument();
     });
@@ -245,7 +251,7 @@ describe("Webhooks", () => {
     mockListWebhooks.mockResolvedValueOnce([
       makeWebhook({ hasSecret: true }),
     ]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(
         screen.getByTitle("HMAC secret configured"),
@@ -255,7 +261,7 @@ describe("Webhooks", () => {
 
   it("displays error on fetch failure", async () => {
     mockListWebhooks.mockRejectedValueOnce(new Error("network error"));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByText("network error")).toBeInTheDocument();
     });
@@ -267,7 +273,7 @@ describe("Webhooks", () => {
     mockUpdateWebhook.mockResolvedValueOnce(
       makeWebhook({ enabled: false }),
     );
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       const toggle = screen.getByRole("switch");
       expect(toggle).toBeInTheDocument();
@@ -279,7 +285,7 @@ describe("Webhooks", () => {
     const user = userEvent.setup();
     mockListWebhooks.mockResolvedValueOnce([makeWebhook({ enabled: true })]);
     mockUpdateWebhook.mockResolvedValueOnce(makeWebhook({ enabled: false }));
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByRole("switch")).toBeInTheDocument();
     });
@@ -301,7 +307,7 @@ describe("Webhooks", () => {
       statusCode: 200,
       durationMs: 42,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Test")).toBeInTheDocument();
     });
@@ -322,7 +328,7 @@ describe("Webhooks", () => {
       durationMs: 100,
       error: "Internal Server Error",
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Test")).toBeInTheDocument();
     });
@@ -336,7 +342,7 @@ describe("Webhooks", () => {
 
   it("shows Delivery History button per webhook", async () => {
     mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -364,7 +370,7 @@ describe("Webhooks", () => {
       totalItems: 1,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -390,7 +396,7 @@ describe("Webhooks", () => {
       totalItems: 0,
       totalPages: 0,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -438,7 +444,7 @@ describe("Webhooks", () => {
       totalItems: 2,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });
@@ -483,7 +489,7 @@ describe("Webhooks", () => {
       totalItems: 1,
       totalPages: 1,
     });
-    render(<Webhooks />);
+    renderWithProviders(<Webhooks />);
     await waitFor(() => {
       expect(screen.getByTitle("Delivery History")).toBeInTheDocument();
     });

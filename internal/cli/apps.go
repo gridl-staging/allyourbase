@@ -1,3 +1,4 @@
+// Package cli The apps subcommand provides CLI operations for managing applications on the AYB server, including listing, creating, and deleting registered apps.
 package cli
 
 import (
@@ -49,7 +50,7 @@ func init() {
 	appsCmd.AddCommand(appsDeleteCmd)
 }
 
-
+// runAppsList handles the apps list command, retrieving all registered applications from the server and formatting the output as a table, CSV, or JSON.
 func runAppsList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -113,6 +114,7 @@ func runAppsList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runAppsCreate handles the apps create command, registering a new application with the provided name, optional description, and required owner ID.
 func runAppsCreate(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	name := args[0]

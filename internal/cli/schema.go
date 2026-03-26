@@ -1,3 +1,4 @@
+// Package cli This file implements the schema command, which fetches and displays database schema information from the running AYB server with options to list all tables or show detailed information about a specific table.
 package cli
 
 import (
@@ -69,6 +70,7 @@ type schemaIndex struct {
 	Definition string `json:"definition"`
 }
 
+// runSchema is the command handler for the schema command. It fetches schema information from the running AYB server via HTTP, parses the response into typed table structures, and dispatches to either showTableDetail if a specific table name is provided, or listTables to display all tables. It supports multiple output formats and uses the admin token from flags or environment for authentication.
 func runSchema(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	token, _ := cmd.Flags().GetString("admin-token")
@@ -131,6 +133,7 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	return listTables(tables, outFmt)
 }
 
+// listTables displays all tables in the provided map, sorted by schema and name. It outputs in the specified format (text with tabwriter, CSV, or JSON), showing schema, table name, kind, column count, and primary key columns.
 func listTables(tables map[string]schemaTable, outFmt string) error {
 	if outFmt == "json" {
 		// Build sorted list for JSON.
@@ -196,6 +199,7 @@ func listTables(tables map[string]schemaTable, outFmt string) error {
 	return nil
 }
 
+// showTableDetail displays comprehensive information for a single table, performing a case-insensitive lookup by exact key, public schema prefix, or unqualified name. It outputs columns with types and constraints, foreign keys with referenced tables, and indexes, supporting text, CSV, and JSON formats.
 func showTableDetail(name string, tables map[string]schemaTable, outFmt string) error {
 	// Find the table — try exact key first, then unqualified name.
 	var found *schemaTable

@@ -8,6 +8,7 @@ type Message struct {
 	Subject string
 	HTML    string
 	Text    string
+	From    string // optional per-message override; empty = use mailer default
 }
 
 // Mailer sends email messages.

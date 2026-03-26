@@ -153,6 +153,30 @@ func TestCopyFileFS(t *testing.T) {
 	})
 }
 
+func TestJoinPathUnder(t *testing.T) {
+	t.Parallel()
+	base := filepath.Join("tmp", "bucket")
+
+	t.Run("allows normal relative path", func(t *testing.T) {
+		t.Parallel()
+		got, err := joinPathUnder(base, filepath.Join("images", "avatar.png"))
+		testutil.NoError(t, err)
+		testutil.True(t, strings.HasSuffix(got, filepath.Join("tmp", "bucket", "images", "avatar.png")), "unexpected path: %s", got)
+	})
+
+	t.Run("rejects traversal with dotdot", func(t *testing.T) {
+		t.Parallel()
+		_, err := joinPathUnder(base, filepath.Join("..", "escape.txt"))
+		testutil.ErrorContains(t, err, "path traversal detected")
+	})
+
+	t.Run("rejects absolute-escape after clean", func(t *testing.T) {
+		t.Parallel()
+		_, err := joinPathUnder(base, filepath.Join("nested", "..", "..", "escape.txt"))
+		testutil.ErrorContains(t, err, "path traversal detected")
+	})
+}
+
 func TestPhaseCountWithStorage(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

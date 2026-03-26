@@ -12,39 +12,46 @@ import (
 func TestValidTemplates(t *testing.T) {
 	t.Parallel()
 	templates := ValidTemplates()
-	testutil.Equal(t, 4, len(templates))
+	testutil.Equal(t, 9, len(templates))
 	testutil.True(t, IsValidTemplate("react"))
 	testutil.True(t, IsValidTemplate("next"))
 	testutil.True(t, IsValidTemplate("express"))
 	testutil.True(t, IsValidTemplate("plain"))
+	testutil.True(t, IsValidTemplate("blog"))
+	testutil.True(t, IsValidTemplate("kanban"))
+	testutil.True(t, IsValidTemplate("ecommerce"))
+	testutil.True(t, IsValidTemplate("polls"))
+	testutil.True(t, IsValidTemplate("chat"))
 	testutil.False(t, IsValidTemplate("invalid"))
 	testutil.False(t, IsValidTemplate(""))
+
+	blogCount := 0
+	for _, tmpl := range templates {
+		if tmpl == TemplateBlog {
+			blogCount++
+		}
+	}
+	testutil.Equal(t, 1, blogCount)
 }
 
 func TestRun_React(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	err := Run(Options{Name: "my-app", Template: TemplateReact, Dir: dir})
-	testutil.NoError(t, err)
-
-	projectDir := filepath.Join(dir, "my-app")
+	projectDir := scaffoldProject(t, "my-app", TemplateReact)
 
 	// Check common files exist
-	assertFileExists(t, projectDir, "ayb.toml")
-	assertFileExists(t, projectDir, "schema.sql")
-	assertFileExists(t, projectDir, ".env")
-	assertFileExists(t, projectDir, ".gitignore")
-	assertFileExists(t, projectDir, "CLAUDE.md")
+	assertFilesExist(t, projectDir, "ayb.toml", "schema.sql", ".env", ".gitignore", "CLAUDE.md")
 
 	// Check React-specific files
-	assertFileExists(t, projectDir, "package.json")
-	assertFileExists(t, projectDir, "tsconfig.json")
-	assertFileExists(t, projectDir, "vite.config.ts")
-	assertFileExists(t, projectDir, "index.html")
-	assertFileExists(t, projectDir, "src/main.tsx")
-	assertFileExists(t, projectDir, "src/App.tsx")
-	assertFileExists(t, projectDir, "src/lib/ayb.ts")
-	assertFileExists(t, projectDir, "src/index.css")
+	assertFilesExist(t, projectDir,
+		"package.json",
+		"tsconfig.json",
+		"vite.config.ts",
+		"index.html",
+		"src/main.tsx",
+		"src/App.tsx",
+		"src/lib/ayb.ts",
+		"src/index.css",
+	)
 
 	// Check content
 	assertFileContains(t, projectDir, "package.json", `"@allyourbase/js"`)
@@ -54,23 +61,23 @@ func TestRun_React(t *testing.T) {
 	assertFileContains(t, projectDir, "schema.sql", `CREATE TABLE IF NOT EXISTS items`)
 	assertFileContains(t, projectDir, "src/lib/ayb.ts", `AYBClient`)
 	assertFileContains(t, projectDir, "src/lib/ayb.ts", `import.meta.env.VITE_AYB_URL`)
+	assertFileContains(t, projectDir, "src/lib/ayb.ts", "setTokens(")
+	assertFileContains(t, projectDir, "src/lib/ayb.ts", "clearTokens(")
 	assertFileContains(t, projectDir, "CLAUDE.md", "my-app")
 	assertFileContains(t, projectDir, "index.html", "my-app")
 }
 
 func TestRun_Next(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	err := Run(Options{Name: "nextapp", Template: TemplateNext, Dir: dir})
-	testutil.NoError(t, err)
+	projectDir := scaffoldProject(t, "nextapp", TemplateNext)
 
-	projectDir := filepath.Join(dir, "nextapp")
-
-	assertFileExists(t, projectDir, "package.json")
-	assertFileExists(t, projectDir, "next.config.js")
-	assertFileExists(t, projectDir, "src/app/layout.tsx")
-	assertFileExists(t, projectDir, "src/app/page.tsx")
-	assertFileExists(t, projectDir, "src/lib/ayb.ts")
+	assertFilesExist(t, projectDir,
+		"package.json",
+		"next.config.js",
+		"src/app/layout.tsx",
+		"src/app/page.tsx",
+		"src/lib/ayb.ts",
+	)
 
 	assertFileContains(t, projectDir, "package.json", `"next"`)
 	assertFileContains(t, projectDir, ".gitignore", ".next/")
@@ -79,15 +86,9 @@ func TestRun_Next(t *testing.T) {
 
 func TestRun_Express(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	err := Run(Options{Name: "api-server", Template: TemplateExpress, Dir: dir})
-	testutil.NoError(t, err)
+	projectDir := scaffoldProject(t, "api-server", TemplateExpress)
 
-	projectDir := filepath.Join(dir, "api-server")
-
-	assertFileExists(t, projectDir, "package.json")
-	assertFileExists(t, projectDir, "src/index.ts")
-	assertFileExists(t, projectDir, "src/lib/ayb.ts")
+	assertFilesExist(t, projectDir, "package.json", "src/index.ts", "src/lib/ayb.ts")
 
 	assertFileContains(t, projectDir, "package.json", `"tsx"`)
 	assertFileContains(t, projectDir, "src/lib/ayb.ts", `process.env.AYB_URL`)
@@ -95,16 +96,9 @@ func TestRun_Express(t *testing.T) {
 
 func TestRun_Plain(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	err := Run(Options{Name: "plain-app", Template: TemplatePlain, Dir: dir})
-	testutil.NoError(t, err)
+	projectDir := scaffoldProject(t, "plain-app", TemplatePlain)
 
-	projectDir := filepath.Join(dir, "plain-app")
-
-	assertFileExists(t, projectDir, "package.json")
-	assertFileExists(t, projectDir, "src/index.ts")
-	assertFileExists(t, projectDir, "src/lib/ayb.ts")
-	assertFileExists(t, projectDir, "ayb.toml")
+	assertFilesExist(t, projectDir, "package.json", "src/index.ts", "src/lib/ayb.ts", "ayb.toml")
 }
 
 func TestRun_EmptyName(t *testing.T) {
@@ -142,18 +136,12 @@ func TestAybTomlContent(t *testing.T) {
 	testutil.Contains(t, content, "[storage]")
 	testutil.Contains(t, content, "[admin]")
 	// Validate key values
-	testutil.Contains(t, content, `host = "0.0.0.0"`)
+	testutil.Contains(t, content, `host = "127.0.0.1"`)
 	testutil.Contains(t, content, `port = 8090`)
 	testutil.Contains(t, content, `backend = "local"`)
 	// Auth, storage, admin all enabled
 	// Count occurrences of "enabled = true" — should be 3 (auth, storage, admin)
-	count := 0
-	for i := 0; i <= len(content)-len("enabled = true"); i++ {
-		if content[i:i+len("enabled = true")] == "enabled = true" {
-			count++
-		}
-	}
-	testutil.Equal(t, 3, count)
+	testutil.Equal(t, 3, strings.Count(content, "enabled = true"))
 }
 
 func TestSchemaSQL(t *testing.T) {
@@ -205,8 +193,17 @@ func TestAybClientBrowser(t *testing.T) {
 	t.Parallel()
 	content := aybClient()
 	testutil.Contains(t, content, "import.meta.env.VITE_AYB_URL")
-	testutil.Contains(t, content, "localStorage")
-	testutil.Contains(t, content, "persistTokens")
+	testutil.False(t, strings.Contains(content, "localStorage."))
+	testutil.Contains(t, content, "setSessionTokens")
+	testutil.Contains(t, content, "clearSessionTokens")
+	testutil.Contains(t, content, "isLoggedIn")
+	// Verify SDK method calls use correct names (setTokens/clearTokens, not setToken)
+	testutil.Contains(t, content, "ayb.setTokens(")
+	testutil.Contains(t, content, "ayb.clearTokens(")
+	testutil.False(t, strings.Contains(content, "ayb.setToken("))
+	testutil.Contains(t, content, `typeof ayb.token === "string"`)
+	testutil.Contains(t, content, `typeof ayb.refreshToken === "string"`)
+	testutil.Contains(t, content, "Keep auth tokens in memory by default")
 }
 
 func TestAybClientNode(t *testing.T) {
@@ -312,6 +309,8 @@ func TestExpressMainContent(t *testing.T) {
 	testutil.Contains(t, content, "ayb.health()")
 	testutil.Contains(t, content, "ayb.records.list")
 	testutil.Contains(t, content, "async function main()")
+	testutil.Contains(t, content, "Cannot connect to AYB. Run 'ayb start' first.")
+	testutil.Contains(t, content, "Cannot list items. Run 'ayb sql < schema.sql' first.")
 }
 
 func TestPlainMainContent(t *testing.T) {
@@ -320,6 +319,8 @@ func TestPlainMainContent(t *testing.T) {
 	testutil.Contains(t, content, `import { ayb }`)
 	testutil.Contains(t, content, "ayb.health()")
 	testutil.Contains(t, content, "ayb.records.list")
+	testutil.Contains(t, content, "Cannot connect to AYB. Run 'ayb start' first.")
+	testutil.Contains(t, content, "Cannot list items. Run 'ayb sql < schema.sql' first.")
 }
 
 func TestPackageNameLowercase(t *testing.T) {
@@ -341,10 +342,112 @@ func assertFileExists(t *testing.T, dir, path string) {
 	testutil.Nil(t, err)
 }
 
+func assertFilesExist(t *testing.T, dir string, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		assertFileExists(t, dir, path)
+	}
+}
+
 func assertFileContains(t *testing.T, dir, path, substr string) {
 	t.Helper()
 	fullPath := filepath.Join(dir, path)
 	content, err := os.ReadFile(fullPath)
 	testutil.NoError(t, err)
 	testutil.Contains(t, string(content), substr)
+}
+
+func scaffoldProject(t *testing.T, name string, tmpl Template) string {
+	t.Helper()
+	dir := t.TempDir()
+	err := Run(Options{Name: name, Template: tmpl, Dir: dir})
+	testutil.NoError(t, err)
+	return filepath.Join(dir, name)
+}
+
+func assertDomainTemplateScaffoldFiles(t *testing.T, projectDir, domainClientPath string) {
+	t.Helper()
+	assertFilesExist(t, projectDir,
+		"ayb.toml",
+		"schema.sql",
+		"seed.sql",
+		".env",
+		".gitignore",
+		"CLAUDE.md",
+		"README.md",
+		"package.json",
+		"src/index.ts",
+		"src/lib/ayb.ts",
+		domainClientPath,
+	)
+}
+
+func assertSchemaDoesNotContainGenericItemsTable(t *testing.T, projectDir string) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(projectDir, "schema.sql"))
+	testutil.NoError(t, err)
+	testutil.False(t, strings.Contains(string(content), "CREATE TABLE IF NOT EXISTS items"))
+}
+
+func TestRun_Blog(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "blog-app", TemplateBlog)
+	assertDomainTemplateScaffoldFiles(t, projectDir, "src/lib/blog.ts")
+
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS posts")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS comments")
+	assertSchemaDoesNotContainGenericItemsTable(t, projectDir)
+
+	assertFileContains(t, projectDir, "README.md", "ayb sql < schema.sql && ayb sql < seed.sql")
+	assertFileContains(t, projectDir, "src/lib/blog.ts", "listPosts")
+}
+
+func TestRun_ReactRegressionAfterDomainTemplateRefactor(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "react-unchanged", TemplateReact)
+	assertFilesExist(t, projectDir, "src/main.tsx", "src/App.tsx", "src/lib/ayb.ts")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS items")
+}
+
+func TestRun_Kanban(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "kanban-app", TemplateKanban)
+	assertDomainTemplateScaffoldFiles(t, projectDir, "src/lib/kanban.ts")
+
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS boards")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS columns")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS cards")
+	assertSchemaDoesNotContainGenericItemsTable(t, projectDir)
+}
+
+func TestRun_Ecommerce(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "shop-app", TemplateEcommerce)
+	assertDomainTemplateScaffoldFiles(t, projectDir, "src/lib/ecommerce.ts")
+
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS products")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS orders")
+	assertSchemaDoesNotContainGenericItemsTable(t, projectDir)
+}
+
+func TestRun_Polls(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "polls-app", TemplatePolls)
+	assertDomainTemplateScaffoldFiles(t, projectDir, "src/lib/polls.ts")
+
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS polls")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS poll_options")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS votes")
+	assertSchemaDoesNotContainGenericItemsTable(t, projectDir)
+}
+
+func TestRun_Chat(t *testing.T) {
+	t.Parallel()
+	projectDir := scaffoldProject(t, "chat-app", TemplateChat)
+	assertDomainTemplateScaffoldFiles(t, projectDir, "src/lib/chat.ts")
+
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS rooms")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS participants")
+	assertFileContains(t, projectDir, "schema.sql", "CREATE TABLE IF NOT EXISTS messages")
+	assertSchemaDoesNotContainGenericItemsTable(t, projectDir)
 }

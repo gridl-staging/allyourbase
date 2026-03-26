@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Admin Dashboard Setup
@@ -23,9 +23,10 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
   test("dashboard loads with all sidebar sections", async ({ page }) => {
     // Act: Navigate to admin dashboard
     await page.goto("/admin/");
+    await waitForDashboard(page);
 
     // Assert: Dashboard heading visible
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Assert: Sidebar sections are present
     const sidebar = page.locator("aside");
@@ -45,15 +46,18 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test("create table via SQL Editor and verify in sidebar", async ({ page }) => {
+  test("first-run journey creates first table and verifies first row in table data view", async ({
+    page,
+  }) => {
     const runId = Date.now();
     const tableName = `posts_smoke_${runId}`;
+    const rowTitle = `First Post ${runId}`;
 
     pendingCleanup.push(`DROP TABLE IF EXISTS ${tableName};`);
 
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Step 2: Click SQL Editor in sidebar
     const sidebar = page.locator("aside");
@@ -63,16 +67,11 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     const sqlInput = page.getByLabel("SQL query");
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
-    // Step 4: Create posts table (UI doesn't support multi-statement SQL)
-    const createTableSQL = `
-      CREATE TABLE ${tableName} (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        title TEXT NOT NULL,
-        body TEXT,
-        author_id UUID,
-        status TEXT DEFAULT 'draft',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )`;
+    // Step 4: Create table (single statement per execution)
+    const createTableSQL = `CREATE TABLE ${tableName} (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL
+    )`;
 
     await sqlInput.fill(createTableSQL);
 
@@ -82,38 +81,24 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await runButton.click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
-    // Step 7: Insert sample data (separate statement)
-    const insertSQL = `
-      INSERT INTO ${tableName} (title, body, status) VALUES
-        ('First Post', 'Hello World', 'published'),
-        ('Second Post', 'Testing', 'draft'),
-        ('Third Post', 'More content', 'published')`;
+    // Step 6: Sidebar should refresh automatically after CREATE TABLE
+    const tableLink = sidebar.getByText(tableName, { exact: true });
+    await expect(tableLink).toBeVisible({ timeout: 15000 });
+
+    // Step 7: Insert first row
+    const insertSQL = `INSERT INTO ${tableName} (title) VALUES ('${rowTitle}');`;
 
     await sqlInput.clear();
     await sqlInput.fill(insertSQL);
 
     runButton = page.getByRole("button", { name: /run|execute/i });
     await runButton.click();
-    await expect(page.getByText(/rows? affected|statement executed successfully/i).first()).toBeVisible({
-      timeout: 10000,
-    });
+    await expect(page.getByText(/rows? affected/i).first()).toBeVisible({ timeout: 10000 });
 
-    const refreshButton = page.getByRole("button", { name: /refresh schema/i });
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await refreshButton.click({ timeout: 15000 });
-
-    // Step 10: Wait for table to appear in sidebar (more reliable than button state)
-    const tableLink = sidebar.getByText(tableName, { exact: true });
-    await expect(tableLink).toBeVisible({ timeout: 15000 });
-
-    // Step 11: Click table to verify it's navigable
+    // Step 8: Click table and verify existing table data view renders the new row
     await tableLink.click();
-
-    // Step 12: Verify we're on the table view page
-    // Should see the table data we inserted
-    await expect(page.getByText("First Post")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Second Post")).toBeVisible();
-    await expect(page.getByText("Third Post")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Data$/i })).toBeVisible();
+    await expect(page.getByRole("cell", { name: rowTitle })).toBeVisible({ timeout: 10000 });
 
     // Cleanup handled by afterEach
   });
@@ -134,7 +119,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
 
     // Act: Navigate to SQL Editor
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();

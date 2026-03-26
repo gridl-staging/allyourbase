@@ -1,3 +1,4 @@
+// Package cli Defines CLI commands for managing OAuth 2.0 clients, including creating new clients, listing existing clients, rotating secrets, and revoking access.
 package cli
 
 import (
@@ -67,6 +68,7 @@ func init() {
 	rootCmd.AddCommand(oauthCmd)
 }
 
+// Registers a new OAuth client for an application, requiring a name, redirect URIs, and scopes, then displays the client credentials and secret for confidential clients.
 func runOAuthClientsCreate(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	appID := args[0]
@@ -136,6 +138,7 @@ func runOAuthClientsCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Retrieves and displays all registered OAuth clients with their configuration details, supporting table, CSV, and JSON output formats.
 func runOAuthClientsList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -223,6 +226,7 @@ func runOAuthClientsDelete(cmd *cobra.Command, args []string) error {
 	return serverError(resp.StatusCode, body)
 }
 
+// Regenerates the client secret for an OAuth client and displays the new secret, which must be saved as it will not be shown again.
 func runOAuthClientsRotateSecret(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	clientID := args[0]

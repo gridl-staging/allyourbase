@@ -1,3 +1,4 @@
+// Package cli implements the status command to check if the AYB server is running and report its health.
 package cli
 
 import (
@@ -23,6 +24,7 @@ func init() {
 	statusCmd.Flags().Int("port", 0, "Server port to check (default: read from PID file or 8090)")
 }
 
+// runStatus reports the running state of the AYB server. It reads the PID file, verifies the process is alive, probes the health endpoint, and cleans up stale PID files if needed. Output is JSON if the json flag is set, otherwise human-readable text.
 func runStatus(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	portFlag, _ := cmd.Flags().GetInt("port")

@@ -1,3 +1,4 @@
+// Package jobs Store provides database operations for the job queue, including job lifecycle management and scheduled execution.
 package jobs
 
 import (
@@ -45,6 +46,7 @@ func scanJob(row pgx.Row) (*Job, error) {
 	return &j, nil
 }
 
+// scanJobs scans all database result rows into a slice of Job structs, returning any error from the iteration.
 func scanJobs(rows pgx.Rows) ([]Job, error) {
 	var result []Job
 	for rows.Next() {

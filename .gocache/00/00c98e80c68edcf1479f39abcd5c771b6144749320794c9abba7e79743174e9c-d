@@ -1,7 +1,0 @@
-./errors.go
-./models.go
-./service.go
-./store.go
-./validate.go
-./service_test.go
-./validate_test.go

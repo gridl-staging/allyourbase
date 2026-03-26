@@ -1,12 +1,19 @@
+// Package server The messaging handler implements SMS message persistence and delivery status tracking with Twilio webhook integration for status callbacks and signature verification.
 package server
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
@@ -17,7 +24,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const maxSMSBodyLength = 1600
+const (
+	maxSMSBodyLength         = 1600
+	twilioWebhookMaxBodySize = 64 << 10
+)
 
 // adminSMSMessage is smsMessage with UserID exposed for admin endpoints.
 type adminSMSMessage struct {
@@ -111,6 +121,7 @@ func (s *pgMessageStore) GetMessage(ctx context.Context, id, userID string) (*sm
 	return &m, nil
 }
 
+// ListAllMessages retrieves all SMS messages with pagination, returning both the requested messages ordered by creation time in descending order and the total count of all messages in the table.
 func (s *pgMessageStore) ListAllMessages(ctx context.Context, limit, offset int) ([]adminSMSMessage, int, error) {
 	var total int
 	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM _ayb_sms_messages`).Scan(&total)
@@ -140,6 +151,7 @@ func (s *pgMessageStore) ListAllMessages(ctx context.Context, limit, offset int)
 	return msgs, total, rows.Err()
 }
 
+// ListMessages retrieves SMS messages for a specific user with pagination support, returning messages ordered by creation time in descending order.
 func (s *pgMessageStore) ListMessages(ctx context.Context, userID string, limit, offset int) ([]smsMessage, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, to_phone, body, provider, provider_message_id, status, error_message, created_at, updated_at
@@ -183,6 +195,7 @@ func deliveryStatusRank(status string) int {
 	}
 }
 
+// UpdateDeliveryStatus updates an SMS message's delivery status based on its provider message ID, preventing status regressions by only allowing transitions to later stages in the delivery lifecycle.
 func (s *pgMessageStore) UpdateDeliveryStatus(ctx context.Context, providerMsgID, status, errMsg string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE _ayb_sms_messages
@@ -369,8 +382,23 @@ func (s *Server) handleMessagingSMSGet(w http.ResponseWriter, r *http.Request) {
 
 // handleSMSDeliveryWebhook handles POST /api/webhooks/sms/status.
 // Twilio sends application/x-www-form-urlencoded status callbacks.
-// TODO: Twilio request signature verification — requires webhook URL in config + auth token on server
 func (s *Server) handleSMSDeliveryWebhook(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, twilioWebhookMaxBodySize)
+	if err := r.ParseForm(); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httputil.WriteError(w, http.StatusRequestEntityTooLarge, "webhook payload too large")
+			return
+		}
+		httputil.WriteError(w, http.StatusBadRequest, "invalid webhook payload")
+		return
+	}
+
+	if !s.verifyTwilioWebhookSignature(r) {
+		httputil.WriteError(w, http.StatusForbidden, "invalid webhook signature")
+		return
+	}
+
 	messageSid := r.FormValue("MessageSid")
 	if messageSid == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "MessageSid is required")
@@ -398,4 +426,70 @@ func (s *Server) handleSMSDeliveryWebhook(w http.ResponseWriter, r *http.Request
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
+}
+
+// verifyTwilioWebhookSignature validates that a Twilio webhook request contains a valid X-Twilio-Signature header and fails closed when Twilio webhook verification is not configured.
+func (s *Server) verifyTwilioWebhookSignature(r *http.Request) bool {
+	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Auth.TwilioToken) == "" {
+		return false
+	}
+	gotSig := strings.TrimSpace(r.Header.Get("X-Twilio-Signature"))
+	if gotSig == "" {
+		return false
+	}
+	baseURL := strings.TrimSpace(s.cfg.Auth.SMSWebhookURL)
+	if baseURL == "" {
+		baseURL = webhookRequestURL(r)
+	}
+	wantSig := twilioRequestSignature(baseURL, r.PostForm, s.cfg.Auth.TwilioToken)
+	return hmac.Equal([]byte(gotSig), []byte(wantSig))
+}
+
+// webhookRequestURL reconstructs the complete URL of the incoming HTTP request, using X-Forwarded-Proto and X-Forwarded-Host headers when available for correct resolution behind proxies, otherwise falling back to the request's TLS status and Host header.
+func webhookRequestURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = r.Host
+	}
+	u := url.URL{
+		Scheme:   scheme,
+		Host:     host,
+		Path:     r.URL.Path,
+		RawQuery: r.URL.RawQuery,
+	}
+	return u.String()
+}
+
+// twilioRequestSignature computes the HMAC-SHA1 signature required to verify Twilio webhook authenticity by concatenating the request URL with sorted form parameters and the shared token, returning the base64-encoded digest.
+func twilioRequestSignature(rawURL string, form url.Values, token string) string {
+	keys := make([]string, 0, len(form))
+	for k := range form {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	b.WriteString(rawURL)
+	for _, k := range keys {
+		values := form[k]
+		for _, v := range values {
+			b.WriteString(k)
+			b.WriteString(v)
+		}
+	}
+
+	mac := hmac.New(sha1.New, []byte(token))
+	_, _ = mac.Write([]byte(b.String()))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }

@@ -1,3 +1,4 @@
+// Package auth implements per-app sliding window rate limiting with HTTP middleware.
 package auth
 
 import (
@@ -115,6 +116,7 @@ func pruneAppTimestamps(b *appBucket, cutoff time.Time) {
 	b.timestamps = valid
 }
 
+// cleanup runs a background goroutine that periodically removes expired rate limit entries and deletes empty app buckets.
 func (arl *AppRateLimiter) cleanup() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()

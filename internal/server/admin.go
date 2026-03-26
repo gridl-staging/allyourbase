@@ -1,3 +1,4 @@
+// Package server admin.go provides stateless HMAC-based authentication for the admin dashboard and middleware for protecting API endpoints with user authentication combined with rate limiting.
 package server
 
 import (
@@ -8,9 +9,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/allyourbase/ayb/internal/audit"
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/google/uuid"
 )
 
 // adminAuth handles simple password-based admin dashboard authentication.
@@ -82,7 +86,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // requireAdminToken returns middleware that requires a valid admin token.
-// When admin.password is not set, all requests pass through.
+// Fails closed when admin auth is not configured.
 func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.adminMu.RLock()
@@ -90,7 +94,8 @@ func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 		s.adminMu.RUnlock()
 
 		if aa == nil {
-			next.ServeHTTP(w, r)
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "admin authentication required",
+				"https://allyourbase.io/guide/admin-dashboard")
 			return
 		}
 
@@ -101,8 +106,30 @@ func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, withAdminAuditContext(r, token))
 	})
+}
+
+func withAuditIPContext(r *http.Request) *http.Request {
+	ctx := audit.ContextWithIP(r.Context(), httputil.ClientIP(r))
+	return r.WithContext(ctx)
+}
+
+func withAdminAuditContext(r *http.Request, token string) *http.Request {
+	r = withAuditIPContext(r)
+	if principal := adminAuditPrincipal(token); principal != "" {
+		ctx := audit.ContextWithPrincipal(r.Context(), principal)
+		r = r.WithContext(ctx)
+	}
+	return r
+}
+
+func adminAuditPrincipal(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("ayb-admin:"+token)).String()
 }
 
 // ResetAdminPassword generates a new random admin password and returns it.
@@ -147,22 +174,42 @@ func (s *Server) isAdminToken(r *http.Request) bool {
 // CRUD API so that the admin dashboard (which holds an admin token) can read and
 // write collection data when user-auth is enabled.
 func (s *Server) requireAdminOrUserAuth(authSvc *auth.Service) func(http.Handler) http.Handler {
-	userAuth := auth.RequireAuth(authSvc)
+	userProtected := s.requireUserAuthWithRateLimit(authSvc)
+
 	return func(next http.Handler) http.Handler {
-		userNext := next
-		if s.appRL != nil {
-			userNext = s.appRL.Middleware(userNext)
-		}
-		userHandler := userAuth(userNext)
+		// Prepare the standard user-auth middleware chain once.
+		userNext := userProtected(next)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = withAuditIPContext(r)
 			// Fast path: admin token bypasses user-auth entirely.
 			if s.isAdminToken(r) {
-				next.ServeHTTP(w, r)
+				token, _ := httputil.ExtractBearerToken(r)
+				next.ServeHTTP(w, withAdminAuditContext(r, token))
 				return
 			}
 			// Fall back to the standard user-auth middleware chain.
-			userHandler.ServeHTTP(w, r)
+			userNext.ServeHTTP(w, r)
 		})
+	}
+}
+
+// requireUserAuthWithRateLimit returns middleware that enforces user authentication while applying rate limiting to both authenticated and anonymous requests. The middleware extracts user claims for valid tokens, applies app and API-route rate limiters, and then enforces strict authentication, enabling per-user rate limit buckets.
+func (s *Server) requireUserAuthWithRateLimit(authSvc *auth.Service) func(http.Handler) http.Handler {
+	userAuth := auth.RequireAuth(authSvc)
+	optionalAuth := auth.OptionalAuth(authSvc)
+	return func(next http.Handler) http.Handler {
+		// Run anonymous/app rate limiters before strict auth so unauthenticated
+		// requests are still rate-limited. OptionalAuth populates claims for
+		// valid tokens, enabling per-user buckets before RequireAuth enforces auth.
+		userNext := userAuth(next)
+		if s.appRL != nil {
+			userNext = s.appRL.Middleware(userNext)
+		}
+		if s.apiRL != nil || s.apiAnonRL != nil {
+			userNext = APIRouteRateLimitMiddleware(s.apiRL, s.apiAnonRL, s.apiRateLimit, s.apiAnonRateLimit)(userNext)
+		}
+		userNext = optionalAuth(userNext)
+		return userNext
 	}
 }

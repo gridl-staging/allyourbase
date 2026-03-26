@@ -97,19 +97,52 @@ func TestCountPolicies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := countPolicies(tt.coll)
+			result, _ := countPolicies(tt.coll)
 			testutil.Equal(t, tt.expected, result)
 		})
 	}
 }
 
+func TestCountPolicies_NonConvertibleRules(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-convertible rule excluded from count", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:       "posts",
+			Type:       "base",
+			ListRule:   strPtr(""),
+			CreateRule: strPtr("@collection.users.id != ''"), // non-convertible
+		}
+		count, diags := countPolicies(coll)
+		testutil.Equal(t, 1, count) // only ListRule counted
+		testutil.SliceLen(t, diags, 1)
+		testutil.Equal(t, "create", diags[0].Action)
+		testutil.Contains(t, diags[0].Message, "unsupported")
+	})
+
+	t.Run("all non-convertible rules return zero count", func(t *testing.T) {
+		t.Parallel()
+		coll := PBCollection{
+			Name:       "posts",
+			Type:       "base",
+			ListRule:   strPtr("tags ?~ 'important'"),
+			CreateRule: strPtr("@request.data.email != ''"),
+		}
+		count, diags := countPolicies(coll)
+		testutil.Equal(t, 0, count)
+		testutil.Equal(t, 2, len(diags))
+	})
+}
+
 func TestCountPoliciesMatchesGenerateRLSPolicies(t *testing.T) {
 	// Verify countPolicies (used in Analyze) matches GenerateRLSPolicies (used in Migrate)
-	// so the validation summary never shows a false mismatch.
+	// so the validation summary never shows a false mismatch. Both now classify rules
+	// through classifyRule, so their counts must always agree.
 	t.Parallel()
 
 	open := ""
-	locked := "some_expr"
+	expr := "some_expr"
 
 	tests := []struct {
 		name string
@@ -119,14 +152,14 @@ func TestCountPoliciesMatchesGenerateRLSPolicies(t *testing.T) {
 			name: "all rules set",
 			coll: PBCollection{
 				Name: "posts", Type: "base",
-				ListRule: &open, ViewRule: &open, CreateRule: &locked, UpdateRule: &locked, DeleteRule: &locked,
+				ListRule: &open, ViewRule: &open, CreateRule: &expr, UpdateRule: &expr, DeleteRule: &expr,
 			},
 		},
 		{
 			name: "only list and create",
 			coll: PBCollection{
 				Name: "items", Type: "base",
-				ListRule: &open, CreateRule: &locked,
+				ListRule: &open, CreateRule: &expr,
 			},
 		},
 		{
@@ -138,12 +171,36 @@ func TestCountPoliciesMatchesGenerateRLSPolicies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			count := countPolicies(tt.coll)
-			policies, err := GenerateRLSPolicies(tt.coll)
+			count, _ := countPolicies(tt.coll)
+			policies, _, err := GenerateRLSPolicies(tt.coll)
 			testutil.NoError(t, err)
 			testutil.Equal(t, count, len(policies))
 		})
 	}
+}
+
+func TestCountPoliciesMatchesGenerateRLSPolicies_NonConvertible(t *testing.T) {
+	// Verify that both countPolicies and GenerateRLSPolicies agree on zero convertible
+	// policies when a non-convertible rule is present (the bug this refactor fixes).
+	t.Parallel()
+
+	coll := PBCollection{
+		Name:       "posts",
+		Type:       "base",
+		ListRule:   strPtr(""),
+		CreateRule: strPtr("@collection.users.id != ''"), // non-convertible
+	}
+
+	count, diags := countPolicies(coll)
+	// countPolicies counts only convertible rules
+	testutil.Equal(t, 1, count) // ListRule is convertible
+	testutil.SliceLen(t, diags, 1)
+
+	// GenerateRLSPolicies returns nil policies because of the non-convertible rule
+	policies, genDiags, err := GenerateRLSPolicies(coll)
+	testutil.ErrorContains(t, err, "unsupported")
+	testutil.Nil(t, policies)
+	testutil.SliceLen(t, genDiags, 1)
 }
 
 func TestFormatSize(t *testing.T) {

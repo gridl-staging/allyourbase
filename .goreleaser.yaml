@@ -49,3 +49,11 @@ release:
     name: allyourbase
   draft: false
   prerelease: "false"
+
+scoops:
+  - bucket:
+      owner: gridlhq
+      name: scoop-bucket
+    homepage: "https://github.com/gridlhq-staging/allyourbase"
+    description: "Backend-as-a-Service for PostgreSQL. Single binary, one config file."
+    license: MIT

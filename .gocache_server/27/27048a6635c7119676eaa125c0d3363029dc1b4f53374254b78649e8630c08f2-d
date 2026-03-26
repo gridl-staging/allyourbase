@@ -1,5 +1,0 @@
-./admin_test.go
-./logs_stats_handler_test.go
-./middleware_test.go
-./server_test.go
-./sms_health_test.go

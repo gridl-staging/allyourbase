@@ -1,3 +1,4 @@
+// Package auth provides SMS authentication with OTP generation, delivery, and verification for user registration and login.
 package auth
 
 import (
@@ -45,7 +46,7 @@ func isAllowedCountry(phone string, allowed []string) bool {
 
 // RequestSMSCode sends an OTP to the given phone number.
 func (s *Service) RequestSMSCode(ctx context.Context, phone string) error {
-	if s.smsProvider == nil {
+	if !s.smsDeliveryConfigured() {
 		return nil
 	}
 
@@ -119,9 +120,9 @@ func (s *Service) ConfirmSMSCode(ctx context.Context, phone, code string) (*User
 	// Find or create user by phone.
 	var user User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, phone, created_at, updated_at FROM _ayb_users WHERE phone = $1`,
+		`SELECT id, COALESCE(email, ''), phone, is_anonymous, created_at, updated_at FROM _ayb_users WHERE phone = $1`,
 		phone,
-	).Scan(&user.ID, &user.Email, &user.Phone, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.Phone, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		randomPW := make([]byte, 32)
@@ -133,21 +134,21 @@ func (s *Service) ConfirmSMSCode(ctx context.Context, phone, code string) (*User
 			return nil, "", "", fmt.Errorf("hashing placeholder password: %w", err)
 		}
 
-		// Generate a placeholder email — _ayb_users.email is NOT NULL.
+		// SMS-only users get a placeholder email.
 		placeholderEmail := phone + "@sms.local"
 
 		err = s.pool.QueryRow(ctx,
 			`INSERT INTO _ayb_users (email, phone, password_hash) VALUES ($1, $2, $3)
-			 RETURNING id, email, phone, created_at, updated_at`,
+			 RETURNING id, COALESCE(email, ''), phone, is_anonymous, created_at, updated_at`,
 			placeholderEmail, phone, pwHash,
-		).Scan(&user.ID, &user.Email, &user.Phone, &user.CreatedAt, &user.UpdatedAt)
+		).Scan(&user.ID, &user.Email, &user.Phone, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				err2 := s.pool.QueryRow(ctx,
-					`SELECT id, email, phone, created_at, updated_at FROM _ayb_users WHERE phone = $1`,
+					`SELECT id, COALESCE(email, ''), phone, is_anonymous, created_at, updated_at FROM _ayb_users WHERE phone = $1`,
 					phone,
-				).Scan(&user.ID, &user.Email, &user.Phone, &user.CreatedAt, &user.UpdatedAt)
+				).Scan(&user.ID, &user.Email, &user.Phone, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 				if err2 != nil {
 					return nil, "", "", fmt.Errorf("querying user after conflict: %w", err2)
 				}
@@ -161,13 +162,13 @@ func (s *Service) ConfirmSMSCode(ctx context.Context, phone, code string) (*User
 		return nil, "", "", fmt.Errorf("querying user: %w", err)
 	}
 
-	// If user has MFA enrolled, return a pending token instead of full tokens.
-	hasMFA, err := s.HasSMSMFA(ctx, user.ID)
+	// If user has any MFA factor enrolled, return a pending token instead of full tokens.
+	hasMFA, _, err := s.HasAnyMFA(ctx, user.ID)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
 	}
 	if hasMFA {
-		pendingToken, err := s.generateMFAPendingToken(&user)
+		pendingToken, err := s.generateMFAPendingTokenWithMethod(&user, "sms")
 		if err != nil {
 			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
 		}
@@ -188,6 +189,7 @@ type smsConfirmRequest struct {
 	Code  string `json:"code"`
 }
 
+// handleSMSRequest handles POST requests to initiate SMS code delivery, validating the phone number and requesting an OTP, always returning 200 OK to prevent enumeration.
 func (h *Handler) handleSMSRequest(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS authentication is not enabled",
@@ -223,6 +225,7 @@ func (h *Handler) handleSMSRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSMSConfirm handles POST requests to verify an SMS code, authenticating the user and returning either access and refresh tokens or an MFA pending token if MFA is enrolled.
 func (h *Handler) handleSMSConfirm(w http.ResponseWriter, r *http.Request) {
 	if !h.smsEnabled {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS authentication is not enabled",

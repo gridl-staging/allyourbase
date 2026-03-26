@@ -10,7 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { ToastContainer, useToast } from "./Toast";
+import { useAppToast } from "./ToastProvider";
 
 const PER_PAGE = 20;
 
@@ -31,7 +31,7 @@ export function Apps() {
   const [createDescription, setCreateDescription] = useState("");
   const [createOwnerId, setCreateOwnerId] = useState("");
   const [userEmails, setUserEmails] = useState<Record<string, string>>({});
-  const { toasts, addToast, removeToast } = useToast();
+  const { addToast } = useAppToast();
 
   const fetchApps = useCallback(async () => {
     try {
@@ -100,7 +100,7 @@ export function Apps() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading apps...
       </div>
@@ -132,7 +132,7 @@ export function Apps() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Applications</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Manage registered applications and their rate limits
           </p>
         </div>
@@ -146,9 +146,9 @@ export function Apps() {
       </div>
 
       {data && data.items.length === 0 ? (
-        <div className="text-center py-16 border rounded-lg bg-gray-50">
-          <Box className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">No apps registered yet</p>
+        <div className="text-center py-16 border rounded-lg bg-gray-50 dark:bg-gray-800">
+          <Box className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400 text-sm">No apps registered yet</p>
           <button
             onClick={() => setModal({ kind: "create" })}
             className="mt-3 text-sm text-blue-600 hover:underline"
@@ -160,24 +160,24 @@ export function Apps() {
         <>
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
+              <thead className="bg-gray-50 dark:bg-gray-800 border-b">
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Name
                   </th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Description
                   </th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Owner
                   </th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Rate Limit
                   </th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Created
                   </th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">
+                  <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">
                     Actions
                   </th>
                 </tr>
@@ -186,30 +186,30 @@ export function Apps() {
                 {data.items.map((app) => (
                   <tr
                     key={app.id}
-                    className="border-b last:border-0 hover:bg-gray-50"
+                    className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800"
                   >
                     <td className="px-4 py-2.5">
                       <span className="font-medium">{app.name}</span>
-                      <div className="text-[10px] text-gray-400 mt-0.5">
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
                         {app.id}
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">
-                      {app.description || <span className="text-gray-300">—</span>}
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                      {app.description || <span className="text-gray-300 dark:text-gray-500">—</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                       {userEmails[app.ownerUserId] || app.ownerUserId}
                     </td>
                     <td className="px-4 py-2.5 text-xs">
                       {app.rateLimitRps > 0 ? (
-                        <span className="text-gray-700">
+                        <span className="text-gray-700 dark:text-gray-200">
                           {app.rateLimitRps} req/{app.rateLimitWindowSeconds}s
                         </span>
                       ) : (
-                        <span className="text-gray-400">none</span>
+                        <span className="text-gray-400 dark:text-gray-500">none</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">
+                    <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
                       {new Date(app.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-2.5">
@@ -218,7 +218,7 @@ export function Apps() {
                           onClick={() =>
                             setModal({ kind: "delete", app })
                           }
-                          className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
                           title="Delete app"
                           aria-label="Delete app"
                         >
@@ -233,7 +233,7 @@ export function Apps() {
           </div>
 
           {/* Pagination */}
-          <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+          <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
             <span>
               {data.totalItems} app{data.totalItems !== 1 ? "s" : ""}
             </span>
@@ -241,7 +241,7 @@ export function Apps() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-30"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -253,7 +253,7 @@ export function Apps() {
                   setPage((p) => Math.min(data.totalPages, p + 1))
                 }
                 disabled={page >= data.totalPages}
-                className="p-1 rounded hover:bg-gray-200 disabled:opacity-30"
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -265,11 +265,11 @@ export function Apps() {
       {/* Create modal */}
       {modal.kind === "create" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
             <h3 className="font-semibold mb-4">Create Application</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Name
                 </label>
                 <input
@@ -282,7 +282,7 @@ export function Apps() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Description
                 </label>
                 <input
@@ -295,7 +295,7 @@ export function Apps() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Owner
                 </label>
                 {Object.keys(userEmails).length > 0 ? (
@@ -332,7 +332,7 @@ export function Apps() {
                   setCreateDescription("");
                   setCreateOwnerId("");
                 }}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -351,19 +351,19 @@ export function Apps() {
       {/* Delete confirmation */}
       {modal.kind === "delete" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="font-semibold mb-2">Delete Application</h3>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               This will permanently delete the application and revoke all API
               keys scoped to it.
             </p>
-            <p className="text-xs font-mono text-gray-500 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
               {modal.app.name} ({modal.app.id})
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -379,7 +379,6 @@ export function Apps() {
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Schedules } from "../Schedules";
 import {
@@ -71,7 +72,7 @@ describe("Schedules", () => {
   });
 
   it("renders schedules table", async () => {
-    render(<Schedules />);
+    renderWithProviders(<Schedules />);
 
     await waitFor(() => {
       expect(screen.getByText("Job Schedules")).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("Schedules", () => {
       makeListResponse([makeSchedule({ id: "s-disabled", enabled: false })]),
     );
 
-    render(<Schedules />);
+    renderWithProviders(<Schedules />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -100,7 +101,7 @@ describe("Schedules", () => {
   });
 
   it("shows cron validation error in create modal", async () => {
-    render(<Schedules />);
+    renderWithProviders(<Schedules />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -120,7 +121,7 @@ describe("Schedules", () => {
   });
 
   it("creates a schedule from modal", async () => {
-    render(<Schedules />);
+    renderWithProviders(<Schedules />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -148,7 +149,7 @@ describe("Schedules", () => {
   });
 
   it("updates and deletes a schedule", async () => {
-    render(<Schedules />);
+    renderWithProviders(<Schedules />);
 
     const user = userEvent.setup();
     await waitFor(() => {

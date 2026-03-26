@@ -1,3 +1,4 @@
+// Package cli defines webhook management commands for creating, listing, and deleting webhooks on the AYB server through authenticated admin API calls.
 package cli
 
 import (
@@ -51,6 +52,7 @@ func init() {
 	webhooksCmd.AddCommand(webhooksDeleteCmd)
 }
 
+// runWebhooksList retrieves all configured webhooks from the server and displays them as JSON, CSV, or formatted table based on the output format flag.
 func runWebhooksList(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 
@@ -116,6 +118,7 @@ func runWebhooksList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runWebhooksCreate creates a new webhook with the specified destination URL, optional event and table filters, and HMAC-SHA256 signing secret, then displays the created webhook's ID and URL.
 func runWebhooksCreate(cmd *cobra.Command, args []string) error {
 	outFmt := outputFormat(cmd)
 	whURL, _ := cmd.Flags().GetString("webhook-url")

@@ -1,4 +1,5 @@
 # OAuth 2.0 Provider Mode
+<!-- audited 2026-03-20 -->
 
 AYB can act as an OAuth 2.0 authorization server, allowing third-party applications to request scoped access to your AYB instance on behalf of users.
 
@@ -289,7 +290,7 @@ Public clients send only `client_id` (no secret required). You cannot use both m
 - HTTPS required (except `http://localhost` and `http://127.0.0.1` for development)
 - Exact match only (no wildcards, no query parameters, no fragments)
 - At least one URI must be registered
-- Port wildcards allowed for localhost (native apps per RFC 8252 §7.3)
+- Localhost redirect URIs must be registered with explicit ports (for example `http://localhost:3000/callback`)
 
 ## PKCE Requirements
 

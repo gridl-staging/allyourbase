@@ -1,3 +1,4 @@
+// Package server Provides HTTP handlers for the materialized views admin API, supporting registration, retrieval, updates, deletion, and refresh operations.
 package server
 
 import (
@@ -7,7 +8,6 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/matview"
-	"github.com/go-chi/chi/v5"
 )
 
 // matviewAdmin is the interface for matview admin operations.
@@ -27,8 +27,8 @@ type matviewListResponse struct {
 }
 
 type registerMatviewRequest struct {
-	Schema      string             `json:"schema"`
-	ViewName    string             `json:"viewName"`
+	Schema      string              `json:"schema"`
+	ViewName    string              `json:"viewName"`
 	RefreshMode matview.RefreshMode `json:"refreshMode"`
 }
 
@@ -50,13 +50,14 @@ func handleAdminListMatviews(svc matviewAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that retrieves a materialized view registration by ID.
 func handleAdminGetMatview(svc matviewAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if !httputil.IsValidUUID(id) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid matview id format")
+		matviewID, ok := parseUUIDParamWithLabel(w, r, "id", "matview id")
+		if !ok {
 			return
 		}
+		id := matviewID.String()
 		reg, err := svc.Get(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, matview.ErrRegistrationNotFound) {
@@ -70,6 +71,7 @@ func handleAdminGetMatview(svc matviewAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that registers a new materialized view, defaulting the schema to "public" and refresh mode to "standard".
 func handleAdminRegisterMatview(svc matviewAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req registerMatviewRequest
@@ -112,13 +114,14 @@ func handleAdminRegisterMatview(svc matviewAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that updates a materialized view's refresh mode.
 func handleAdminUpdateMatview(svc matviewAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if !httputil.IsValidUUID(id) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid matview id format")
+		matviewID, ok := parseUUIDParamWithLabel(w, r, "id", "matview id")
+		if !ok {
 			return
 		}
+		id := matviewID.String()
 
 		var req updateMatviewRequest
 		if !httputil.DecodeJSON(w, r, &req) {
@@ -142,13 +145,14 @@ func handleAdminUpdateMatview(svc matviewAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that deletes a materialized view registration by ID.
 func handleAdminDeleteMatview(svc matviewAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if !httputil.IsValidUUID(id) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid matview id format")
+		matviewID, ok := parseUUIDParamWithLabel(w, r, "id", "matview id")
+		if !ok {
 			return
 		}
+		id := matviewID.String()
 
 		err := svc.Delete(r.Context(), id)
 		if err != nil {
@@ -163,13 +167,14 @@ func handleAdminDeleteMatview(svc matviewAdmin) http.HandlerFunc {
 	}
 }
 
+// Returns an HTTP handler that triggers an immediate refresh of a registered materialized view.
 func handleAdminRefreshMatview(svc matviewAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if !httputil.IsValidUUID(id) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid matview id format")
+		matviewID, ok := parseUUIDParamWithLabel(w, r, "id", "matview id")
+		if !ok {
 			return
 		}
+		id := matviewID.String()
 
 		result, err := svc.RefreshNow(r.Context(), id)
 		if err != nil {
@@ -198,4 +203,54 @@ func handleAdminRefreshMatview(svc matviewAdmin) http.HandlerFunc {
 		}
 		httputil.WriteJSON(w, http.StatusOK, result)
 	}
+}
+
+// --- Server delegation methods (nil-check + dispatch) ---
+
+func (s *Server) handleMatviewsList(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminListMatviews(s.matviewSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleMatviewsGet(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminGetMatview(s.matviewSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleMatviewsRegister(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminRegisterMatview(s.matviewSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleMatviewsUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminUpdateMatview(s.matviewSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleMatviewsDelete(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminDeleteMatview(s.matviewSvc).ServeHTTP(w, r)
+}
+
+func (s *Server) handleMatviewsRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.matviewSvc == nil {
+		serviceUnavailable(w, serviceUnavailableMatviews)
+		return
+	}
+	handleAdminRefreshMatview(s.matviewSvc).ServeHTTP(w, r)
 }

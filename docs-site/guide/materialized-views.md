@@ -1,3 +1,4 @@
+<!-- audited 2026-03-20 -->
 # Materialized Views
 
 PostgreSQL materialized views store the results of a query physically on disk, making them ideal for expensive aggregations like leaderboards, dashboards, and statistics. AYB serves materialized views read-only through the standard collections API and provides a built-in mechanism to register, refresh, and schedule refreshes.

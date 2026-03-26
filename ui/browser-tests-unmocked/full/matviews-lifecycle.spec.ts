@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, waitForDashboard } from "../fixtures";
 
 test.describe("Matviews Lifecycle (Full E2E)", () => {
   const pendingCleanup: string[] = [];
@@ -47,7 +47,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
     );
 
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /^Matviews$/i }).click();
     await expect(page.getByRole("heading", { name: "Materialized Views" })).toBeVisible({ timeout: 5000 });
 
@@ -87,7 +87,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
     );
 
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /^Matviews$/i }).click();
     await expect(page.getByRole("heading", { name: "Materialized Views" })).toBeVisible({ timeout: 5000 });
 
@@ -95,7 +95,7 @@ test.describe("Matviews Lifecycle (Full E2E)", () => {
     await expect(page.getByText("Register Materialized View")).toBeVisible({ timeout: 3000 });
     await page.getByLabel("View").selectOption(`public.${matviewName}`);
     await page.getByLabel("Refresh Mode").first().selectOption("standard");
-    await page.getByRole("button", { name: "Register" }).click();
+    await page.getByRole("button", { name: "Register", exact: true }).click();
 
     const row = page.locator("tr").filter({ hasText: matviewName }).first();
     await expect(row).toBeVisible({ timeout: 5000 });

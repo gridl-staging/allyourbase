@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,7 +37,15 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	pg, cleanup := testutil.StartPostgresForTestMain(ctx)
 	sharedPG = pg
+
+	harnessCleanup, err := bootstrapCLIHarness(ctx, sharedPG.ConnString)
+	if err != nil {
+		cleanup()
+		log.Fatalf("bootstrapping CLI E2E harness: %v", err)
+	}
+
 	code := m.Run()
+	harnessCleanup()
 	cleanup()
 	os.Exit(code)
 }

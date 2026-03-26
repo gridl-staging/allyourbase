@@ -74,8 +74,10 @@ export default function BoardView({ board, onBack }: Props) {
         const col = event.record as unknown as Column;
         if (event.action === "delete") {
           // Delete events only contain PK fields (no board_id), so just
-          // remove the column if it's currently tracked.
+          // remove the column and any cards still attached to it if it's
+          // currently tracked in this board view.
           setColumns((prev) => prev.filter((c) => c.id !== col.id));
+          setCards((prev) => prev.filter((card) => card.column_id !== col.id));
           return;
         }
         // Ignore columns from other boards.

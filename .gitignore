@@ -1,7 +1,10 @@
 # Dev artifacts
 /testpg
+.scrai/codemap_graph_cache.json
 /temptodo*.md
 /live-polls/
+/.toolchains/
+ayb_storage/
 
 # Live migration runtime artifacts (large binaries/data/logs)
 _dev/migration_test/work/
@@ -10,6 +13,15 @@ _dev/migration_test/results/*.txt
 _dev/migration_test/results/*.json
 _dev/migration_test/results/*.csv
 _dev/migration_test/results/*.out
+
+# Release evidence is local validation output, not tracked source.
+_dev/release/evidence/*
+
+# Release-evidence Docker runtime state (keep logs local too; these paths are the noisiest)
+_dev/release/evidence/*/docker-home/
+_dev/release/evidence/*/docker-pgdata/
+_dev/release/evidence/*/docker-storage/
+_dev/release/evidence/*/docker-storage-payload.txt
 
 ayb-linux-amd64
 
@@ -37,6 +49,14 @@ DONE
 go.work
 go.work.sum
 
+# Swift SPM build artifacts
+sdk_swift/.build/
+sdk_swift/.swiftpm/
+
+# Kotlin/Gradle build artifacts
+sdk_kotlin/.gradle/
+sdk_kotlin/build/
+
 # Node / pnpm
 **/node_modules/
 .pnpm-store/
@@ -50,8 +70,11 @@ go.work.sum
 # but don't track pnpm debug logs or Playwright artifacts
 ui/.pnpm-debug.log
 ui/test-results/
+ui/test-results-mocked/
+ui/test-results-unmocked/
 ui/playwright-report/
 ui/browser-tests-unmocked/.auth/
+ui/browser-tests-unmocked/.skip-reason
 examples/shareborough/test-results/
 examples/shareborough/playwright-report/
 
@@ -77,6 +100,7 @@ Desktop.ini
 
 # AYB runtime
 ayb.toml
+!deploy/gridl-node/ayb.toml
 *.log
 docs-site/.vitepress/dist/
 docs-site/.vitepress/cache/
@@ -148,10 +172,28 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# matt runtime state/logs
+.matt/
+
+# Roadmap orchestration artifacts (local only)
+_dev/AYB_IMPLEMENTATION_ROADMAP/.matt/
+_dev/AYB_IMPLEMENTATION_ROADMAP/repo
+_dev/AYB_IMPLEMENTATION_ROADMAP/ln_test_link
+_dev/AYB_IMPLEMENTATION_ROADMAP/_dev/
+_dev/AYB_IMPLEMENTATION_ROADMAP/HANDOFF_*.md
+_dev/AYB_IMPLEMENTATION_ROADMAP/STAGE*_HANDOFF*.md
+_dev/AYB_IMPLEMENTATION_ROADMAP/STAGE*_CHECKLIST_STATUS_*.md
+
 node_modules
-dist
-dist-ssr
 *.local
+
+# Keep embedded demo dist fixtures in git for go:embed and CLI demo tests.
+!examples/kanban/dist/
+!examples/kanban/dist/**
+!examples/live-polls/dist/
+!examples/live-polls/dist/**
+!ui/dist/
+!ui/dist/**
 
 # Stable server binary for dashboard dev/testing
 bin/
@@ -169,3 +211,10 @@ bin/
 
 # Node
 node_modules/
+
+# Dart
+**/.dart_tool/
+
+.hashbrown
+
+chatting/

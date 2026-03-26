@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Jobs } from "../Jobs";
 import {
@@ -80,7 +81,7 @@ describe("Jobs", () => {
 
   it("shows loading state", () => {
     mockListJobs.mockReturnValue(new Promise(() => {}));
-    render(<Jobs />);
+    renderWithProviders(<Jobs />);
     expect(screen.getByText("Loading jobs...")).toBeInTheDocument();
   });
 
@@ -92,7 +93,7 @@ describe("Jobs", () => {
       ]),
     );
 
-    render(<Jobs />);
+    renderWithProviders(<Jobs />);
 
     await waitFor(() => {
       expect(screen.getByText("Job Queue")).toBeInTheDocument();
@@ -103,10 +104,27 @@ describe("Jobs", () => {
     });
   });
 
+  it("keeps rendering jobs when queue stats fails", async () => {
+    mockListJobs.mockResolvedValueOnce(
+      makeListResponse([makeJob({ id: "j1", state: "failed", lastError: "boom" })]),
+    );
+    mockGetQueueStats.mockRejectedValueOnce(new Error("stats unavailable"));
+
+    renderWithProviders(<Jobs />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Job Queue")).toBeInTheDocument();
+      expect(screen.getByText("boom")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Queued: 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("stats unavailable")).not.toBeInTheDocument();
+  });
+
   it("applies state and type filters", async () => {
     mockListJobs.mockResolvedValue(makeListResponse([makeJob()]));
 
-    render(<Jobs />);
+    renderWithProviders(<Jobs />);
 
     await waitFor(() => {
       expect(mockListJobs).toHaveBeenCalledWith({});
@@ -125,12 +143,59 @@ describe("Jobs", () => {
     });
   });
 
+  it("shows first-visit empty state when queue has no jobs", async () => {
+    mockListJobs.mockResolvedValueOnce(makeListResponse([]));
+    renderWithProviders(<Jobs />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No jobs in queue yet")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Run a background task, webhook delivery, or scheduled job, then refresh to see it here.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Refresh jobs" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("shows filtered empty state and clear filters action", async () => {
+    mockListJobs.mockResolvedValue(makeListResponse([]));
+    renderWithProviders(<Jobs />);
+
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(mockListJobs).toHaveBeenCalledWith({});
+    });
+
+    await user.selectOptions(screen.getByLabelText("State"), "failed");
+    await user.type(screen.getByLabelText("Type"), "webhook");
+    await user.click(screen.getByRole("button", { name: "Apply Filters" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No jobs match these filters")).toBeInTheDocument();
+      expect(
+        screen.getByText("Clear filters to see all jobs, or adjust state and type."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Clear filters" }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() => {
+      expect(mockListJobs).toHaveBeenLastCalledWith({});
+    });
+  });
+
   it("retries a failed job", async () => {
     mockListJobs.mockResolvedValue(
       makeListResponse([makeJob({ id: "j-fail", state: "failed" })]),
     );
 
-    render(<Jobs />);
+    renderWithProviders(<Jobs />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -149,7 +214,7 @@ describe("Jobs", () => {
       makeListResponse([makeJob({ id: "j-queued", state: "queued" })]),
     );
 
-    render(<Jobs />);
+    renderWithProviders(<Jobs />);
 
     const user = userEvent.setup();
     await waitFor(() => {
@@ -160,6 +225,17 @@ describe("Jobs", () => {
 
     await waitFor(() => {
       expect(mockCancelJob).toHaveBeenCalledWith("j-queued");
+    });
+  });
+
+  it("shows page error when jobs request fails even if stats succeed", async () => {
+    mockListJobs.mockRejectedValueOnce(new Error("jobs unavailable"));
+
+    renderWithProviders(<Jobs />);
+
+    await waitFor(() => {
+      expect(screen.getByText("jobs unavailable")).toBeInTheDocument();
+      expect(screen.getByText("Retry")).toBeInTheDocument();
     });
   });
 });

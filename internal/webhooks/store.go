@@ -1,3 +1,4 @@
+// Package webhooks Store provides CRUD operations and queries for webhooks and their delivery logs using PostgreSQL.
 package webhooks
 
 import (
@@ -79,6 +80,7 @@ func scanWebhook(row pgx.Row) (*Webhook, error) {
 	return &w, nil
 }
 
+// List returns all webhooks from the store, ordered by creation time.
 func (s *Store) List(ctx context.Context) ([]Webhook, error) {
 	rows, err := s.pool.Query(ctx, "SELECT "+columns+" FROM _ayb_webhooks ORDER BY created_at")
 	if err != nil {
@@ -137,6 +139,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListEnabled returns all enabled webhooks where the enabled flag is true.
 func (s *Store) ListEnabled(ctx context.Context) ([]Webhook, error) {
 	rows, err := s.pool.Query(ctx, "SELECT "+columns+" FROM _ayb_webhooks WHERE enabled = true")
 	if err != nil {
@@ -182,6 +185,7 @@ func (s *Store) RecordDelivery(ctx context.Context, d *Delivery) error {
 	return row.Scan(&d.ID, &d.DeliveredAt)
 }
 
+// ListDeliveries returns paginated webhook delivery logs for a given webhook, ordered by delivery time in descending order, along with the total count of deliveries for that webhook.
 func (s *Store) ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]Delivery, int, error) {
 	// Count total.
 	var total int

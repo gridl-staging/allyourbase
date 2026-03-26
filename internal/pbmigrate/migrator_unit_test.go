@@ -435,10 +435,13 @@ func TestMigrateAuthUsers_EdgeCases(t *testing.T) {
 		users, err := parseAuthUsers(records, schema)
 		testutil.NoError(t, err)
 		testutil.Equal(t, 1, len(users))
-		testutil.Equal(t, 1, len(users[0].CustomFields))
+		// Both custom fields are present: "name" with its value,
+		// "role" as nil (preserving SQL NULL for absent source data).
+		testutil.Equal(t, 2, len(users[0].CustomFields))
 		testutil.Equal(t, "Test User", users[0].CustomFields["name"])
 		_, hasRole := users[0].CustomFields["role"]
-		testutil.False(t, hasRole)
+		testutil.True(t, hasRole, "role key must be present even when absent from source data")
+		testutil.Nil(t, users[0].CustomFields["role"])
 	})
 
 	t.Run("empty email error", func(t *testing.T) {
@@ -610,15 +613,6 @@ func TestCountSchemaTables(t *testing.T) {
 	}
 }
 
-func TestCountUserStats(t *testing.T) {
-	t.Parallel()
-	stats := &MigrationStats{AuthUsers: 42, Records: 100}
-	testutil.Equal(t, 42, countUserStats(stats))
-
-	stats2 := &MigrationStats{AuthUsers: 0, Records: 100}
-	testutil.Equal(t, 0, countUserStats(stats2))
-}
-
 func TestFormatElapsed(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -640,4 +634,118 @@ func TestFormatElapsed(t *testing.T) {
 			testutil.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestMigrateFiles_PrefersCollectionNameDirectoryOverID(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pbDataPath := filepath.Join(tmpDir, "pb_data")
+
+	namePath := filepath.Join(pbDataPath, "storage", "profiles")
+	idPath := filepath.Join(pbDataPath, "storage", "collection-id-1")
+	err := os.MkdirAll(namePath, 0755)
+	testutil.NoError(t, err)
+	err = os.MkdirAll(idPath, 0755)
+	testutil.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(namePath, "from-name.txt"), []byte("name"), 0644)
+	testutil.NoError(t, err)
+	err = os.WriteFile(filepath.Join(idPath, "from-id.txt"), []byte("id"), 0644)
+	testutil.NoError(t, err)
+
+	destPath := filepath.Join(tmpDir, "ayb_storage")
+	var buf bytes.Buffer
+	m := &Migrator{
+		opts: MigrationOptions{
+			SourcePath:  pbDataPath,
+			StoragePath: destPath,
+			Verbose:     true,
+		},
+		output:  &buf,
+		verbose: true,
+		stats:   MigrationStats{},
+	}
+
+	collections := []PBCollection{
+		{
+			ID:     "collection-id-1",
+			Name:   "profiles",
+			Type:   "base",
+			System: false,
+			Schema: []PBField{
+				{Name: "avatar", Type: "file"},
+			},
+		},
+	}
+
+	err = m.migrateFiles(context.Background(), collections)
+	testutil.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(destPath, "profiles", "from-name.txt"))
+	testutil.NoError(t, err)
+	_, err = os.Stat(filepath.Join(destPath, "profiles", "from-id.txt"))
+	testutil.ErrorContains(t, err, "no such file")
+	testutil.Equal(t, 1, m.stats.Files)
+}
+
+func TestMigrateRLS_UnsupportedRuleRecordsDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	m := &Migrator{
+		opts: MigrationOptions{
+			DryRun: true,
+		},
+	}
+
+	colls := []PBCollection{
+		{
+			Name:       "posts",
+			Type:       "base",
+			ListRule:   strPtr(""),
+			CreateRule: strPtr("@request.data.email != ''"),
+		},
+	}
+
+	err := m.migrateRLS(context.Background(), nil, colls)
+	testutil.ErrorContains(t, err, "failed to generate policies for posts")
+	testutil.SliceLen(t, m.stats.Errors, 1)
+	testutil.Contains(t, m.stats.Errors[0], "posts")
+	testutil.Contains(t, m.stats.Errors[0], "unsupported PocketBase token")
+	// RLSDiagnostics must also be recorded for reporting
+	testutil.SliceLen(t, m.stats.RLSDiagnostics, 1)
+	testutil.Equal(t, "posts", m.stats.RLSDiagnostics[0].Collection)
+	testutil.Equal(t, "create", m.stats.RLSDiagnostics[0].Action)
+	testutil.Contains(t, m.stats.RLSDiagnostics[0].Message, "unsupported")
+}
+
+// TestMigrateRLS_ExactDiagnosticTextAndAttribution verifies that migrateRLS
+// records the original rule text and exact token in RLSDiagnostics so reporting
+// surfaces actionable information.
+func TestMigrateRLS_ExactDiagnosticTextAndAttribution(t *testing.T) {
+	t.Parallel()
+
+	m := &Migrator{
+		opts: MigrationOptions{DryRun: true},
+	}
+
+	colls := []PBCollection{
+		{
+			Name:       "articles",
+			Type:       "base",
+			ListRule:   strPtr(""),
+			CreateRule: strPtr("@collection.editors.role = 'editor'"),
+		},
+	}
+
+	err := m.migrateRLS(context.Background(), nil, colls)
+	testutil.ErrorContains(t, err, "failed to generate policies for articles")
+
+	// Verify exact diagnostic attribution
+	testutil.SliceLen(t, m.stats.RLSDiagnostics, 1)
+	d := m.stats.RLSDiagnostics[0]
+	testutil.Equal(t, "articles", d.Collection)
+	testutil.Equal(t, "create", d.Action)
+	testutil.Equal(t, "@collection.editors.role = 'editor'", d.Rule)
+	testutil.Contains(t, d.Message, "@collection.editors.role")
+	testutil.Contains(t, d.Message, "manual review required")
 }

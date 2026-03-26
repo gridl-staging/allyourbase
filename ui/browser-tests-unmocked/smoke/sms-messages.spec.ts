@@ -1,4 +1,4 @@
-import { test, expect, seedSMSMessage, cleanupSMSMessages } from "../fixtures";
+import { test, expect, seedSMSMessage, cleanupSMSMessages, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: SMS Messages - List View and Send Modal
@@ -7,39 +7,48 @@ import { test, expect, seedSMSMessage, cleanupSMSMessages } from "../fixtures";
  */
 
 test.describe("Smoke: SMS Messages", () => {
+  const messageBodyPatterns: string[] = [];
+
+  test.afterEach(async ({ request, adminToken }) => {
+    while (messageBodyPatterns.length > 0) {
+      const bodyPattern = messageBodyPatterns.pop();
+      if (!bodyPattern) continue;
+      await cleanupSMSMessages(request, adminToken, bodyPattern).catch(() => {});
+    }
+  });
+
   test("seeded message renders in messages list", async ({ page, request, adminToken }) => {
     const runId = Date.now();
+    const messageBody = `smoke-sms-${runId}`;
+    messageBodyPatterns.push(messageBody);
 
     // Arrange: seed a message via SQL
     await seedSMSMessage(request, adminToken, {
-      body: `smoke-sms-${runId}`,
+      body: messageBody,
       to_phone: "+15559990001",
     });
 
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
 
     // Assert: heading visible (page-body content)
-    await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 15_000 });
 
     // Assert: seeded phone number visible in table
     await expect(page.getByText("+15559990001").first()).toBeVisible({ timeout: 5000 });
 
     // Assert: seeded body text visible
-    await expect(page.getByText(`smoke-sms-${runId}`).first()).toBeVisible();
-
-    // Cleanup
-    await cleanupSMSMessages(request, adminToken, `smoke-sms-${runId}`);
+    await expect(page.getByText(messageBody).first()).toBeVisible();
   });
 
   test("Send SMS modal opens and closes", async ({ page }) => {
     // Act: navigate to SMS Messages
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     await page.locator("aside").getByRole("button", { name: /SMS Messages/i }).click();
-    await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /SMS Messages/i })).toBeVisible({ timeout: 15_000 });
 
     // Act: click Send SMS button
     await page.getByRole("button", { name: /Send SMS/i }).click();

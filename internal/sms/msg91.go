@@ -1,3 +1,4 @@
+// Package sms MSG91Provider sends SMS messages via the MSG91 flow API.
 package sms
 
 import (
@@ -32,6 +33,7 @@ func NewMSG91Provider(authKey, templateID, baseURL string) *MSG91Provider {
 	}
 }
 
+// sends an SMS message via the MSG91 flow API to the specified phone number, returning the message ID and status on success or an error if the request fails.
 func (p *MSG91Provider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/api/v5/flow/"
 

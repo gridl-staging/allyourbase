@@ -456,3 +456,52 @@ func TestResolveDemoAdminTokenFromEnv(t *testing.T) {
 		t.Errorf("expected token from env, got %q", token)
 	}
 }
+
+func TestDemoAuthEnabledReportsEnabledWhenRouteExists(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/me" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "missing token", http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	enabled, err := demoAuthEnabled(ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !enabled {
+		t.Fatal("expected auth to be reported as enabled")
+	}
+}
+
+func TestDemoAuthEnabledReportsDisabledWhenRouteMissing(t *testing.T) {
+	ts := httptest.NewServer(http.NotFoundHandler())
+	defer ts.Close()
+
+	enabled, err := demoAuthEnabled(ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected auth to be reported as disabled")
+	}
+}
+
+func TestRequireDemoAuthEnabledReturnsActionableError(t *testing.T) {
+	ts := httptest.NewServer(http.NotFoundHandler())
+	defer ts.Close()
+
+	err := requireDemoAuthEnabled(ts.URL, false)
+	if err == nil {
+		t.Fatal("expected auth-disabled server to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "auth disabled") {
+		t.Fatalf("expected auth-disabled guidance, got: %s", msg)
+	}
+	if !strings.Contains(msg, "ayb stop && ayb demo <name>") {
+		t.Fatalf("expected actionable restart instructions, got: %s", msg)
+	}
+}

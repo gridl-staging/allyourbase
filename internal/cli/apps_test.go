@@ -393,9 +393,20 @@ func TestAPIKeysListShowsAppColumn(t *testing.T) {
 	}
 }
 
+func resetAPIKeysCreateScopeFlags(t *testing.T) {
+	t.Helper()
+	apikeysCreateCmd.Flags().Set("app", "")
+	apikeysCreateCmd.Flags().Set("org", "")
+	t.Cleanup(func() {
+		apikeysCreateCmd.Flags().Set("app", "")
+		apikeysCreateCmd.Flags().Set("org", "")
+	})
+}
+
 // Test for apikeys create --app flag
 func TestAPIKeysCreateWithAppFlag(t *testing.T) {
 	resetJSONFlag()
+	resetAPIKeysCreateScopeFlags(t)
 	var receivedBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
@@ -432,8 +443,7 @@ func TestAPIKeysCreateWithAppFlag(t *testing.T) {
 
 func TestAPIKeysCreateWithoutAppFlag(t *testing.T) {
 	resetJSONFlag()
-	// Reset --app flag from any previous test run
-	apikeysCreateCmd.Flags().Set("app", "")
+	resetAPIKeysCreateScopeFlags(t)
 
 	var receivedBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -462,5 +472,79 @@ func TestAPIKeysCreateWithoutAppFlag(t *testing.T) {
 
 	if _, hasAppID := receivedBody["appId"]; hasAppID {
 		t.Fatalf("expected no appId in request when --app not provided, got %v", receivedBody["appId"])
+	}
+}
+
+func TestAPIKeysListShowsOrgInAppColumn(t *testing.T) {
+	resetJSONFlag()
+	orgID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{
+				{
+					"id":            "11111111-1111-1111-1111-111111111111",
+					"userId":        "22222222-2222-2222-2222-222222222222",
+					"name":          "Org Key",
+					"keyPrefix":     "ayb_abc12345",
+					"scope":         "*",
+					"allowedTables": []string{},
+					"orgId":         orgID,
+					"createdAt":     "2026-02-21T00:00:00Z",
+				},
+			},
+			"totalItems": 1,
+		})
+	}))
+	defer srv.Close()
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"apikeys", "list", "--url", srv.URL, "--admin-token", "tok"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "App") {
+		t.Fatalf("expected 'App' column header, got %q", output)
+	}
+	if !strings.Contains(output, "org:"+orgID) {
+		t.Fatalf("expected org-scoped value in App column, got %q", output)
+	}
+}
+
+func TestAPIKeysCreateWithOrgFlag(t *testing.T) {
+	resetJSONFlag()
+	resetAPIKeysCreateScopeFlags(t)
+	var receivedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{
+			"key": "ayb_test_plaintext_key_00000000000000000000000000000",
+			"apiKey": map[string]any{
+				"id":    "77777777-7777-7777-7777-777777777777",
+				"name":  "org-scoped-key",
+				"scope": "*",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"apikeys", "create",
+			"--user-id", "88888888-8888-8888-8888-888888888888",
+			"--name", "org-scoped-key",
+			"--org", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			"--url", srv.URL, "--admin-token", "tok"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if receivedBody["orgId"] != "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" {
+		t.Fatalf("expected orgId in request body, got %v", receivedBody["orgId"])
+	}
+	if !strings.Contains(output, "Org: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") {
+		t.Fatalf("expected org ID in output, got %q", output)
 	}
 }

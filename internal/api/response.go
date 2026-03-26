@@ -1,3 +1,4 @@
+// Package api defines response envelope types and PostgreSQL error mapping for HTTP handlers, translating database errors into appropriate HTTP status codes and user-friendly messages.
 package api
 
 import (
@@ -17,6 +18,34 @@ type ListResponse struct {
 	TotalItems int              `json:"totalItems"`
 	TotalPages int              `json:"totalPages"`
 	Items      []map[string]any `json:"items"`
+}
+
+// AggregateResponse is the envelope for aggregate query results.
+type AggregateResponse struct {
+	Results []map[string]any `json:"results"`
+}
+
+// CursorListResponse is the envelope for cursor-based paginated list endpoints.
+type CursorListResponse struct {
+	PerPage    int              `json:"perPage"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+	Items      []map[string]any `json:"items"`
+}
+
+// ImportResponse is the envelope for bulk import results.
+type ImportResponse struct {
+	Processed int              `json:"processed"`
+	Inserted  int              `json:"inserted"`
+	Updated   int              `json:"updated"`
+	Skipped   int              `json:"skipped"`
+	Failed    int              `json:"failed"`
+	Errors    []ImportRowError `json:"errors,omitempty"`
+}
+
+// ImportRowError describes a single row-level import failure.
+type ImportRowError struct {
+	Row     int    `json:"row"`
+	Message string `json:"message"`
 }
 
 // Package-level aliases for the shared HTTP helpers so existing call sites
@@ -81,10 +110,35 @@ func mapPGError(w http.ResponseWriter, err error) bool {
 		writeErrorWithDoc(w, http.StatusBadRequest, friendlyTypeError(pgErr.Message), constraintDoc)
 	case "42501": // insufficient_privilege — raised by RLS WITH CHECK policy violations
 		writeError(w, http.StatusForbidden, "insufficient permissions")
+	case "22023", "XX000": // invalid_parameter_value / internal_error (PostGIS often uses these for geometry parsing)
+		if !isPostGISGeoJSONInputError(pgErr) {
+			return false
+		}
+		writeErrorWithDoc(w, http.StatusBadRequest, "invalid GeoJSON geometry", constraintDoc)
 	default:
 		return false
 	}
 	return true
+}
+
+// isPostGISGeoJSONInputError reports whether pgErr is a PostGIS ST_GeomFromGeoJSON error, identified by keywords like 'geojson', 'parse error - invalid geometry', or 'geometry requires more points' in the error message or detail.
+func isPostGISGeoJSONInputError(pgErr *pgconn.PgError) bool {
+	if pgErr == nil {
+		return false
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(pgErr.Message))
+	detail := strings.ToLower(strings.TrimSpace(pgErr.Detail))
+	combined := msg
+	if detail != "" {
+		combined += " " + detail
+	}
+
+	// PostGIS ST_GeomFromGeoJSON() errors commonly mention GeoJSON directly,
+	// or use this canonical parse error wording.
+	return strings.Contains(combined, "geojson") ||
+		strings.Contains(combined, "parse error - invalid geometry") ||
+		strings.Contains(combined, "geometry requires more points")
 }
 
 // typeFormatHints maps PostgreSQL type names to human-friendly format examples.

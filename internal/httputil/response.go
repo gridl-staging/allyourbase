@@ -3,6 +3,7 @@ package httputil
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -37,6 +38,20 @@ func ExtractBearerToken(r *http.Request) (string, bool) {
 	return token, true
 }
 
+// CheckWebSocketOrigin validates websocket origin against the request host.
+// Empty Origin is allowed to support non-browser clients.
+func CheckWebSocketOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
 // ErrorResponse is the standard error envelope for all AYB API errors.
 type ErrorResponse struct {
 	Code    int            `json:"code"`
@@ -47,9 +62,18 @@ type ErrorResponse struct {
 
 // WriteJSON writes a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		body, _ = json.Marshal(ErrorResponse{
+			Code:    http.StatusInternalServerError,
+			Message: "internal error",
+		})
+		status = http.StatusInternalServerError
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // WriteError writes a standard error response.

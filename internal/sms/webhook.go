@@ -1,3 +1,4 @@
+// Package sms WebhookProvider sends SMS messages by making HMAC-signed POST requests to a configured webhook endpoint.
 package sms
 
 import (
@@ -28,6 +29,7 @@ func NewWebhookProvider(url, secret string) *WebhookProvider {
 	}
 }
 
+// Send delivers the SMS message by making an HMAC-SHA256-signed POST request to the configured webhook URL. The request includes the recipient phone number, message body, and UTC timestamp in JSON format, with the signature sent in the X-Webhook-Signature header. The response is expected to contain a JSON object with a message_id field and a 2xx status code.
 func (p *WebhookProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"to":        to,

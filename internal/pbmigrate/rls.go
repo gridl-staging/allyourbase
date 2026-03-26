@@ -1,3 +1,4 @@
+// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/rls.go.
 package pbmigrate
 
 import (
@@ -6,27 +7,42 @@ import (
 	"strings"
 )
 
-// ConvertRuleToRLS converts a PocketBase API rule to a PostgreSQL RLS policy
-func ConvertRuleToRLS(tableName string, action string, rule *string) (string, error) {
+var (
+	authFieldRegex        = regexp.MustCompile(`@request\.auth\.(\w+)`)
+	nestedAuthFieldRegex  = regexp.MustCompile(`@request\.auth\.\w+\.`)
+	unsupportedTokenRegex = regexp.MustCompile(`@[A-Za-z0-9_.]+`)
+
+	// pbArrayFilterOpRegex detects PocketBase array filter operators (?=, ?!=, ?~, ?!~)
+	// which have no PostgreSQL equivalent and must not pass through as convertible SQL.
+	pbArrayFilterOpRegex = regexp.MustCompile(`\?!?[=~]`)
+)
+
+// classifyRule classifies a PocketBase API rule for RLS conversion.
+// nil = locked (admin-only), "" = open to all, otherwise attempts expression conversion.
+// This is the single entry point for rule classification; all callers (GenerateRLSPolicies,
+// countPolicies, ConvertRuleToRLS) must use this to ensure consistent diagnostic reporting.
+func classifyRule(rule *string) RuleClassification {
 	if rule == nil {
-		// null = locked (admin-only), no policy needed
+		return RuleClassification{Status: RuleStatusLocked, Diagnostic: "locked (admin-only)"}
+	}
+	if *rule == "" {
+		return RuleClassification{Status: RuleStatusConvertible, PgExpr: "true", Rule: ""}
+	}
+	return convertRuleExpression(*rule)
+}
+
+// ConvertRuleToRLS converts a PocketBase API rule to a PostgreSQL RLS policy.
+// It delegates to classifyRule for consistent classification.
+func ConvertRuleToRLS(tableName string, action string, rule *string) (string, error) {
+	cl := classifyRule(rule)
+	switch cl.Status {
+	case RuleStatusLocked:
 		return "", nil
+	case RuleStatusUnsupported:
+		return "", fmt.Errorf("failed to convert rule: %s", cl.Diagnostic)
+	default:
+		return buildRLSPolicy(tableName, action, cl.PgExpr), nil
 	}
-
-	ruleExpr := *rule
-
-	if ruleExpr == "" {
-		// empty string = open to all
-		return buildRLSPolicy(tableName, action, "true"), nil
-	}
-
-	// Convert PocketBase rule syntax to PostgreSQL RLS
-	pgExpr, err := convertRuleExpression(ruleExpr)
-	if err != nil {
-		return "", fmt.Errorf("failed to convert rule: %w", err)
-	}
-
-	return buildRLSPolicy(tableName, action, pgExpr), nil
 }
 
 // buildRLSPolicy generates the CREATE POLICY SQL statement
@@ -59,77 +75,173 @@ func buildRLSPolicy(tableName, action, expression string) string {
 		policyName, tableName, cmd, clause, expression)
 }
 
-// convertRuleExpression translates PocketBase rule syntax to PostgreSQL
-func convertRuleExpression(rule string) (string, error) {
-	// Replace @request.auth.id with current_setting('app.user_id', true)
-	rule = strings.ReplaceAll(rule, "@request.auth.id", "current_setting('app.user_id', true)")
+// TODO: Document convertRuleExpression.
+func convertRuleExpression(rule string) RuleClassification {
+	// Nested traversals are ambiguous in PostgreSQL RLS and must be manually reviewed.
+	if token := findFirstUnquotedRuleMatch(rule, nestedAuthFieldRegex); token != "" {
+		return RuleClassification{
+			Status:     RuleStatusUnsupported,
+			Rule:       rule,
+			Diagnostic: fmt.Sprintf("unsupported nested @request.auth field access %q", token),
+		}
+	}
 
-	// Replace @request.auth.{field} with subquery
-	authFieldRegex := regexp.MustCompile(`@request\.auth\.(\w+)`)
-	rule = authFieldRegex.ReplaceAllStringFunc(rule, func(match string) string {
-		field := authFieldRegex.FindStringSubmatch(match)[1]
-		// For now, simple replacement - in production would need more sophisticated handling
-		return fmt.Sprintf("(SELECT %s FROM ayb_auth_users WHERE id = current_setting('app.user_id', true))", field)
+	// PocketBase array filter operators (?=, ?!=, ?~, ?!~) have no PostgreSQL
+	// equivalent. Check BEFORE the rewrite step so != → <> doesn't mask ?!=.
+	if op := findFirstUnquotedRuleMatch(rule, pbArrayFilterOpRegex); op != "" {
+		return RuleClassification{
+			Status:     RuleStatusUnsupported,
+			Rule:       rule,
+			Diagnostic: fmt.Sprintf("unsupported PocketBase array operator %q; manual review required", op),
+		}
+	}
+
+	// Only transform unquoted segments so string literals like
+	// 'user@example.com' or '@request.auth.id' remain intact.
+	converted := rewriteUnquotedRuleSegments(rule, func(segment string) string {
+		segment = strings.ReplaceAll(segment, "@request.auth.id", "current_setting('app.user_id', true)")
+		segment = authFieldRegex.ReplaceAllStringFunc(segment, func(match string) string {
+			field := authFieldRegex.FindStringSubmatch(match)[1]
+			return fmt.Sprintf("(SELECT %s FROM %s WHERE id = current_setting('app.user_id', true))",
+				SanitizeIdentifier(field), SanitizeIdentifier("ayb_auth_users"))
+		})
+		segment = strings.ReplaceAll(segment, "&&", "AND")
+		segment = strings.ReplaceAll(segment, "||", "OR")
+		segment = strings.ReplaceAll(segment, "!=", "<>")
+		return segment
 	})
 
-	// Replace @collection.{name}.{field} with subquery
-	collectionRegex := regexp.MustCompile(`@collection\.(\w+)\.(\w+)`)
-	rule = collectionRegex.ReplaceAllStringFunc(rule, func(match string) string {
-		parts := collectionRegex.FindStringSubmatch(match)
-		collName := parts[1]
-		field := parts[2]
-		return fmt.Sprintf("(SELECT %s FROM %s WHERE id = current_setting('app.user_id', true))", field, collName)
-	})
+	// Any remaining @token is unsupported PocketBase-specific syntax.
+	if token := findUnsupportedPocketBaseToken(converted); token != "" {
+		return RuleClassification{
+			Status:     RuleStatusUnsupported,
+			Rule:       rule,
+			Diagnostic: fmt.Sprintf("unsupported PocketBase token %q; manual review required", token),
+		}
+	}
+	if err := validateEmbeddedSQLExpression(converted); err != nil {
+		return RuleClassification{
+			Status:     RuleStatusUnsupported,
+			Rule:       rule,
+			Diagnostic: err.Error(),
+		}
+	}
 
-	// Replace && with AND
-	rule = strings.ReplaceAll(rule, "&&", "AND")
-
-	// Replace || with OR
-	rule = strings.ReplaceAll(rule, "||", "OR")
-
-	// Replace != with <>
-	rule = strings.ReplaceAll(rule, "!=", "<>")
-
-	return rule, nil
+	return RuleClassification{
+		Status: RuleStatusConvertible,
+		PgExpr: converted,
+		Rule:   rule,
+	}
 }
 
-// GenerateRLSPolicies creates all RLS policies for a collection
-func GenerateRLSPolicies(coll PBCollection) ([]string, error) {
+// rewriteUnquotedRuleSegments applies a transform only to segments outside SQL
+// single-quoted string literals and double-quoted identifiers.
+func rewriteUnquotedRuleSegments(rule string, transform func(string) string) string {
+	var builder strings.Builder
+	builder.Grow(len(rule))
+
+	start := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i := 0; i < len(rule); i++ {
+		switch rule[i] {
+		case '\'':
+			if inDoubleQuote {
+				continue
+			}
+			if inSingleQuote && i+1 < len(rule) && rule[i+1] == '\'' {
+				i++
+				continue
+			}
+			if !inSingleQuote {
+				builder.WriteString(transform(rule[start:i]))
+				start = i
+			}
+			inSingleQuote = !inSingleQuote
+			if !inSingleQuote {
+				builder.WriteString(rule[start : i+1])
+				start = i + 1
+			}
+		case '"':
+			if inSingleQuote {
+				continue
+			}
+			if inDoubleQuote && i+1 < len(rule) && rule[i+1] == '"' {
+				i++
+				continue
+			}
+			if !inDoubleQuote {
+				builder.WriteString(transform(rule[start:i]))
+				start = i
+			}
+			inDoubleQuote = !inDoubleQuote
+			if !inDoubleQuote {
+				builder.WriteString(rule[start : i+1])
+				start = i + 1
+			}
+		}
+	}
+
+	if start < len(rule) {
+		if inSingleQuote || inDoubleQuote {
+			builder.WriteString(rule[start:])
+		} else {
+			builder.WriteString(transform(rule[start:]))
+		}
+	}
+
+	return builder.String()
+}
+
+func findFirstUnquotedRuleMatch(rule string, re *regexp.Regexp) string {
+	var match string
+	rewriteUnquotedRuleSegments(rule, func(segment string) string {
+		if match == "" {
+			match = re.FindString(segment)
+		}
+		return segment
+	})
+	return match
+}
+
+// findUnsupportedPocketBaseToken returns the first PocketBase-style token that
+// remains outside quoted SQL literals after known conversions have run.
+func findUnsupportedPocketBaseToken(rule string) string {
+	return findFirstUnquotedRuleMatch(rule, unsupportedTokenRegex)
+}
+
+// TODO: Document GenerateRLSPolicies.
+func GenerateRLSPolicies(coll PBCollection) ([]string, []RLSDiagnostic, error) {
 	var policies []string
+	var diags []RLSDiagnostic
+	var firstErr error
 
 	tableName := coll.Name
 
-	// SELECT policy - use ListRule (ViewRule is typically the same or more permissive)
-	// In PocketBase, ListRule controls listing and ViewRule controls individual record access
-	// In PostgreSQL, both map to SELECT, so we use the more restrictive ListRule
-	if policy, err := ConvertRuleToRLS(tableName, "list", coll.ListRule); err != nil {
-		return nil, err
-	} else if policy != "" {
-		policies = append(policies, policy)
+	for _, a := range ruleActions(coll) {
+		cl := classifyRule(a.rule)
+		switch cl.Status {
+		case RuleStatusConvertible:
+			policies = append(policies, buildRLSPolicy(tableName, a.name, cl.PgExpr))
+		case RuleStatusUnsupported:
+			diags = append(diags, RLSDiagnostic{
+				Collection: tableName,
+				Action:     a.name,
+				Rule:       cl.Rule,
+				Message:    cl.Diagnostic,
+			})
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to convert rule: %s", cl.Diagnostic)
+			}
+		}
+		// RuleStatusLocked: no policy, no diagnostic
 	}
 
-	// Create rule
-	if policy, err := ConvertRuleToRLS(tableName, "create", coll.CreateRule); err != nil {
-		return nil, err
-	} else if policy != "" {
-		policies = append(policies, policy)
+	if firstErr != nil {
+		return nil, diags, firstErr
 	}
-
-	// Update rule
-	if policy, err := ConvertRuleToRLS(tableName, "update", coll.UpdateRule); err != nil {
-		return nil, err
-	} else if policy != "" {
-		policies = append(policies, policy)
-	}
-
-	// Delete rule
-	if policy, err := ConvertRuleToRLS(tableName, "delete", coll.DeleteRule); err != nil {
-		return nil, err
-	} else if policy != "" {
-		policies = append(policies, policy)
-	}
-
-	return policies, nil
+	return policies, nil, nil
 }
 
 // EnableRLS generates ALTER TABLE statement to enable RLS

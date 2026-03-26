@@ -1,55 +1,143 @@
+// Package server provides the HTTP server implementation for AYB, including route configuration, middleware setup, and request handling for APIs, admin endpoints, and realtime communications.
 package server
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/api"
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/billing"
 	"github.com/allyourbase/ayb/internal/config"
-	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/edgefunc"
 	"github.com/allyourbase/ayb/internal/jobs"
+	"github.com/allyourbase/ayb/internal/logging"
+	"github.com/allyourbase/ayb/internal/mailer"
+	"github.com/allyourbase/ayb/internal/observability"
 	"github.com/allyourbase/ayb/internal/realtime"
+	"github.com/allyourbase/ayb/internal/replica"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/sms"
+	"github.com/allyourbase/ayb/internal/status"
 	"github.com/allyourbase/ayb/internal/storage"
+	"github.com/allyourbase/ayb/internal/support"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/allyourbase/ayb/internal/webhooks"
-	"github.com/allyourbase/ayb/openapi"
+	"github.com/allyourbase/ayb/internal/ws"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Server is the main HTTP server for AYB.
+// Is the main HTTP server for AYB, handling authentication, authorization, GraphQL and REST APIs, realtime events, webhooks, storage, edge functions, and admin management. It orchestrates database connections, integrates multiple services, applies middleware for logging and rate limiting, and manages graceful shutdown.
 type Server struct {
-	cfg                 *config.Config
-	router              *chi.Mux
-	http                *http.Server
-	logger              *slog.Logger
-	schema              *schema.CacheHolder
-	pool                *pgxpool.Pool
-	authSvc             *auth.Service     // nil when auth disabled
-	authRL              *auth.RateLimiter // nil when auth disabled
-	appRL               *auth.AppRateLimiter
-	adminRL             *auth.RateLimiter // admin login rate limiter
-	hub                 *realtime.Hub
-	webhookDispatcher   webhookDispatcher // nil when pool is nil
-	jobService          *jobs.Service     // nil when jobs disabled or pool is nil
-	matviewSvc          matviewAdmin      // nil when pool is nil
-	emailTplSvc         emailTemplateAdmin // nil when pool is nil
-	adminMu             sync.RWMutex
-	adminAuth           *adminAuth // nil when admin.password not set
-	startTime           time.Time
-	logBuffer           *LogBuffer   // nil when not using buffered logging
-	smsProvider         sms.Provider // nil when SMS disabled
-	smsProviderName     string       // "twilio", "plivo", etc. — stored in messages for audit
-	smsAllowedCountries []string     // country allowlist from config
-	msgStore            messageStore // nil when pool is nil
+	cfg                    *config.Config
+	router                 *chi.Mux
+	http                   *http.Server
+	logger                 *slog.Logger
+	schema                 *schema.CacheHolder
+	pool                   *pgxpool.Pool
+	poolRouter             *replica.PoolRouter
+	healthChecker          *replica.HealthChecker
+	lifecycleService       replicaLifecycle // nil when replica lifecycle not wired
+	tenantConnAcquire      tenantConnAcquireFunc
+	authSvc                *auth.Service     // nil when auth disabled
+	authHandler            *auth.Handler     // nil when auth disabled
+	samlSvc                *auth.SAMLService // nil when SAML is not configured
+	authRL                 *auth.RateLimiter // nil when auth disabled
+	assistantRL            *auth.RateLimiter // nil when dashboard AI assistant rate limiting is unavailable
+	apiRL                  *auth.RateLimiter // nil when API rate limit is unavailable
+	apiAnonRL              *auth.RateLimiter // nil when API anonymous rate limit is unavailable
+	authSensitiveRL        *auth.RateLimiter // stricter limiter for sensitive auth endpoints
+	appRL                  *auth.AppRateLimiter
+	assistantRateLimit     int               // parsed dashboard_ai.rate_limit count
+	apiRateLimit           int               // parsed config.RateLimit.API limit
+	apiAnonRateLimit       int               // parsed config.RateLimit.APIAnonymous limit
+	adminRL                *auth.RateLimiter // admin login rate limiter
+	storageCDNPurgeAllRL   *auth.RateLimiter // stricter limiter for admin storage CDN purge_all requests
+	hub                    *realtime.Hub
+	wsHandler              *ws.Handler // nil when not wired (always wired in New)
+	connManager            *realtime.ConnectionManager
+	realtimeInspector      *realtime.Inspector
+	webhookDispatcher      webhookDispatcher // nil when pool is nil
+	jobService             *jobs.Service     // nil when jobs disabled or pool is nil
+	tenantSvc              tenantAdmin       // nil when tenant service not configured
+	orgStore               tenant.OrgStore
+	teamStore              tenant.TeamStore
+	orgMembershipStore     tenant.OrgMembershipStore
+	teamMembershipStore    tenant.TeamMembershipStore
+	permResolver           *tenant.PermissionResolver
+	tenantQuotaReader      tenantQuotaReader // nil when tenant quotas unavailable
+	tenantRateLimiter      *tenant.TenantRateLimiter
+	tenantConnCounter      *tenant.TenantConnCounter
+	usageAccumulator       *tenant.UsageAccumulator
+	quotaChecker           tenant.QuotaChecker
+	tenantMetrics          tenantMetricsRecorder
+	tenantBreakerTracker   *tenant.TenantBreakerTracker
+	auditEmitter           *tenant.AuditEmitter     // nil when tenant service not configured
+	auditEmitterManual     bool                     // true when explicitly set via SetAuditEmitter
+	matviewSvc             matviewAdmin             // nil when pool is nil
+	emailTplSvc            emailTemplateAdmin       // nil when pool is nil
+	pushSvc                pushAdmin                // nil when push is disabled or not wired
+	notifSvc               notificationAdmin        // nil when notifications are not wired
+	vaultStore             VaultSecretStore         // nil when vault secret management not wired
+	edgeFuncSvc            edgeFuncAdmin            // nil when edge functions not wired
+	dbTriggerSvc           dbTriggerAdmin           // nil when edge functions not wired
+	cronTriggerSvc         cronTriggerAdmin         // nil when edge functions not wired
+	storageTriggerSvc      storageTriggerAdmin      // nil when edge functions not wired
+	funcInvoker            edgefunc.FunctionInvoker // nil when edge functions not wired; for manual cron runs
+	billingService         billing.BillingService   // nil when billing lifecycle not configured
+	supportSvc             support.SupportService   // nil when support service not configured
+	supportUserEmailLookup func(context.Context, string) (string, error)
+	fieldEncryptor         *api.FieldEncryptor
+	observabilityMu        sync.RWMutex
+	adminMu                sync.RWMutex
+	adminAuth              *adminAuth // nil when admin.password not set
+	startTime              time.Time
+	drainManager           *logging.DrainManager
+	logBuffer              *LogBuffer   // nil when not using buffered logging
+	smsProvider            sms.Provider // nil when SMS disabled
+	smsProviderName        string       // "twilio", "plivo", etc. — stored in messages for audit
+	smsAllowedCountries    []string     // country allowlist from config
+	msgStore               messageStore // nil when pool is nil
+	httpMetrics            *observability.HTTPMetrics
+	infraMetrics           *observability.InfraMetrics
+	storagePollerCancel    context.CancelFunc
+	storageSvc             *storage.Service // nil when storage features are disabled
+	storageHandler         *storage.Handler
+	statusHistory          *status.StatusHistory
+	statusIncidentStore    status.IncidentStore
+	statusChecker          *status.Checker
+	requestLogger          *RequestLogger
+	tracerProvider         *sdktrace.TracerProvider
+	aiLogStore             aiLogStore        // nil when AI not wired
+	promptStore            promptStore       // nil when AI not wired
+	assistantSvc           assistantService  // nil when dashboard AI assistant not wired
+	extService             extensionAdmin    // nil when extensions not wired
+	fdwService             fdwAdmin          // nil when fdw management not wired
+	backupService          backupAdmin       // nil when backup not wired
+	branchService          branchAdmin       // nil when branching not wired
+	pitrService            pitrAdmin         // nil when PITR not wired
+	graphqlHandler         http.Handler      // nil when GraphQL not wired
+	openapiJSONCache       openapiCache      // cached OpenAPI 3.1 JSON spec
+	embedFn                api.EmbedFunc     // nil when semantic search is not configured
+	embedConfigDim         int               // configured embedding dimension for semantic search model
+	mailer                 mailer.Mailer     // nil when email sending not configured
+	emailRL                *auth.RateLimiter // nil when email rate limiting not configured
+	domainStore            domainManager     // nil when pool is nil
+	siteStore              siteManager       // nil when pool is nil
+	certManager            CertManager       // nil when TLS not enabled or not wired
+	usageSrc               usageDataSource   // nil when pool is nil
+	usageAggregate         usageAggregateService
+	orgUsageQuerier        orgUsageQuerier // nil when pool is nil
+	orgAuditQuerier        orgAuditQuerier // nil when pool is nil
+	routeTableMu           sync.RWMutex
+	routeTable             RouteTable
 }
 
 type webhookDispatcher interface {
@@ -59,377 +147,166 @@ type webhookDispatcher interface {
 	Close()
 }
 
-var newWebhookDispatcher = func(store webhooks.WebhookLister, logger *slog.Logger) webhookDispatcher {
-	return webhooks.NewDispatcher(store, logger)
-}
-
 // New creates a new Server with middleware and routes configured.
 // authSvc and storageSvc may be nil when their features are disabled.
 func New(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolder, pool *pgxpool.Pool, authSvc *auth.Service, storageSvc *storage.Service) *Server {
+	return newServer(cfg, logger, schemaCache, pool, authSvc, storageSvc, nil)
+}
+
+// NewWithFieldEncryptor creates a new Server with an optional API field encryptor.
+// authSvc and storageSvc may be nil when their features are disabled.
+func NewWithFieldEncryptor(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolder, pool *pgxpool.Pool, authSvc *auth.Service, storageSvc *storage.Service, fieldEncryptor *api.FieldEncryptor) *Server {
+	return newServer(cfg, logger, schemaCache, pool, authSvc, storageSvc, fieldEncryptor)
+}
+
+// TODO: Document newServer.
+func newServer(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolder, pool *pgxpool.Pool, authSvc *auth.Service, storageSvc *storage.Service, fieldEncryptor *api.FieldEncryptor) *Server {
 	r := chi.NewRouter()
-
-	// Global middleware (applies to all routes including admin SPA).
-	r.Use(middleware.RequestID)
-	r.Use(requestLogger(logger))
-	r.Use(middleware.Recoverer)
-	r.Use(corsMiddleware(cfg.Server.CORSAllowedOrigins))
-
-	hub := realtime.NewHub(logger)
-
-	// Webhooks (always created when pool is available).
-	var webhookDispatcher webhookDispatcher
+	tracerProvider, outboundTransport := initTracing(cfg, r, logger)
+	drainManager, logger := initDrainManager(cfg, logger, outboundTransport)
+	var replicaStore replica.ReplicaStore
 	if pool != nil {
-		whStore := webhooks.NewStore(pool)
-		webhookDispatcher = newWebhookDispatcher(whStore, logger)
-		webhookDispatcher.SetDeliveryStore(whStore)
-		// When the job queue is enabled, the scheduled webhook_delivery_prune
-		// job handles pruning. Only start the legacy timer-based pruner when
-		// jobs are disabled (default) for backward compatibility.
-		if !cfg.Jobs.Enabled {
-			webhookDispatcher.StartPruner(1*time.Hour, 7*24*time.Hour)
-		}
+		replicaStore = newReplicaStore(pool)
+		bootstrapReplicaStoreFromConfig(context.Background(), cfg, replicaStore, logger)
 	}
+	replicaResult := buildReplicaRouting(context.Background(), replicaStore, pool, logger)
+	poolRouter, healthChecker := replicaResult.router, replicaResult.checker
+	lifecycleService := buildLifecycleService(cfg, replicaStore, pool, replicaResult, logger)
+	httpMetrics, infraMetrics, tenantMetrics := initObservability(cfg, pool, poolRouter, healthChecker, logger)
+	hub, wsHandler, connManager, realtimeInspector := initRealtimeHub(cfg, pool, schemaCache, authSvc, logger, httpMetrics)
+	webhookDispatcher := initWebhookDispatcher(cfg, pool, logger, outboundTransport)
+	statusHistory, statusIncidentStore, statusChecker := initStatusSystem(cfg, pool)
+
+	// Global middleware.
+	if httpMetrics != nil {
+		r.Use(httpMetrics.Middleware)
+	}
+	tenantMetricsMiddleware := observability.TenantContextMiddleware(httpMetrics)
+	var serverRef *Server
+	r.Use(middleware.RequestID)
+	r.Use(requestLogger(func() *slog.Logger {
+		if serverRef != nil {
+			if logger := serverRef.currentLogger(); logger != nil {
+				return logger
+			}
+		}
+		return logger
+	}))
+	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
+	r.Use(corsMiddleware(cfg.Server.CORSAllowedOrigins))
+	reqLogger := newServerRequestLogger(cfg, logger, pool)
+	r.Use(requestLogMiddleware(reqLogger, func() *logging.DrainManager {
+		if serverRef != nil {
+			return serverRef.currentDrainManager()
+		}
+		return drainManager
+	}))
+	applyDeferredServerRouteMiddleware(r, &serverRef)
 
 	s := &Server{
-		cfg:               cfg,
-		router:            r,
-		logger:            logger,
-		schema:            schemaCache,
-		pool:              pool,
-		authSvc:           authSvc,
-		hub:               hub,
-		webhookDispatcher: webhookDispatcher,
-		startTime:         time.Now(),
+		cfg:                 cfg,
+		router:              r,
+		logger:              logger,
+		schema:              schemaCache,
+		pool:                pool,
+		poolRouter:          poolRouter,
+		healthChecker:       healthChecker,
+		lifecycleService:    lifecycleService,
+		authSvc:             authSvc,
+		storageSvc:          storageSvc,
+		hub:                 hub,
+		wsHandler:           wsHandler,
+		connManager:         connManager,
+		realtimeInspector:   realtimeInspector,
+		webhookDispatcher:   webhookDispatcher,
+		fieldEncryptor:      fieldEncryptor,
+		startTime:           time.Now(),
+		httpMetrics:         httpMetrics,
+		infraMetrics:        infraMetrics,
+		tenantMetrics:       tenantMetrics,
+		requestLogger:       reqLogger,
+		statusHistory:       statusHistory,
+		statusIncidentStore: statusIncidentStore,
+		statusChecker:       statusChecker,
+		drainManager:        drainManager,
+		tracerProvider:      tracerProvider,
 	}
-	if authSvc != nil {
-		s.appRL = auth.NewAppRateLimiter()
-	}
-	if pool != nil {
-		s.msgStore = &pgMessageStore{pool: pool}
-	}
-	if cfg.Admin.Password != "" {
-		s.adminAuth = newAdminAuth(cfg.Admin.Password)
-	} else if pool != nil {
-		logger.Warn("admin password not set — admin endpoints (SQL editor, RLS, user management) are unprotected. Set admin.password in ayb.toml for production use.")
-	}
-
-	// Admin login rate limiter (always created, independent of auth service).
-	adminRateLimit := cfg.Admin.LoginRateLimit
-	if adminRateLimit <= 0 {
-		adminRateLimit = 20
-	}
-	s.adminRL = auth.NewRateLimiter(adminRateLimit, time.Minute)
-
-	// Health check (no content-type restriction).
+	serverRef = s
+	s.initDefaults(logger)
 	r.Get("/health", s.handleHealth)
-
-	// Favicon (prevent 404 errors in browser console).
 	r.Get("/favicon.ico", handleFavicon)
-
-	// OpenAPI spec (no auth, no content-type restriction).
 	r.Get("/api/openapi.yaml", handleOpenAPISpec)
-
-	r.Route("/api", func(r chi.Router) {
-		// Admin auth endpoints (no content-type enforcement — login needs JSON, status is GET).
-		r.Get("/admin/status", s.handleAdminStatus)
-		r.With(s.adminRL.Middleware).Post("/admin/auth", s.handleAdminLogin)
-
-		// Admin SQL editor and RLS policy management (admin-auth gated, requires pool).
-		if pool != nil {
-			logger.Info("registering admin SQL and RLS routes")
-			r.Route("/admin/sql", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Post("/", handleAdminSQL(pool, schemaCache))
-			})
-
-			// Admin RLS policy management.
-			r.Route("/admin/rls", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Get("/", handleListRlsPolicies(pool))
-				r.Post("/", handleCreateRlsPolicy(pool))
-				r.Get("/{table}", handleListRlsPolicies(pool))
-				r.Get("/{table}/status", handleGetRlsStatus(pool))
-				r.Post("/{table}/enable", handleEnableRls(pool))
-				r.Post("/{table}/disable", handleDisableRls(pool))
-				r.Delete("/{table}/{policy}", handleDeleteRlsPolicy(pool))
-			})
-		} else {
-			logger.Warn("pool is nil, skipping admin SQL and RLS routes")
-		}
-
-		// Admin user management (admin-auth gated, requires auth to be enabled).
-		if authSvc != nil {
-			r.Route("/admin/users", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Get("/", handleAdminListUsers(authSvc))
-				r.Delete("/{id}", handleAdminDeleteUser(authSvc))
-			})
-
-			// Admin API key management.
-			r.Route("/admin/api-keys", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Get("/", handleAdminListAPIKeys(authSvc))
-				r.Post("/", handleAdminCreateAPIKey(authSvc))
-				r.Delete("/{id}", handleAdminRevokeAPIKey(authSvc))
-			})
-
-			// Admin app management.
-			r.Route("/admin/apps", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Get("/", handleAdminListApps(authSvc))
-				r.Post("/", handleAdminCreateApp(authSvc))
-				r.Get("/{id}", handleAdminGetApp(authSvc))
-				r.Put("/{id}", handleAdminUpdateApp(authSvc))
-				r.Delete("/{id}", handleAdminDeleteApp(authSvc))
-			})
-
-			// Admin OAuth client management.
-			r.Route("/admin/oauth/clients", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Get("/", handleAdminListOAuthClients(authSvc))
-				r.Post("/", handleAdminCreateOAuthClient(authSvc))
-				r.Get("/{clientId}", handleAdminGetOAuthClient(authSvc))
-				r.Put("/{clientId}", handleAdminUpdateOAuthClient(authSvc))
-				r.Delete("/{clientId}", handleAdminRevokeOAuthClient(authSvc))
-				r.Post("/{clientId}/rotate-secret", handleAdminRotateOAuthClientSecret(authSvc))
-			})
-		}
-
-		// Admin logs (admin-auth gated).
-		r.Route("/admin/logs", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleAdminLogs)
-		})
-
-		// Admin stats (admin-auth gated).
-		r.Route("/admin/stats", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleAdminStats)
-		})
-
-		// Admin secrets management (admin-auth gated, requires auth service).
-		if authSvc != nil {
-			r.Route("/admin/secrets", func(r chi.Router) {
-				r.Use(s.requireAdminToken)
-				r.Post("/rotate", s.handleAdminSecretsRotate)
-			})
-		}
-
-		// Admin SMS (admin-auth gated).
-		r.Route("/admin/sms", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/health", s.handleAdminSMSHealth)
-			r.Get("/messages", s.handleAdminSMSMessages)
-			r.With(middleware.AllowContentType("application/json")).Post("/send", s.handleAdminSMSSend)
-		})
-
-		// Admin job queue management (admin-auth gated, requires jobs service).
-		// Routes are registered unconditionally; the SetJobService method
-		// wires the actual service at startup when jobs.enabled = true.
-		r.Route("/admin/jobs", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleJobsList)
-			r.Get("/stats", s.handleJobsStats)
-			r.Get("/{id}", s.handleJobsGet)
-			r.Post("/{id}/retry", s.handleJobsRetry)
-			r.Post("/{id}/cancel", s.handleJobsCancel)
-		})
-
-		r.Route("/admin/schedules", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleSchedulesList)
-			r.Post("/", s.handleSchedulesCreate)
-			r.Put("/{id}", s.handleSchedulesUpdate)
-			r.Delete("/{id}", s.handleSchedulesDelete)
-			r.Post("/{id}/enable", s.handleSchedulesEnable)
-			r.Post("/{id}/disable", s.handleSchedulesDisable)
-		})
-
-		// Admin materialized view management (admin-auth gated).
-		// Routes registered unconditionally; SetMatviewAdmin wires the service at startup.
-		r.Route("/admin/matviews", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleMatviewsList)
-			r.Post("/", s.handleMatviewsRegister)
-			r.Get("/{id}", s.handleMatviewsGet)
-			r.Put("/{id}", s.handleMatviewsUpdate)
-			r.Delete("/{id}", s.handleMatviewsDelete)
-			r.Post("/{id}/refresh", s.handleMatviewsRefresh)
-		})
-
-		// Admin email template management (admin-auth gated).
-		// Routes registered unconditionally; SetEmailTemplateService wires the service at startup.
-		r.Route("/admin/email/templates", func(r chi.Router) {
-			r.Use(s.requireAdminToken)
-			r.Get("/", s.handleEmailTemplatesList)
-			r.Get("/{key}", s.handleEmailTemplatesGet)
-			r.Put("/{key}", s.handleEmailTemplatesUpsert)
-			r.Delete("/{key}", s.handleEmailTemplatesDelete)
-			r.Patch("/{key}", s.handleEmailTemplatesPatch)
-			r.Post("/{key}/preview", s.handleEmailTemplatesPreview)
-		})
-		r.With(s.requireAdminToken).Post("/admin/email/send", s.handleEmailSend)
-
-		// Storage routes accept multipart/form-data, mounted outside JSON content-type enforcement.
-		if storageSvc != nil {
-			storageHandler := storage.NewHandler(storageSvc, logger, cfg.Storage.MaxFileSizeBytes())
-			r.Route("/storage", func(r chi.Router) {
-				if authSvc != nil {
-					// Read operations: auth optional (supports signed URLs).
-					r.Group(func(r chi.Router) {
-						r.Use(auth.OptionalAuth(authSvc))
-						r.Get("/{bucket}", storageHandler.HandleList)
-						r.Get("/{bucket}/*", storageHandler.HandleServe)
-					})
-					// Write operations: admin or user auth required.
-					r.Group(func(r chi.Router) {
-						r.Use(s.requireAdminOrUserAuth(authSvc))
-						r.Post("/{bucket}", storageHandler.HandleUpload)
-						r.Delete("/{bucket}/*", storageHandler.HandleDelete)
-						r.Post("/{bucket}/{name}/sign", storageHandler.HandleSign)
-					})
-				} else {
-					r.Mount("/", storageHandler.Routes())
-				}
-			})
-		}
-
-		// SMS delivery webhook (Twilio sends form-encoded, not JSON).
-		r.Post("/webhooks/sms/status", s.handleSMSDeliveryWebhook)
-
-		// Auth endpoints (public, rate-limited). Token endpoint accepts form data.
-		if authSvc != nil {
-			authHandler := auth.NewHandler(authSvc, logger)
-			// Configure OAuth providers from config.
-			for name, p := range cfg.Auth.OAuth {
-				if p.Enabled {
-					authHandler.SetOAuthProvider(name, auth.OAuthClientConfig{
-						ClientID:     p.ClientID,
-						ClientSecret: p.ClientSecret,
-					})
-				}
-			}
-			if cfg.Auth.OAuthRedirectURL != "" {
-				authHandler.SetOAuthRedirectURL(cfg.Auth.OAuthRedirectURL)
-			}
-			authHandler.SetOAuthPublisher(hub)
-			if cfg.Auth.MagicLinkEnabled {
-				authHandler.SetMagicLinkEnabled(true)
-			}
-			if cfg.Auth.SMSEnabled {
-				authHandler.SetSMSEnabled(true)
-			}
-			rl := cfg.Auth.RateLimit
-			if rl <= 0 {
-				rl = 10
-			}
-			s.authRL = auth.NewRateLimiter(rl, time.Minute)
-			r.Route("/auth", func(r chi.Router) {
-				r.Use(s.authRL.Middleware)
-				r.Use(middleware.AllowContentType("application/json", "application/x-www-form-urlencoded"))
-				r.Mount("/", authHandler.Routes())
-			})
-		}
-
-		// JSON API routes get content-type enforcement.
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.AllowContentType("application/json"))
-
-			if authSvc != nil {
-				r.With(s.requireAdminOrUserAuth(authSvc)).Get("/schema", s.handleSchema)
-
-				// Messaging SMS endpoints (user auth required).
-				r.Route("/messaging/sms", func(r chi.Router) {
-					r.Use(auth.RequireAuth(authSvc))
-					r.Post("/send", s.handleMessagingSMSSend)
-					r.Get("/messages", s.handleMessagingSMSList)
-					r.Get("/messages/{id}", s.handleMessagingSMSGet)
-				})
-			} else {
-				r.Get("/schema", s.handleSchema)
-			}
-
-			// Realtime SSE (handles its own auth for EventSource compatibility).
-			rtHandler := realtime.NewHandler(hub, pool, authSvc, schemaCache, logger)
-			r.Get("/realtime", rtHandler.ServeHTTP)
-
-			// Webhook management (admin-only).
-			if pool != nil {
-				whStore := webhooks.NewStore(pool)
-				whHandler := webhooks.NewHandler(whStore, whStore, logger)
-				r.Route("/webhooks", func(r chi.Router) {
-					r.Use(s.requireAdminToken)
-					r.Mount("/", whHandler.Routes())
-				})
-			}
-
-			// Mount auto-generated CRUD API.
-			if pool != nil {
-				apiHandler := api.NewHandler(pool, schemaCache, logger, hub, webhookDispatcher)
-				if authSvc != nil {
-					r.Group(func(r chi.Router) {
-						// Accept either a valid admin HMAC token or a user JWT/API-key.
-						r.Use(s.requireAdminOrUserAuth(authSvc))
-						r.Mount("/", apiHandler.Routes())
-					})
-				} else {
-					r.Mount("/", apiHandler.Routes())
-				}
-			}
-		})
-	})
-
-	// Admin SPA (served from embedded UI assets).
-	if cfg.Admin.Enabled {
-		adminPath := cfg.Admin.Path
-		if adminPath == "" {
-			adminPath = "/admin"
-		}
-		spa := staticSPAHandler()
-		// Mount under a Route group to avoid chi wildcard/redirect conflicts.
-		r.Route(adminPath, func(sub chi.Router) {
-			sub.Get("/", spa)
-			sub.Get("/*", spa)
-		})
-
-		// OAuth consent page: served from the same SPA at /oauth/authorize.
-		// The SPA detects this route and renders the consent UI.
-		r.Route("/oauth", func(sub chi.Router) {
-			sub.Get("/authorize", spa)
-		})
-	}
-
+	r.Get("/api/openapi.json", s.handleOpenAPIJSON)
+	r.Get("/api/docs", handleDocs)
+	r.HandleFunc("/functions/v1/{name}", s.handleEdgeFuncInvokeProxy)
+	r.HandleFunc("/functions/v1/{name}/*", s.handleEdgeFuncInvokeProxy)
+	registerMetricsEndpoint(r, cfg, httpMetrics)
+	s.registerServerAPIRoutes(r, tenantMetricsMiddleware)
+	registerAdminSPA(r, cfg)
 	return s
 }
 
-// SetLogBuffer attaches a log buffer for the /api/admin/logs endpoint.
-func (s *Server) SetLogBuffer(lb *LogBuffer) {
-	s.logBuffer = lb
-}
-
-// SetSMSProvider configures the SMS provider for the messaging API.
-func (s *Server) SetSMSProvider(name string, p sms.Provider, allowedCountries []string) {
-	s.smsProvider = p
-	s.smsProviderName = name
-	s.smsAllowedCountries = allowedCountries
-	if s.pool != nil {
-		s.msgStore = &pgMessageStore{pool: s.pool}
+func newServerRequestLogger(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) *RequestLogger {
+	if !cfg.Logging.RequestLogEnabled || pool == nil {
+		return nil
 	}
+	return NewRequestLogger(RequestLogConfig{
+		Enabled:           true,
+		BatchSize:         cfg.Logging.RequestLogBatchSize,
+		FlushIntervalSecs: cfg.Logging.RequestLogFlushIntervalSecs,
+		QueueSize:         cfg.Logging.RequestLogQueueSize,
+		RetentionDays:     cfg.Logging.RequestLogRetentionDays,
+	}, logger, pool)
 }
 
-// SetJobService wires the job queue service for admin API endpoints.
-func (s *Server) SetJobService(svc *jobs.Service) {
-	s.jobService = svc
+// TODO: Document applyDeferredServerRouteMiddleware.
+func applyDeferredServerRouteMiddleware(r chi.Router, serverRef **Server) {
+	useDeferredServerMiddleware(r, serverRef, func(s *Server, next http.Handler) http.Handler {
+		return s.hostRouteMiddleware(next)
+	})
+	useDeferredServerMiddleware(r, serverRef, func(s *Server, next http.Handler) http.Handler {
+		return s.siteRuntimeMiddleware(next)
+	})
 }
 
-// SetMatviewAdmin wires the matview admin facade for admin API endpoints.
-func (s *Server) SetMatviewAdmin(svc matviewAdmin) {
-	s.matviewSvc = svc
+func useDeferredServerMiddleware(r chi.Router, serverRef **Server, wrap func(*Server, http.Handler) http.Handler) {
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if s := *serverRef; s != nil {
+				wrap(s, next).ServeHTTP(w, req)
+				return
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
 }
 
-// SetEmailTemplateService wires the email template service for admin API endpoints.
-func (s *Server) SetEmailTemplateService(svc emailTemplateAdmin) {
-	s.emailTplSvc = svc
+// TODO: Document Server.registerServerAPIRoutes.
+func (s *Server) registerServerAPIRoutes(r chi.Router, tenantMetricsMiddleware func(http.Handler) http.Handler) {
+	serverAllowlist := newIPAllowlist("server.allowed_ips", s.cfg.Server.AllowedIPs, s.logger)
+	adminAllowlist := newIPAllowlist("admin.allowed_ips", s.cfg.Admin.AllowedIPs, s.logger)
+	r.Route("/api", func(r chi.Router) {
+		r.Use(apiRouteAllowlistMiddleware(serverAllowlist, adminAllowlist))
+		r.Use(replica.ReplicaRoutingMiddleware(s.poolRouter))
+		r.Use(s.resolveTenantContext)
+		r.Use(s.enforceTenantAvailability)
+		r.Use(tenantMetricsMiddleware)
+		r.Use(s.tenantRequestRateMiddlewareDynamic)
+		r.Use(s.recordBreakerOutcome)
+		r.Use(s.setTenantSearchPath)
+
+		// Public /status endpoint (NOT admin-gated).
+		if s.cfg.Status.Enabled && s.cfg.Status.PublicEndpointEnabled {
+			r.Get("/status", handlePublicStatus(s.statusHistory, s.statusIncidentStore))
+		}
+
+		s.registerAdminRoutes(r)
+		s.registerWebhookRoutes(r)
+		s.registerAuthRoutes(r)
+		s.registerStorageRoutes(r)
+		s.registerAPIRoutes(r)
+	})
 }
 
 // Router returns the chi router for registering additional routes.
@@ -437,349 +314,14 @@ func (s *Server) Router() *chi.Mux {
 	return s.router
 }
 
-// Start begins listening for HTTP requests.
-func (s *Server) Start() error {
-	s.http = &http.Server{
-		Addr:              s.cfg.Address(),
-		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
-	s.logger.Info("server starting", "address", s.cfg.Address())
-	if err := s.http.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
-	}
-	return nil
+func (s *Server) currentLogger() *slog.Logger {
+	s.observabilityMu.RLock()
+	defer s.observabilityMu.RUnlock()
+	return s.logger
 }
 
-// StartWithReady begins listening. It closes the ready channel once the
-// listener is bound, then blocks serving requests.
-func (s *Server) StartWithReady(ready chan<- struct{}) error {
-	s.http = &http.Server{
-		Addr:              s.cfg.Address(),
-		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
-	ln, err := net.Listen("tcp", s.cfg.Address())
-	if err != nil {
-		return fmt.Errorf("listen: %w", err)
-	}
-
-	s.logger.Info("server starting", "address", s.cfg.Address())
-	close(ready)
-
-	if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
-	}
-	return nil
-}
-
-// StartTLSWithReady begins serving TLS using the provided pre-created listener.
-// The caller is responsible for creating the listener with the appropriate
-// tls.Config (e.g. via certmagic or a self-signed cert for tests).
-// It closes the ready channel once serving begins, then blocks until shutdown.
-func (s *Server) StartTLSWithReady(ln net.Listener, ready chan<- struct{}) error {
-	s.http = &http.Server{
-		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
-	s.logger.Info("server starting with TLS", "address", ln.Addr())
-	close(ready)
-
-	if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
-	}
-	return nil
-}
-
-// Shutdown gracefully stops the server.
-func (s *Server) Shutdown(ctx context.Context) error {
-	timeout := time.Duration(s.cfg.Server.ShutdownTimeout) * time.Second
-	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	s.logger.Info("shutting down server", "timeout", timeout)
-	if s.authRL != nil {
-		s.authRL.Stop()
-	}
-	if s.appRL != nil {
-		s.appRL.Stop()
-	}
-	if s.adminRL != nil {
-		s.adminRL.Stop()
-	}
-	if s.jobService != nil {
-		s.jobService.Stop()
-	}
-	if s.webhookDispatcher != nil {
-		s.webhookDispatcher.Close()
-	}
-	s.hub.Close()
-	return s.http.Shutdown(shutdownCtx)
-}
-
-// jobsNotEnabled returns a 503 response when the job service is not running.
-func jobsNotEnabled(w http.ResponseWriter) {
-	httputil.WriteError(w, http.StatusServiceUnavailable, "job queue is not enabled")
-}
-
-func (s *Server) handleJobsList(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminListJobs(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleJobsGet(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminGetJob(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleJobsRetry(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminRetryJob(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleJobsCancel(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminCancelJob(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleJobsStats(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminJobStats(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesList(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminListSchedules(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesCreate(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminCreateSchedule(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesUpdate(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminUpdateSchedule(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesDelete(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminDeleteSchedule(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesEnable(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminEnableSchedule(s.jobService).ServeHTTP(w, r)
-}
-
-func (s *Server) handleSchedulesDisable(w http.ResponseWriter, r *http.Request) {
-	if s.jobService == nil {
-		jobsNotEnabled(w)
-		return
-	}
-	handleAdminDisableSchedule(s.jobService).ServeHTTP(w, r)
-}
-
-// matviewsNotEnabled returns a 503 when the matview service is not wired.
-func matviewsNotEnabled(w http.ResponseWriter) {
-	httputil.WriteError(w, http.StatusServiceUnavailable, "materialized view management requires a database connection")
-}
-
-func (s *Server) handleMatviewsList(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminListMatviews(s.matviewSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleMatviewsGet(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminGetMatview(s.matviewSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleMatviewsRegister(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminRegisterMatview(s.matviewSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleMatviewsUpdate(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminUpdateMatview(s.matviewSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleMatviewsDelete(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminDeleteMatview(s.matviewSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleMatviewsRefresh(w http.ResponseWriter, r *http.Request) {
-	if s.matviewSvc == nil {
-		matviewsNotEnabled(w)
-		return
-	}
-	handleAdminRefreshMatview(s.matviewSvc).ServeHTTP(w, r)
-}
-
-// emailTemplatesNotEnabled returns a 503 when the email template service is not wired.
-func emailTemplatesNotEnabled(w http.ResponseWriter) {
-	httputil.WriteError(w, http.StatusServiceUnavailable, "email template management requires a database connection")
-}
-
-func (s *Server) handleEmailTemplatesList(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminListEmailTemplates(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailTemplatesGet(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminGetEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailTemplatesUpsert(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminUpsertEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailTemplatesDelete(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminDeleteEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailTemplatesPatch(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminPatchEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailTemplatesPreview(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminPreviewEmailTemplate(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleEmailSend(w http.ResponseWriter, r *http.Request) {
-	if s.emailTplSvc == nil {
-		emailTemplatesNotEnabled(w)
-		return
-	}
-	handleAdminSendEmail(s.emailTplSvc).ServeHTTP(w, r)
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	type healthResponse struct {
-		Status   string `json:"status"`
-		Database string `json:"database"`
-	}
-
-	if s.pool == nil {
-		// No database pool — server is up but database-dependent endpoints will not work.
-		httputil.WriteJSON(w, http.StatusOK, healthResponse{
-			Status:   "ok",
-			Database: "not configured",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-
-	if err := s.pool.Ping(ctx); err != nil {
-		httputil.WriteJSON(w, http.StatusServiceUnavailable, healthResponse{
-			Status:   "degraded",
-			Database: "unreachable",
-		})
-		return
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, healthResponse{
-		Status:   "ok",
-		Database: "ok",
-	})
-}
-
-func handleFavicon(w http.ResponseWriter, r *http.Request) {
-	// Return 204 No Content to prevent 404 errors in browser console.
-	// Browsers request /favicon.ico by default; we don't have one embedded.
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	w.Write(openapi.Spec)
-}
-
-func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
-	sc := s.schema.Get()
-	if sc == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "schema cache not ready")
-		return
-	}
-	httputil.WriteJSON(w, http.StatusOK, sc)
+func (s *Server) currentDrainManager() *logging.DrainManager {
+	s.observabilityMu.RLock()
+	defer s.observabilityMu.RUnlock()
+	return s.drainManager
 }

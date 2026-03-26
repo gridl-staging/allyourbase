@@ -1,93 +1,109 @@
 # File Storage
 
-AYB provides file upload, download, and deletion with local filesystem or S3-compatible object storage backends.
+<!-- audited 2026-03-20 -->
+
+AYB storage supports bucket administration, object CRUD, signed URLs, resumable uploads (TUS), and optional CDN URL rewrite/purge.
 
 ## Enable storage
 
 ```toml
-# ayb.toml
 [storage]
 enabled = true
-backend = "local"           # "local" or "s3" (any S3-compatible object store)
+backend = "local"           # "local" or "s3"
 local_path = "./ayb_storage"
 max_file_size = "10MB"
 ```
 
-## Endpoints
+## Route surfaces and auth
 
-```
-GET    /api/storage/{bucket}                List files in a bucket
-POST   /api/storage/{bucket}                Upload a file to a bucket
-GET    /api/storage/{bucket}/{name}         Download a file
-DELETE /api/storage/{bucket}/{name}         Delete a file
-POST   /api/storage/{bucket}/{name}/sign    Get a signed URL
-```
+### Bucket admin routes (admin token required)
 
-### Upload
+- `POST /api/storage/buckets`
+- `GET /api/storage/buckets`
+- `PUT /api/storage/buckets/{name}`
+- `DELETE /api/storage/buckets/{name}`
 
-```bash
-curl -X POST http://localhost:8090/api/storage/avatars \
-  -H "Authorization: Bearer eyJhbG..." \
-  -F "file=@photo.jpg"
-```
+Notes:
 
-The bucket name is in the URL path. The file is sent as multipart form data.
+- Bucket CRUD is admin-only.
+- Deleting a non-empty bucket returns a conflict unless `force=true` is passed.
 
-**Response** (201 Created):
+### Object routes
+
+- `GET /api/storage/{bucket}`
+- `GET /api/storage/{bucket}/{name}`
+- `POST /api/storage/{bucket}`
+- `DELETE /api/storage/{bucket}/{name}`
+- `POST /api/storage/{bucket}/{name}/sign`
+
+When auth is enabled:
+
+- Read routes (`GET`) use optional auth.
+- Write routes (`POST` upload, `DELETE`, `POST .../sign`) require admin-or-user auth.
+
+When auth is disabled, routes are mounted directly without auth middleware.
+
+## Bucket visibility and signed URL behavior
+
+- Buckets with metadata `public=true` expose public object URLs.
+- Buckets with no metadata record are treated as implicitly public.
+- Signed URL validation on `GET /api/storage/{bucket}/{name}` bypasses auth if signature is valid.
+
+Signed URL creation:
+
+- Endpoint: `POST /api/storage/{bucket}/{name}/sign`
+- Request: `{ "expiresIn": <seconds> }`
+- Default expiry: `3600` seconds
+- Maximum expiry: `604800` seconds (7 days)
+- Response shape:
 
 ```json
 {
-  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "bucket": "avatars",
-  "name": "photo.jpg",
-  "size": 245678,
-  "contentType": "image/jpeg",
-  "createdAt": "2026-02-07T22:00:00Z"
+  "url": "/api/storage/<bucket>/<name>?exp=...&sig=..."
 }
 ```
 
-### List files in a bucket
+## Upload and multipart behavior
 
-```bash
-curl http://localhost:8090/api/storage/avatars
-```
+Upload endpoint: `POST /api/storage/{bucket}`
 
-### Download
+Rules:
 
-```bash
-curl http://localhost:8090/api/storage/avatars/photo.jpg
-```
+- Multipart form field `file` is required.
+- Optional form field `name` overrides filename.
+- Request body is capped by `storage.max_file_size`.
+- Content type is inferred from filename extension, then multipart header, else `application/octet-stream`.
 
-Returns the file with the correct `Content-Type` header.
+## Resumable uploads (TUS)
 
-### Delete
+Routes:
 
-```bash
-curl -X DELETE http://localhost:8090/api/storage/avatars/photo.jpg \
-  -H "Authorization: Bearer eyJhbG..."
-```
+- `OPTIONS /api/storage/upload/resumable`
+- `POST /api/storage/upload/resumable?bucket={bucket}&name={name}`
+- `HEAD /api/storage/upload/resumable/{id}`
+- `PATCH /api/storage/upload/resumable/{id}`
 
-Returns `204 No Content` on success.
+Behavior:
 
-## Local storage
+- `OPTIONS` is intentionally unauthenticated for browser preflight.
+- `POST`, `HEAD`, and `PATCH` require admin-or-user auth when auth is enabled.
+- Required TUS version header: `Tus-Resumable: 1.0.0` (create/head/patch).
+- `POST` requires `Upload-Length` and bucket/name (query or metadata fallback for name).
+- `PATCH` requires `Content-Type: application/offset+octet-stream` and `Upload-Offset`.
+- `HEAD` returns current `Upload-Offset` and total `Upload-Length`.
 
-Files are stored on the filesystem at the path specified in `local_path` (default: `./ayb_storage`).
+## Object storage backends
+
+Local:
 
 ```toml
 [storage]
 enabled = true
 backend = "local"
 local_path = "/var/lib/ayb/storage"
-max_file_size = "50MB"
 ```
 
-## S3-compatible object storage
-
-Works with any S3-compatible service — Cloudflare R2, MinIO, DigitalOcean Spaces, AWS S3, Backblaze B2, and more. The `"s3"` backend uses the standard S3 protocol, so you're never locked into a single provider.
-
-### Cloudflare R2
-
-Zero egress fees. Set `s3_region = "auto"`.
+S3-compatible:
 
 ```toml
 [storage]
@@ -100,38 +116,29 @@ s3_access_key = "..."
 s3_secret_key = "..."
 ```
 
-### MinIO (self-hosted)
+## CDN rewrite and purge providers
 
-Run your own S3-compatible object store. Great for air-gapped or on-prem deployments.
-
-```toml
-[storage]
-enabled = true
-backend = "s3"
-s3_endpoint = "localhost:9000"
-s3_bucket = "ayb"
-s3_region = "us-east-1"
-s3_access_key = "minioadmin"
-s3_secret_key = "minioadmin"
-s3_use_ssl = false
-```
-
-### AWS S3
+URL rewriting uses `storage.cdn_url`.
 
 ```toml
 [storage]
-enabled = true
-backend = "s3"
-s3_endpoint = "s3.amazonaws.com"
-s3_bucket = "my-ayb-bucket"
-s3_region = "us-east-1"
-s3_access_key = "AKIAIOSFODNN7EXAMPLE"
-s3_secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-s3_use_ssl = true
-max_file_size = "100MB"
+cdn_url = "https://cdn.example.com"
+
+[storage.cdn]
+provider = "cloudflare" # or "cloudfront" or "webhook"
 ```
 
-## JavaScript SDK
+Supported provider keys:
+
+- `storage.cdn.cloudflare.zone_id`
+- `storage.cdn.cloudflare.api_token`
+- `storage.cdn.cloudfront.distribution_id`
+- `storage.cdn.webhook.endpoint`
+- `storage.cdn.webhook.signing_secret`
+
+Runtime validation requires `storage.cdn_url` when any CDN provider is configured.
+
+## JavaScript SDK examples
 
 ```ts
 import { AYBClient } from "@allyourbase/js";
@@ -139,19 +146,11 @@ import { AYBClient } from "@allyourbase/js";
 const ayb = new AYBClient("http://localhost:8090");
 await ayb.auth.login("user@example.com", "password");
 
-// Upload a file to a bucket
-const file = document.querySelector("input[type=file]").files[0];
-const result = await ayb.storage.upload("avatars", file);
+const file = document.querySelector("input[type=file]")!.files![0];
+const uploaded = await ayb.storage.upload("avatars", file);
 
-// Get download URL (bucket + name)
-const url = ayb.storage.downloadURL("avatars", result.name);
-
-// List files in a bucket
-const { items } = await ayb.storage.list("avatars");
-
-// Get a signed URL for time-limited access
-const { url: signedUrl } = await ayb.storage.getSignedURL("avatars", "photo.jpg", 3600);
-
-// Delete (bucket + name)
-await ayb.storage.delete("avatars", result.name);
+const publicOrOriginURL = ayb.storage.downloadURL("avatars", uploaded.name);
+const { items, totalItems } = await ayb.storage.list("avatars", { limit: 50, offset: 0 });
+const { url: signedURL } = await ayb.storage.getSignedURL("avatars", uploaded.name, 3600);
+await ayb.storage.delete("avatars", uploaded.name);
 ```

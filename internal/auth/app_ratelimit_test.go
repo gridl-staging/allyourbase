@@ -105,8 +105,8 @@ func TestAppRateLimiterMiddleware429(t *testing.T) {
 	}))
 
 	claims := &Claims{
-		AppID:            "app-limited",
-		AppRateLimitRPS:  2,
+		AppID:              "app-limited",
+		AppRateLimitRPS:    2,
 		AppRateLimitWindow: 60,
 	}
 	ctx := context.WithValue(context.Background(), ctxKey{}, claims)
@@ -140,8 +140,8 @@ func TestAppRateLimiterMiddlewareHeaders(t *testing.T) {
 	}))
 
 	claims := &Claims{
-		AppID:            "app-headers",
-		AppRateLimitRPS:  5,
+		AppID:              "app-headers",
+		AppRateLimitRPS:    5,
 		AppRateLimitWindow: 60,
 	}
 	ctx := context.WithValue(context.Background(), ctxKey{}, claims)

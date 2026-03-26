@@ -1,3 +1,4 @@
+// Package sms provides an SMS provider implementation using the Twilio REST API.
 package sms
 
 import (
@@ -35,6 +36,7 @@ func NewTwilioProvider(accountSID, authToken, fromNumber, baseURL string) *Twili
 	}
 }
 
+// Send sends an SMS message via the Twilio REST API using the provider's configured account credentials, returning the message ID and status from the API response.
 func (p *TwilioProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := fmt.Sprintf("%s/2010-04-01/Accounts/%s/Messages.json", p.baseURL, p.accountSID)
 

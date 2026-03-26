@@ -12,10 +12,11 @@
     "test:browser:mocked": "playwright test --config playwright.config.mocked.ts",
     "test:browser:mocked:ui": "playwright test --config playwright.config.mocked.ts --ui",
     "test:browser:ui": "playwright test --ui",
-    "lint:browser-tests": "eslint browser-tests-unmocked/**/*.spec.ts --config browser-tests-unmocked/eslint.config.mjs",
-    "lint:browser-tests:mocked": "eslint browser-tests-mocked/**/*.spec.ts --config browser-tests-mocked/eslint.config.mjs"
+    "lint:browser-tests": "eslint \"browser-tests-unmocked/**/*.{ts,tsx}\" --config browser-tests-unmocked/eslint.config.mjs",
+    "lint:browser-tests:mocked": "eslint \"browser-tests-mocked/**/*.{ts,tsx}\" --config browser-tests-mocked/eslint.config.mjs"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.4",
     "@codemirror/lang-sql": "^6.10.0",
     "@tanstack/react-table": "^8.17.0",
     "@testing-library/dom": "^10.4.1",

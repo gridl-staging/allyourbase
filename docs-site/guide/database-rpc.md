@@ -1,4 +1,5 @@
 # Database RPC
+<!-- audited 2026-03-20 -->
 
 Call PostgreSQL functions directly via the REST API using the RPC endpoint.
 
@@ -7,6 +8,28 @@ Call PostgreSQL functions directly via the REST API using the RPC endpoint.
 ```
 POST /api/rpc/{function_name}
 ```
+
+## Route auth and scope behavior
+
+- RPC is mounted under the same `/api` auth gates as collection routes.
+- When auth is enabled, requests require the same user/admin bearer auth used by REST routes.
+- API keys with readonly scope are rejected for RPC with `403` (`api key scope does not permit write operations`).
+
+## Notify headers for realtime publish
+
+RPC calls can optionally publish realtime events when both notify headers are present:
+
+- `X-Notify-Table`: target table name for the event metadata
+- `X-Notify-Action`: one of `create`, `update`, or `delete`
+
+If either header is missing or `X-Notify-Action` is invalid, the RPC still executes normally and notify publishing is disabled for that request (no `400` is returned for notify contract issues).
+
+Publish behavior depends on function result shape:
+
+- `RETURNS VOID`: no event is published
+- Scalar return: one event is published only when the decoded record is non-null; null results publish nothing
+- Single-row object return: one event is published (null results are skipped, same as scalar)
+- Set-returning array result: one event is published per returned row
 
 ## Create a function
 
@@ -30,10 +53,10 @@ curl -X POST http://localhost:8090/api/rpc/hello \
 **Response:**
 
 ```json
-{
-  "result": "Hello, World!"
-}
+"Hello, World!"
 ```
+
+AYB returns the function result directly. RPC responses are not wrapped in a `{ "result": ... }` envelope.
 
 ## Return types
 
@@ -46,7 +69,7 @@ $$ LANGUAGE sql;
 ```
 
 ```json
-{ "result": 42 }
+42
 ```
 
 ### Set-returning (multiple rows)
@@ -59,12 +82,10 @@ $$ LANGUAGE sql;
 ```
 
 ```json
-{
-  "result": [
-    { "id": 1, "title": "Latest Post", "created_at": "..." },
-    { "id": 2, "title": "Previous Post", "created_at": "..." }
-  ]
-}
+[
+  { "id": 1, "title": "Latest Post", "created_at": "..." },
+  { "id": 2, "title": "Previous Post", "created_at": "..." }
+]
 ```
 
 ### Void (no return value)
@@ -89,6 +110,76 @@ RETURNS SETOF posts AS $$
 $$ LANGUAGE sql SECURITY DEFINER;
 ```
 
+## Spatial queries with PostGIS
+
+When your database has PostGIS installed, use RPC functions for spatial operations like nearby search, bounding box queries, and distance calculations.
+
+### Nearby search
+
+```sql
+CREATE OR REPLACE FUNCTION find_nearby(
+  lat FLOAT8,
+  lng FLOAT8,
+  radius_m FLOAT8
+)
+RETURNS TABLE(
+  id UUID,
+  name TEXT,
+  location JSONB,
+  distance_m FLOAT8
+) AS $$
+  SELECT
+    p.id,
+    p.name,
+    ST_AsGeoJSON(p.location)::jsonb AS location,
+    ST_Distance(p.location::geography, ST_MakePoint(lng, lat)::geography) AS distance_m
+  FROM places p
+  WHERE ST_DWithin(p.location::geography, ST_MakePoint(lng, lat)::geography, radius_m)
+  ORDER BY distance_m
+$$ LANGUAGE sql;
+```
+
+```bash
+curl -X POST http://localhost:8090/api/rpc/find_nearby \
+  -H "Content-Type: application/json" \
+  -d '{"lat": 40.7829, "lng": -73.9654, "radius_m": 1000}'
+```
+
+::: tip GeoJSON in RPC results
+Use `ST_AsGeoJSON(col)::jsonb` in your function body for geometry columns. AYB auto-wraps geometry in standard CRUD endpoints, but cannot introspect arbitrary function return schemas — you control the output format in RPC functions.
+:::
+
+### Distance calculation
+
+```sql
+CREATE OR REPLACE FUNCTION distance_between(
+  lat1 FLOAT8, lng1 FLOAT8,
+  lat2 FLOAT8, lng2 FLOAT8
+)
+RETURNS FLOAT8 AS $$
+  SELECT ST_Distance(
+    ST_MakePoint(lng1, lat1)::geography,
+    ST_MakePoint(lng2, lat2)::geography
+  )
+$$ LANGUAGE sql;
+```
+
+### Bounding box search
+
+```sql
+CREATE OR REPLACE FUNCTION places_in_bbox(
+  min_lng FLOAT8, min_lat FLOAT8,
+  max_lng FLOAT8, max_lat FLOAT8
+)
+RETURNS TABLE(id UUID, name TEXT, location JSONB) AS $$
+  SELECT id, name, ST_AsGeoJSON(location)::jsonb
+  FROM places
+  WHERE location && ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)
+$$ LANGUAGE sql;
+```
+
+See the [PostGIS guide](/guide/postgis) for more spatial patterns and deployment setup.
+
 ## Function discovery
 
-AYB introspects `pg_proc` to find available functions. Only functions in the `public` schema are exposed.
+AYB introspects `pg_proc` in non-system schemas to find available functions. Unqualified lookups prefer `public.<function_name>`, then match other loaded schemas by name.

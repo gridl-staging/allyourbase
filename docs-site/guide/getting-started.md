@@ -1,25 +1,36 @@
 # Getting Started
+<!-- audited 2026-03-20 -->
 
-Get AYB running and make your first API call in under 5 minutes.
+Get AYB running and make your first API call in a few minutes.
+
+## What you get
+
+AYB is a full PostgreSQL backend platform in one runtime:
+
+Alongside the core [REST API](/guide/api-reference), [Authentication](/guide/authentication), [Realtime](/guide/realtime), [File Storage](/guide/file-storage), [GraphQL](/guide/graphql), [Edge Functions](/guide/edge-functions), and [Organizations](/guide/organizations) guides, notable built-in capabilities include:
+
+- Row-level security (RLS) controls for API data access; see [Authentication](/guide/authentication)
+- Database branching workflows for isolated schema/data changes; see [Branching](/guide/branching)
+- Backups and point-in-time recovery (PITR) operations; see [Backups](/guide/backups)
+- Vector index tooling plus semantic/hybrid search APIs; see [AI and Vector Search](/guide/ai-vector)
+- SAML/SSO administration for enterprise auth; see [SAML SSO](/guide/saml)
+- CLI workflow for operations and development; see [CLI Reference](/guide/cli)
+- Migration tooling; see [Migrations](/guide/migrations)
+- Audit logging for admin and operational actions; see [Security](/guide/security)
 
 ## Install
 
 ### curl (macOS / Linux)
 
 ```bash
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 ```
 
 ### Homebrew
 
 ```bash
 brew install gridlhq/tap/ayb
-```
-
-### Go
-
-```bash
-go install github.com/allyourbase/ayb/cmd/ayb@latest
 ```
 
 ### Binary download
@@ -29,31 +40,34 @@ Download the latest release from [GitHub Releases](https://github.com/gridlhq-st
 ### Docker
 
 ```bash
-docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
+docker run --rm -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
 ```
 
 ## Start the server
 
-### Embedded PostgreSQL (zero config)
+### Managed PostgreSQL (zero config)
 
 ```bash
 ayb start
 ```
 
-AYB will download and manage its own PostgreSQL instance automatically. No database setup needed.
+`ayb start` runs the server in detached mode by default, then prints the startup banner and returns you to the shell.
 
-::: info First run
-The very first `ayb start` downloads a PostgreSQL binary (~70MB). This is a one-time download — subsequent starts take ~300ms.
-:::
+The first run may take longer because AYB downloads and prepares a managed PostgreSQL binary.
 
-When you run `ayb start` for the first time, it will generate a random admin password and display it in the console:
+Managed PostgreSQL is the zero-config path. If you need extension-backed features such as `pgvector`, `pg_cron`, or PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes those extensions.
 
-```
+If `admin.password` is not set, startup generates a random admin password and prints:
+
+```text
 Admin password: a1b2c3d4e5f6...
 To reset: ayb admin reset-password
 ```
 
-Save this password — you'll need it to access the admin dashboard at `http://localhost:8090/admin`. If you lose it, run `ayb admin reset-password` to generate a new one.
+Default URLs from the startup banner:
+
+- API: `http://127.0.0.1:8090/api`
+- Admin: `http://127.0.0.1:8090/admin`
 
 ### External PostgreSQL
 
@@ -61,15 +75,17 @@ Save this password — you'll need it to access the admin dashboard at `http://l
 ayb start --database-url postgresql://user:pass@localhost:5432/mydb
 ```
 
-The API is now live at `http://localhost:8090/api` and the admin dashboard at `http://localhost:8090/admin`.
-
-### Verify the server is running
+### Verify readiness
 
 ```bash
-curl http://localhost:8090/health
+curl http://127.0.0.1:8090/health
 ```
 
-You should see `{"status":"ok"}`.
+Typical healthy response:
+
+```json
+{"status":"ok","database":"ok"}
+```
 
 ## Create a table
 
@@ -97,14 +113,14 @@ ayb sql "CREATE TABLE posts (
 )"
 ```
 
-Or use the admin dashboard SQL editor at `http://localhost:8090/admin`.
+Or use the admin dashboard SQL editor at `http://127.0.0.1:8090/admin`.
 
 ## Make your first API call
 
 ### List records
 
 ```bash
-curl http://localhost:8090/api/collections/posts
+curl http://127.0.0.1:8090/api/collections/posts
 ```
 
 **Response:**
@@ -124,7 +140,7 @@ The table is empty, so `items` is an empty array (never `null`).
 ### Create a record
 
 ```bash
-curl -X POST http://localhost:8090/api/collections/posts \
+curl -X POST http://127.0.0.1:8090/api/collections/posts \
   -H "Content-Type: application/json" \
   -d '{"title": "Hello World", "body": "My first post", "published": true}'
 ```
@@ -146,7 +162,7 @@ The full row is returned, including server-generated fields like `id` and `creat
 ### Filter and sort
 
 ```bash
-curl "http://localhost:8090/api/collections/posts?filter=title='Hello World'&sort=-created_at"
+curl "http://127.0.0.1:8090/api/collections/posts?filter=title='Hello World'&sort=-created_at"
 ```
 
 **Response:**
@@ -170,7 +186,7 @@ Boolean filters like `filter=published=true` work but the double `=` can look co
 ### Get a single record
 
 ```bash
-curl http://localhost:8090/api/collections/posts/1
+curl http://127.0.0.1:8090/api/collections/posts/1
 ```
 
 **Response:**
@@ -194,7 +210,7 @@ npm install @allyourbase/js
 ```ts
 import { AYBClient } from "@allyourbase/js";
 
-const ayb = new AYBClient("http://localhost:8090");
+const ayb = new AYBClient("http://127.0.0.1:8090");
 
 // Create
 await ayb.records.create("posts", { title: "Hello", published: true });
@@ -215,6 +231,8 @@ AYB runs on Windows via WSL2. Install WSL (`wsl --install`) then follow the Linu
 
 - [Authentication](/guide/authentication) — Add user auth, then protect data with RLS
 - [JavaScript SDK](/guide/javascript-sdk) — Build your frontend with the TypeScript SDK
+- [Flutter SDK](/guide/flutter-sdk) — Build mobile/web apps with the Dart SDK
+- [PostGIS](/guide/postgis) — Add geospatial support with GeoJSON columns
 - [Deployment](/guide/deployment) — Deploy to production with Docker or bare metal
 - [REST API Reference](/guide/api-reference) — Full endpoint documentation
 - [Quickstart: Todo App](/guide/quickstart) — Build a full CRUD app in 5 minutes

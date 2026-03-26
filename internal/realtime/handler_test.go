@@ -3,6 +3,7 @@ package realtime_test
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,19 @@ func TestSSEMissingTablesParam(t *testing.T) {
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "tables parameter is required")
+}
+
+func TestSSETablesParamRequiresAtLeastOneValidTable(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/realtime?tables=,%20,%20", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "at least one valid table is required")
 }
 
 // TestSSEUnknownTable tests that the handler returns 400 for unknown table names.
@@ -237,6 +251,64 @@ func TestSSETokenInQueryParam(t *testing.T) {
 	testutil.NotNil(t, data["clientId"])
 }
 
+func TestSSEConnectionLimitExceededReturnsTooManyRequests(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
+	cm := realtime.NewConnectionManager(realtime.ConnectionManagerOptions{
+		MaxConnectionsPerUser: 1,
+		IdleTimeout:           time.Minute,
+	})
+	defer cm.Stop()
+	h.CM = cm
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Hold one SSE connection open to consume the only slot.
+	first, err := http.Get(srv.URL + "?tables=posts")
+	testutil.NoError(t, err)
+	defer first.Body.Close()
+	testutil.Equal(t, http.StatusOK, first.StatusCode)
+
+	scanner := bufio.NewScanner(first.Body)
+	testutil.True(t, scanner.Scan(), "expected connected event line")
+	testutil.Equal(t, "event: connected", scanner.Text())
+
+	second, err := http.Get(srv.URL + "?tables=posts")
+	testutil.NoError(t, err)
+	defer second.Body.Close()
+
+	testutil.Equal(t, http.StatusTooManyRequests, second.StatusCode)
+	body, err := io.ReadAll(second.Body)
+	testutil.NoError(t, err)
+	testutil.Contains(t, string(body), "connection limit exceeded")
+}
+
+func TestSSEConnectionRejectedWhenDrainingReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
+	cm := realtime.NewConnectionManager(realtime.ConnectionManagerOptions{
+		MaxConnectionsPerUser: 1,
+		IdleTimeout:           time.Minute,
+	})
+	cm.Drain(0)
+	h.CM = cm
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "?tables=posts")
+	testutil.NoError(t, err)
+	defer resp.Body.Close()
+
+	testutil.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	testutil.NoError(t, err)
+	testutil.Contains(t, string(body), "server is shutting down")
+}
+
 // TestSSEReceivesPublishedEvents tests that events published to the hub
 // are delivered to connected SSE clients.
 func TestSSEReceivesPublishedEvents(t *testing.T) {
@@ -286,6 +358,55 @@ func TestSSEReceivesPublishedEvents(t *testing.T) {
 	record, ok := evData["record"].(map[string]any)
 	testutil.True(t, ok, "event should contain a record object")
 	testutil.Equal(t, "Hello", record["title"])
+}
+
+// TestSSEFilterUsesOldRecordButDoesNotExposeIt verifies that OldRecord remains
+// internal for filter evaluation while transport payloads stay normalized.
+func TestSSEFilterUsesOldRecordButDoesNotExposeIt(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("orders"), testutil.DiscardLogger())
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "?tables=orders&filter=status=eq.pending")
+	testutil.NoError(t, err)
+	defer resp.Body.Close()
+
+	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+
+	scanner := bufio.NewScanner(resp.Body)
+
+	// Skip connected event.
+	for scanner.Scan() {
+		if scanner.Text() == "" {
+			break
+		}
+	}
+
+	// This event should be delivered because old row matches the filter.
+	hub.Publish(&realtime.Event{
+		Action:    "update",
+		Table:     "orders",
+		Record:    map[string]any{"id": 1, "status": "completed"},
+		OldRecord: map[string]any{"id": 1, "status": "pending"},
+	})
+
+	var eventLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		eventLines = append(eventLines, line)
+		if line == "" && len(eventLines) > 1 {
+			break
+		}
+	}
+
+	testutil.True(t, len(eventLines) >= 1, "should receive filtered update event")
+	evData := parseSSEData(t, eventLines[0])
+	testutil.Equal(t, "update", evData["action"])
+	_, hasOldRecord := evData["old_record"]
+	testutil.Equal(t, false, hasOldRecord)
 }
 
 // TestSSEMultipleTables tests subscribing to multiple tables.
@@ -521,4 +642,37 @@ func TestSSEClientCleanupOnDisconnect(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	testutil.Equal(t, 0, hub.ClientCount())
+}
+
+func TestSSEConnectionManagerEntryCleanupOnDisconnect(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+	h := realtime.NewHandler(hub, nil, nil, testSchemaCache("posts"), testutil.DiscardLogger())
+	cm := realtime.NewConnectionManager(realtime.ConnectionManagerOptions{
+		MaxConnectionsPerUser: 10,
+		IdleTimeout:           time.Minute,
+		SweepInterval:         10 * time.Millisecond,
+	})
+	defer cm.Stop()
+	h.CM = cm
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "?tables=posts")
+	testutil.NoError(t, err)
+
+	deadline := time.Now().Add(time.Second)
+	for len(cm.Snapshot()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	testutil.Equal(t, 1, len(cm.Snapshot()))
+
+	resp.Body.Close()
+
+	deadline = time.Now().Add(time.Second)
+	for len(cm.Snapshot()) > 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	testutil.Equal(t, 0, len(cm.Snapshot()))
 }

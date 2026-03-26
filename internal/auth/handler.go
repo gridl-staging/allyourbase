@@ -1,12 +1,13 @@
+// Package auth Handler implements HTTP endpoint handlers for authentication operations including credential-based login, passwordless flows, OAuth/SAML integrations, session management, and MFA enrollment.
 package auth
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/httputil"
@@ -30,21 +31,38 @@ type OAuthEvent struct {
 	MFAToken     string `json:"mfa_token,omitempty"`
 }
 
+// AuthMetricsRecorder captures auth event metrics for successful auth actions.
+type AuthMetricsRecorder interface {
+	RecordAuthSignup(ctx context.Context)
+	RecordAuthLogin(ctx context.Context)
+}
+
 // Handler serves auth HTTP endpoints.
+// Handler serves HTTP endpoints for user authentication and authorization including registration, login, session management, password reset, email verification, OAuth/SAML flows, and multi-factor authentication.
 type Handler struct {
-	auth              *Service
-	oauthAuthorize    oauthAuthorizationProvider
-	oauthToken        oauthTokenProvider
-	oauthRevoke       oauthRevokeProvider
-	logger            *slog.Logger
-	oauthClients      map[string]OAuthClientConfig
-	oauthProviderURLs map[string]OAuthProviderConfig // per-handler provider URL overrides
-	oauthHTTPClient   *http.Client
-	oauthStateStore   *OAuthStateStore
-	oauthRedirectURL  string
-	oauthPublisher    OAuthPublisher // nil when realtime hub not available
-	magicLinkEnabled  bool
-	smsEnabled        bool
+	auth                     *Service
+	samlSvc                  *SAMLService
+	oauthAuthorize           oauthAuthorizationProvider
+	oauthToken               oauthTokenProvider
+	oauthRevoke              oauthRevokeProvider
+	logger                   *slog.Logger
+	oauthConfigMu            sync.RWMutex
+	oauthClients             map[string]OAuthClientConfig
+	oauthProviderURLs        map[string]OAuthProviderConfig // per-handler provider URL overrides
+	oauthStoreProviderTokens map[string]bool
+	oauthHTTPClient          *http.Client
+	oauthStateStore          *OAuthStateStore
+	oauthRedirectURL         string
+	oauthPublisher           OAuthPublisher                                                                                 // nil when realtime hub not available
+	oauthLoginFn             func(ctx context.Context, provider string, info *OAuthUserInfo) (*User, string, string, error) // test-only override
+	magicLinkEnabled         bool
+	smsEnabled               bool
+	anonymousAuthEnabled     bool
+	anonymousRateLimiter     *RateLimiter
+	totpEnabled              bool
+	emailMFAEnabled          bool
+	existingMFAOverride      *bool // test-only: override HasAnyMFA check for AAL2 guard
+	metricsRecorder          AuthMetricsRecorder
 }
 
 // NewHandler creates a new auth handler.
@@ -59,58 +77,35 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 	}
 	oauthMu.RUnlock()
 	return &Handler{
-		auth:              svc,
-		oauthAuthorize:    svc,
-		oauthToken:        svc,
-		oauthRevoke:       svc,
-		logger:            logger,
-		oauthClients:      make(map[string]OAuthClientConfig),
-		oauthProviderURLs: urls,
-		oauthHTTPClient:   oauthHTTPClient,
-		oauthStateStore:   NewOAuthStateStore(10 * time.Minute),
+		auth:                     svc,
+		oauthAuthorize:           svc,
+		oauthToken:               svc,
+		oauthRevoke:              svc,
+		logger:                   logger,
+		oauthClients:             make(map[string]OAuthClientConfig),
+		oauthProviderURLs:        urls,
+		oauthStoreProviderTokens: make(map[string]bool),
+		oauthHTTPClient:          oauthHTTPClient,
+		oauthStateStore:          NewOAuthStateStore(10 * time.Minute),
 	}
-}
-
-// SetProviderURLs overrides the OAuth endpoint URLs for a provider on this
-// handler instance. This is used in tests to point the token/userinfo
-// endpoints at a local fake server without mutating package-level globals.
-func (h *Handler) SetProviderURLs(provider string, cfg OAuthProviderConfig) {
-	h.oauthProviderURLs[provider] = cfg
-}
-
-// SetOAuthProvider registers an OAuth provider with its client credentials.
-func (h *Handler) SetOAuthProvider(provider string, client OAuthClientConfig) {
-	h.oauthClients[provider] = client
-}
-
-// SetOAuthRedirectURL sets the URL to redirect to after OAuth login.
-func (h *Handler) SetOAuthRedirectURL(u string) {
-	h.oauthRedirectURL = u
-}
-
-// SetOAuthPublisher sets the realtime hub for publishing OAuth results to SSE clients.
-func (h *Handler) SetOAuthPublisher(pub OAuthPublisher) {
-	h.oauthPublisher = pub
-}
-
-// SetMagicLinkEnabled enables or disables the magic link endpoints.
-func (h *Handler) SetMagicLinkEnabled(enabled bool) {
-	h.magicLinkEnabled = enabled
-}
-
-// SetSMSEnabled enables or disables the SMS authentication endpoints.
-func (h *Handler) SetSMSEnabled(enabled bool) {
-	h.smsEnabled = enabled
 }
 
 // Routes returns a chi.Router with auth endpoints mounted.
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
+	r.Use(h.attachRequestMetadata)
 	r.Post("/register", h.handleRegister)
 	r.Post("/login", h.handleLogin)
+	r.With(h.anonymousRateLimitMiddleware).Post("/anonymous", h.handleAnonymousSignIn)
+	r.With(RequireAuth(h.auth)).Post("/link/email", h.handleLinkEmail)
+	r.With(RequireAuth(h.auth)).Post("/link/oauth", h.handleLinkOAuth)
+	r.With(RequireAuth(h.auth)).Delete("/link/oauth", h.handleUnlinkOAuth)
 	r.Post("/refresh", h.handleRefresh)
 	r.Post("/logout", h.handleLogout)
 	r.With(RequireAuth(h.auth)).Get("/me", h.handleMe)
+	r.With(RequireAuth(h.auth)).Get("/sessions", h.handleListSessions)
+	r.With(RequireAuth(h.auth)).Delete("/sessions", h.handleDeleteSessions)
+	r.With(RequireAuth(h.auth)).Delete("/sessions/{id}", h.handleDeleteSession)
 	r.With(RequireAuth(h.auth)).Delete("/me", h.handleDeleteMe)
 	r.Post("/password-reset", h.handlePasswordReset)
 	r.Post("/password-reset/confirm", h.handlePasswordResetConfirm)
@@ -118,8 +113,12 @@ func (h *Handler) Routes() chi.Router {
 	r.With(RequireAuth(h.auth)).Post("/verify/resend", h.handleResendVerification)
 	r.Post("/magic-link", h.handleMagicLinkRequest)
 	r.Post("/magic-link/confirm", h.handleMagicLinkConfirm)
+	r.Get("/saml/{provider}/login", h.handleSAMLLogin)
+	r.Post("/saml/{provider}/acs", h.handleSAMLACS)
+	r.Get("/saml/{provider}/metadata", h.handleSAMLMetadata)
 	r.Get("/oauth/{provider}", h.handleOAuthRedirect)
 	r.Get("/oauth/{provider}/callback", h.handleOAuthCallback)
+	r.Post("/oauth/{provider}/callback", h.handleOAuthCallback) // Apple form_post
 	r.Post("/token", h.handleOAuthToken)
 	r.Post("/revoke", h.handleOAuthRevoke)
 	r.With(RequireAuth(h.auth)).Get("/authorize", h.handleOAuthAuthorize)
@@ -135,6 +134,35 @@ func (h *Handler) Routes() chi.Router {
 		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleMFAChallenge)
 		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleMFAVerify)
 	})
+
+	// TOTP MFA endpoints.
+	r.Route("/mfa/totp", func(mfa chi.Router) {
+		mfa.Use(h.requireTOTPEnabled)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleTOTPEnroll)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll/confirm", h.handleTOTPEnrollConfirm)
+		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleTOTPChallenge)
+		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleTOTPVerify)
+	})
+
+	// Email MFA endpoints.
+	r.Route("/mfa/email", func(mfa chi.Router) {
+		mfa.Use(h.requireEmailMFAEnabled)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll", h.handleEmailMFAEnroll)
+		mfa.With(RequireAuth(h.auth)).Post("/enroll/confirm", h.handleEmailMFAEnrollConfirm)
+		mfa.With(RequireMFAPending(h.auth)).Post("/challenge", h.handleEmailMFAChallenge)
+		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleEmailMFAVerify)
+	})
+
+	// Backup code endpoints.
+	r.Route("/mfa/backup", func(mfa chi.Router) {
+		mfa.With(RequireAuth(h.auth), RequireAAL2).Post("/generate", h.handleBackupCodeGenerate)
+		mfa.With(RequireAuth(h.auth), RequireAAL2).Post("/regenerate", h.handleBackupCodeRegenerate)
+		mfa.With(RequireAuth(h.auth)).Get("/count", h.handleBackupCodeCount)
+		mfa.With(RequireMFAPending(h.auth)).Post("/verify", h.handleBackupCodeVerify)
+	})
+
+	// MFA factor listing (accepts both regular auth and MFA pending tokens).
+	r.With(RequireAuthOrMFAPending(h.auth)).Get("/mfa/factors", h.handleMFAFactors)
 
 	// API key management (requires JWT auth — not API key auth, to prevent key bootstrapping).
 	r.Route("/api-keys", func(r chi.Router) {
@@ -162,6 +190,7 @@ type authResponse struct {
 	User         *User  `json:"user"`
 }
 
+// handleRegister creates a new user account with email and password, returning tokens and user info on success.
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req authRequest
 	if !decodeBody(w, r, &req) {
@@ -187,8 +216,12 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, authResponse{Token: token, RefreshToken: refreshToken, User: user})
+	if h.metricsRecorder != nil {
+		h.metricsRecorder.RecordAuthSignup(r.Context())
+	}
 }
 
+// handleLogin authenticates a user by email and password, returning tokens and user info or a pending MFA token if factors are enrolled.
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req authRequest
 	if !decodeBody(w, r, &req) {
@@ -218,8 +251,12 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, authResponse{Token: token, RefreshToken: refreshToken, User: user})
+	if h.metricsRecorder != nil {
+		h.metricsRecorder.RecordAuthLogin(r.Context())
+	}
 }
 
+// handleMe returns the profile information of the authenticated user.
 func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -237,6 +274,7 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, user)
 }
 
+// handleDeleteMe permanently deletes the authenticated user's account and all associated data.
 func (h *Handler) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -254,6 +292,7 @@ func (h *Handler) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleRefresh exchanges a refresh token for new access and refresh tokens.
 func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if !decodeBody(w, r, &req) {
@@ -280,6 +319,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, authResponse{Token: accessToken, RefreshToken: refreshToken, User: user})
 }
 
+// handleLogout invalidates a refresh token, ending the associated session.
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if !decodeBody(w, r, &req) {
@@ -299,390 +339,99 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type passwordResetRequest struct {
-	Email string `json:"email"`
-}
-
-type passwordResetConfirmRequest struct {
-	Token    string `json:"token"`
-	Password string `json:"password"`
-}
-
-type tokenRequest struct {
-	Token string `json:"token"`
-}
-
-func (h *Handler) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
-	var req passwordResetRequest
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	if req.Email == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "email is required")
-		return
-	}
-
-	// Always return 200 to prevent email enumeration.
-	if err := h.auth.RequestPasswordReset(r.Context(), req.Email); err != nil {
-		h.logger.Error("password reset error", "error", err)
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "if that email exists, a reset link has been sent"})
-}
-
-func (h *Handler) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
-	var req passwordResetConfirmRequest
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	if req.Token == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "token is required")
-		return
-	}
-	if req.Password == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "password is required")
-		return
-	}
-
-	err := h.auth.ConfirmPasswordReset(r.Context(), req.Token, req.Password)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrInvalidResetToken):
-			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired reset token",
-				"https://allyourbase.io/guide/authentication")
-		case errors.Is(err, ErrValidation):
-			msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
-			httputil.WriteError(w, http.StatusBadRequest, msg)
-		default:
-			h.logger.Error("password reset confirm error", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "password has been reset"})
-}
-
-func (h *Handler) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
-	var req tokenRequest
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	if req.Token == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "token is required")
-		return
-	}
-
-	err := h.auth.ConfirmEmail(r.Context(), req.Token)
-	if err != nil {
-		if errors.Is(err, ErrInvalidVerifyToken) {
-			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired verification token",
-				"https://allyourbase.io/guide/authentication")
-			return
-		}
-		h.logger.Error("email verification error", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "email verified"})
-}
-
-func (h *Handler) handleResendVerification(w http.ResponseWriter, r *http.Request) {
+// handleListSessions returns all active sessions for the authenticated user, excluding the current session.
+func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
 		httputil.WriteError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
-	if err := h.auth.SendVerificationEmail(r.Context(), claims.Subject, claims.Email); err != nil {
-		h.logger.Error("resend verification error", "error", err)
+	sessions, err := h.auth.ListSessions(r.Context(), claims.Subject, claims.SessionID)
+	if err != nil {
+		h.logger.Error("list sessions error", "error", err, "user_id", claims.Subject)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
+	httputil.WriteJSON(w, http.StatusOK, sessions)
 }
 
-// requireSMSEnabled is middleware that returns 404 when SMS is not configured.
-func (h *Handler) requireSMSEnabled(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !h.smsEnabled {
-			httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "SMS MFA is not enabled",
-				"https://allyourbase.io/guide/authentication#sms")
+// handleDeleteSession revokes a specific session by ID if it belongs to the authenticated user.
+func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	claims := ClaimsFromContext(r.Context())
+	if claims == nil {
+		httputil.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "session id is required")
+		return
+	}
+	if !httputil.IsValidUUID(sessionID) {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid session id format")
+		return
+	}
+
+	err := h.auth.RevokeSession(r.Context(), claims.Subject, sessionID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			httputil.WriteError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, ErrSessionForbidden):
+			httputil.WriteError(w, http.StatusForbidden, "cannot revoke another user's session")
+		default:
+			h.logger.Error("revoke session error", "error", err, "user_id", claims.Subject, "session_id", sessionID)
+			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteSessions revokes all sessions for the authenticated user except the current one.
+func (h *Handler) handleDeleteSessions(w http.ResponseWriter, r *http.Request) {
+	claims := ClaimsFromContext(r.Context())
+	if claims == nil {
+		httputil.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	if r.URL.Query().Get("all_except_current") != "true" {
+		httputil.WriteError(w, http.StatusBadRequest, "all_except_current=true is required")
+		return
+	}
+	if claims.SessionID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "current session id is unavailable")
+		return
+	}
+
+	err := h.auth.RevokeAllExceptCurrent(r.Context(), claims.Subject, claims.SessionID)
+	if err != nil {
+		if errors.Is(err, ErrValidation) {
+			httputil.WriteError(w, http.StatusBadRequest, "current session id is required")
 			return
 		}
-		next.ServeHTTP(w, r)
+		h.logger.Error("revoke all except current error", "error", err, "user_id", claims.Subject)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) attachRequestMetadata(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userAgent := strings.TrimSpace(r.Header.Get("User-Agent"))
+		ipAddress := strings.TrimSpace(clientIP(r))
+		ctx := contextWithRequestMetadata(r.Context(), userAgent, ipAddress)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return httputil.DecodeJSON(w, r, v)
-}
-
-type magicLinkRequest struct {
-	Email string `json:"email"`
-}
-
-func (h *Handler) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
-	if !h.magicLinkEnabled {
-		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#magic-link")
-		return
-	}
-
-	var req magicLinkRequest
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	if req.Email == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "email is required")
-		return
-	}
-
-	// Always return 200 to prevent email enumeration.
-	if err := h.auth.RequestMagicLink(r.Context(), req.Email); err != nil {
-		h.logger.Error("magic link request error", "error", err)
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "if valid, a login link has been sent"})
-}
-
-func (h *Handler) handleMagicLinkConfirm(w http.ResponseWriter, r *http.Request) {
-	if !h.magicLinkEnabled {
-		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
-			"https://allyourbase.io/guide/authentication#magic-link")
-		return
-	}
-
-	var req tokenRequest
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	if req.Token == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "token is required")
-		return
-	}
-
-	user, accessToken, refreshToken, err := h.auth.ConfirmMagicLink(r.Context(), req.Token)
-	if err != nil {
-		if errors.Is(err, ErrInvalidMagicLinkToken) {
-			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired magic link token",
-				"https://allyourbase.io/guide/authentication#magic-link")
-			return
-		}
-		h.logger.Error("magic link confirm error", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	if refreshToken == "" {
-		httputil.WriteJSON(w, http.StatusOK, mfaPendingResponse{
-			MFAPending: true,
-			MFAToken:   accessToken,
-		})
-		return
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, authResponse{Token: accessToken, RefreshToken: refreshToken, User: user})
-}
-
-func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
-	provider := chi.URLParam(r, "provider")
-	client, ok := h.oauthClients[provider]
-	if !ok {
-		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", provider),
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	// If state is provided and corresponds to an active SSE client, use it
-	// directly (popup flow). Otherwise, generate a new state token.
-	state := r.URL.Query().Get("state")
-	if state != "" && h.oauthPublisher != nil && h.oauthPublisher.HasClient(state) {
-		// Register the SSE clientId as a valid CSRF state in the state store
-		// so the callback can validate it the same way.
-		h.oauthStateStore.RegisterExternalState(state)
-	} else {
-		var err error
-		state, err = h.oauthStateStore.Generate()
-		if err != nil {
-			h.logger.Error("OAuth state generation error", "error", err)
-			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-	}
-
-	callbackURL := oauthCallbackURL(r, provider)
-	authURL, err := AuthorizationURL(provider, client, callbackURL, state)
-	if err != nil {
-		h.logger.Error("OAuth URL error", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
-}
-
-func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	provider := chi.URLParam(r, "provider")
-	client, ok := h.oauthClients[provider]
-	if !ok {
-		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", provider),
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	// Check for provider-side errors.
-	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
-		desc := r.URL.Query().Get("error_description")
-		h.logger.Warn("OAuth provider error", "provider", provider, "error", errMsg, "description", desc)
-		state := r.URL.Query().Get("state")
-		// If this was a popup flow, publish the error via SSE and show close page.
-		if h.oauthPublisher != nil && h.oauthPublisher.HasClient(state) {
-			h.oauthPublisher.PublishOAuth(state, &OAuthEvent{
-				Error: "OAuth authentication was denied or failed",
-			})
-			h.writeOAuthCompletePage(w)
-			return
-		}
-		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "OAuth authentication was denied or failed",
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	// Validate CSRF state.
-	state := r.URL.Query().Get("state")
-	isSSEClient := h.oauthPublisher != nil && h.oauthPublisher.HasClient(state)
-	if !h.oauthStateStore.Validate(state) {
-		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired OAuth state",
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "missing authorization code",
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	// Exchange code for user info using this handler's per-instance provider
-	// config and HTTP client (so tests can override without touching globals).
-	callbackURL := oauthCallbackURL(r, provider)
-	pc, ok := h.oauthProviderURLs[provider]
-	if !ok {
-		h.logger.Error("OAuth provider URL config missing", "provider", provider)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	info, err := exchangeCode(r.Context(), provider, client, code, callbackURL, pc, h.oauthHTTPClient)
-	if err != nil {
-		h.logger.Error("OAuth code exchange error", "provider", provider, "error", err)
-		if isSSEClient {
-			h.oauthPublisher.PublishOAuth(state, &OAuthEvent{
-				Error: "failed to authenticate with provider",
-			})
-			h.writeOAuthCompletePage(w)
-			return
-		}
-		httputil.WriteErrorWithDocURL(w, http.StatusBadGateway, "failed to authenticate with provider",
-			"https://allyourbase.io/guide/authentication#oauth")
-		return
-	}
-
-	// Find or create user + issue tokens.
-	user, accessToken, refreshToken, err := h.auth.OAuthLogin(r.Context(), provider, info)
-	if err != nil {
-		h.logger.Error("OAuth login error", "provider", provider, "error", err)
-		if isSSEClient {
-			h.oauthPublisher.PublishOAuth(state, &OAuthEvent{Error: "internal error"})
-			h.writeOAuthCompletePage(w)
-			return
-		}
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// When MFA is required, OAuthLogin returns a pending token with empty refresh token.
-	isMFAPending := refreshToken == ""
-
-	// SSE popup flow: publish tokens via SSE and show auto-close page.
-	if isSSEClient {
-		evt := &OAuthEvent{
-			Token:        accessToken,
-			RefreshToken: refreshToken,
-			User:         user,
-		}
-		if isMFAPending {
-			evt.MFAPending = true
-			evt.MFAToken = accessToken
-			evt.Token = ""
-			evt.User = nil
-		}
-		h.oauthPublisher.PublishOAuth(state, evt)
-		h.writeOAuthCompletePage(w)
-		return
-	}
-
-	// If a redirect URL is configured, redirect with tokens in hash fragment.
-	if h.oauthRedirectURL != "" {
-		if isMFAPending {
-			fragment := url.Values{
-				"mfa_pending": {"true"},
-				"mfa_token":   {accessToken},
-			}
-			dest := h.oauthRedirectURL + "#" + fragment.Encode()
-			http.Redirect(w, r, dest, http.StatusTemporaryRedirect)
-			return
-		}
-		fragment := url.Values{
-			"token":        {accessToken},
-			"refreshToken": {refreshToken},
-		}
-		dest := h.oauthRedirectURL + "#" + fragment.Encode()
-		http.Redirect(w, r, dest, http.StatusTemporaryRedirect)
-		return
-	}
-
-	// No redirect URL — return JSON directly.
-	if isMFAPending {
-		httputil.WriteJSON(w, http.StatusOK, mfaPendingResponse{
-			MFAPending: true,
-			MFAToken:   accessToken,
-		})
-		return
-	}
-	httputil.WriteJSON(w, http.StatusOK, authResponse{
-		Token:        accessToken,
-		RefreshToken: refreshToken,
-		User:         user,
-	})
-}
-
-// oauthCompletePage is served in the popup after OAuth completes.
-// The SDK receives data via SSE; this page just provides visual feedback and auto-closes.
-const oauthCompletePage = `<!DOCTYPE html>
-<html><head><title>Authentication Complete</title></head>
-<body>
-<p>Authentication complete. You can close this window.</p>
-<script>window.close();</script>
-</body></html>`
-
-func (h *Handler) writeOAuthCompletePage(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(oauthCompletePage))
-}
-
-// oauthCallbackURL derives the OAuth callback URL from the current request.
-func oauthCallbackURL(r *http.Request, provider string) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" || proto == "http" {
-		scheme = proto
-	}
-	return fmt.Sprintf("%s://%s/api/auth/oauth/%s/callback", scheme, r.Host, provider)
 }

@@ -53,17 +53,6 @@ func TestAnsiAttrHelper(t *testing.T) {
 	}
 }
 
-func TestStyledWithColor(t *testing.T) {
-	result := styled("hello", "\033[1m", true)
-	testutil.Contains(t, result, "hello")
-	testutil.True(t, strings.HasPrefix(result, "\033[1m"), "expected output to start with bold code \\033[1m")
-}
-
-func TestStyledWithoutColor(t *testing.T) {
-	result := styled("hello", "\033[1m", false)
-	testutil.Equal(t, "hello", result)
-}
-
 func TestBold(t *testing.T) {
 	r := bold("test", true)
 	testutil.Contains(t, r, "test")
@@ -106,12 +95,6 @@ func TestBoldGreen(t *testing.T) {
 	testutil.True(t, ansiAttr(r, "1"), "expected bold (SGR 1) in boldGreen output")
 	testutil.True(t, ansiAttr(r, "32"), "expected green foreground (SGR 32) in boldGreen output")
 	testutil.Equal(t, "test", boldGreen("test", false))
-}
-
-func TestStyledEmptyString(t *testing.T) {
-	r := styled("", "\033[1m", true)
-	testutil.True(t, strings.HasPrefix(r, "\033[1m"), "expected output to start with bold code \\033[1m")
-	testutil.Equal(t, "", styled("", "\033[1m", false))
 }
 
 func TestColorEnabledRespectsNO_COLOR(t *testing.T) {

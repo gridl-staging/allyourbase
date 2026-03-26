@@ -1,3 +1,4 @@
+// Package webhooks Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar23_am_3_services_dx_audit/allyourbase_dev/internal/webhooks/dispatcher.go.
 package webhooks
 
 import (
@@ -7,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,8 +19,9 @@ import (
 )
 
 const (
-	queueSize  = 1024
-	maxRetries = 3
+	queueSize           = 1024
+	maxRetries          = 3
+	maxDeliveryAttempts = maxRetries + 1
 )
 
 // defaultBackoff holds the production retry delays.
@@ -60,6 +63,14 @@ func (d *Dispatcher) SetDeliveryStore(ds DeliveryStore) {
 	d.deliveryS = ds
 }
 
+// SetHTTPTransport overrides the HTTP transport used for outbound webhook requests.
+func (d *Dispatcher) SetHTTPTransport(rt http.RoundTripper) {
+	if d.client == nil || rt == nil {
+		return
+	}
+	d.client.Transport = rt
+}
+
 // Enqueue adds an event to the delivery queue.
 // Non-blocking: drops events if the queue is full.
 func (d *Dispatcher) Enqueue(event *realtime.Event) {
@@ -92,6 +103,7 @@ func (d *Dispatcher) run() {
 	}
 }
 
+// Loads enabled webhooks, filters those matching the event's table and action, marshals the event as JSON, and delivers the payload to each matching webhook. Logs errors at the store or marshaling stages and exits early.
 func (d *Dispatcher) processEvent(event *realtime.Event) {
 	hooks, err := d.store.ListEnabled(context.Background())
 	if err != nil {
@@ -132,10 +144,11 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
+// TODO: Document Dispatcher.deliver.
 func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byte) {
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < maxDeliveryAttempts; attempt++ {
 		if attempt > 0 {
-			time.Sleep(d.backoff[attempt])
+			time.Sleep(d.backoff[attempt-1])
 		}
 
 		req, err := http.NewRequest(http.MethodPost, hook.URL, bytes.NewReader(payload))
@@ -159,8 +172,14 @@ func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byt
 			d.recordDelivery(hook, event, payload, 0, false, attempt+1, durationMs, err.Error(), "")
 			continue
 		}
-		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		resp.Body.Close()
+		respBytes, err := readLimitedResponseBody(resp.Body)
+		if err != nil {
+			readErr := fmt.Errorf("failed to read webhook response body: %w", err)
+			d.logger.Warn("webhook response body read failed",
+				"url", hook.URL, "status", resp.StatusCode, "attempt", attempt+1, "error", readErr)
+			d.recordDelivery(hook, event, payload, resp.StatusCode, false, attempt+1, durationMs, readErr.Error(), "")
+			continue
+		}
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			d.recordDelivery(hook, event, payload, resp.StatusCode, true, attempt+1, durationMs, "", string(respBytes))
@@ -173,6 +192,12 @@ func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byt
 	d.logger.Error("webhook delivery exhausted retries", "url", hook.URL, "webhookID", hook.ID)
 }
 
+func readLimitedResponseBody(body io.ReadCloser) ([]byte, error) {
+	defer body.Close()
+	return io.ReadAll(io.LimitReader(body, 1024))
+}
+
+// Records a webhook delivery attempt to the delivery store if one is configured, truncating the request body to 4096 bytes if needed. Logs any recording errors without failing the delivery.
 func (d *Dispatcher) recordDelivery(hook *Webhook, event *realtime.Event, payload []byte, statusCode int, success bool, attempt, durationMs int, errMsg, respBody string) {
 	if d.deliveryS == nil {
 		return
@@ -208,6 +233,7 @@ func (d *Dispatcher) StartPruner(interval, retention time.Duration) {
 	go d.runPruner(interval, retention)
 }
 
+// Periodically deletes delivery logs older than the retention duration until the dispatcher is closed. Logs the count of pruned records and any errors encountered.
 func (d *Dispatcher) runPruner(interval, retention time.Duration) {
 	defer d.wg.Done()
 	ticker := time.NewTicker(interval)

@@ -451,3 +451,42 @@ func TestPublishOAuthBufferFullDropsEvent(t *testing.T) {
 		// Expected.
 	}
 }
+
+// --- SetTables Tests ---
+
+func TestSetTablesUpdatesSubscription(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+
+	client := hub.Subscribe(map[string]bool{"posts": true})
+	defer hub.Unsubscribe(client.ID)
+
+	// Switch subscription from posts to comments.
+	hub.SetTables(client.ID, map[string]bool{"comments": true})
+
+	// Should NOT receive posts events.
+	hub.Publish(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}})
+	select {
+	case <-client.Events():
+		t.Fatal("should not receive posts event after SetTables changed to comments")
+	case <-time.After(10 * time.Millisecond):
+		// Expected.
+	}
+
+	// Should receive comments events.
+	hub.Publish(&realtime.Event{Action: "create", Table: "comments", Record: map[string]any{"id": 2}})
+	select {
+	case event := <-client.Events():
+		testutil.Equal(t, "comments", event.Table)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("should receive comments event after SetTables")
+	}
+}
+
+func TestSetTablesUnknownClientIsNoop(t *testing.T) {
+	t.Parallel()
+	hub := realtime.NewHub(testutil.DiscardLogger())
+
+	// Should not panic.
+	hub.SetTables("nonexistent", map[string]bool{"posts": true})
+}

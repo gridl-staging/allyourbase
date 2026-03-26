@@ -121,7 +121,7 @@ func TestConfigCommandProducesValidTOML(t *testing.T) {
 }
 
 func TestRootCommandRegistersSubcommands(t *testing.T) {
-	expected := []string{"start", "stop", "status", "config", "version", "migrate", "admin", "types", "sql", "query", "webhooks", "users", "storage", "schema", "rpc", "mcp", "init", "apikeys", "db", "logs", "stats", "secrets", "uninstall"}
+	expected := []string{"start", "stop", "status", "config", "version", "migrate", "admin", "types", "sql", "query", "webhooks", "users", "storage", "sites", "schema", "rpc", "mcp", "init", "apikeys", "db", "logs", "stats", "secrets", "uninstall", "deploy"}
 
 	commands := make(map[string]bool)
 	for _, cmd := range rootCmd.Commands() {
@@ -906,8 +906,10 @@ func TestInitRejectsInvalidTemplate(t *testing.T) {
 	if !strings.Contains(err.Error(), "unknown template") {
 		t.Fatalf("expected 'unknown template' error, got %q", err.Error())
 	}
-	if !strings.Contains(err.Error(), "react") {
-		t.Fatalf("expected available templates listed in error, got %q", err.Error())
+	for _, tmpl := range templateNames() {
+		if !strings.Contains(err.Error(), tmpl) {
+			t.Fatalf("expected template %q listed in error, got %q", tmpl, err.Error())
+		}
 	}
 }
 
@@ -1038,19 +1040,16 @@ func TestDBBackupRequiresDBURL(t *testing.T) {
 	}
 }
 
-func TestDBBackupInvalidFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
-
-	rootCmd.SetArgs([]string{"db", "backup", "--format", "invalid", "--database-url", "postgresql://localhost/db"})
+func TestDBBackupOutputFlagFallback(t *testing.T) {
+	// The backup command uses the global --output flag (not --format).
+	// Verify the flag is accepted (config loading will fail before output rendering).
+	rootCmd.SetArgs([]string{"db", "backup", "--output", "csv", "--config", "/nonexistent/ayb.toml"})
 	err := rootCmd.Execute()
 	if err == nil {
-		t.Fatal("expected error for invalid format")
+		t.Fatal("expected error from missing config")
 	}
-	if !strings.Contains(err.Error(), "invalid format") {
-		t.Fatalf("expected 'invalid format' error, got: %v", err)
+	if strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("--output flag should be accepted, got: %v", err)
 	}
 }
 
@@ -1124,6 +1123,79 @@ func TestConfigGetReturnsValue(t *testing.T) {
 
 	if !strings.Contains(output, "8090") {
 		t.Fatalf("expected default port 8090, got %q", output)
+	}
+}
+
+func TestConfigGetMasksSecretValues(t *testing.T) {
+	resetJSONFlag()
+	t.Cleanup(resetJSONFlag)
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	const secret = "super-secret-jwt-value-which-should-not-print"
+	if err := os.WriteFile("ayb.toml", []byte("[auth]\njwt_secret = \""+secret+"\"\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"config", "get", "auth.jwt_secret"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if strings.Contains(output, secret) {
+		t.Fatalf("expected config get to mask secret, got %q", output)
+	}
+	if !strings.Contains(output, "***") {
+		t.Fatalf("expected masked secret marker, got %q", output)
+	}
+}
+
+func TestConfigGetJSONMasksDatabaseURLCredentials(t *testing.T) {
+	resetJSONFlag()
+	t.Cleanup(resetJSONFlag)
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	const rawURL = "postgres://user:secret@db.example.com:5432/app"
+	if err := os.WriteFile("ayb.toml", []byte("[database]\nurl = \""+rawURL+"\"\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"config", "get", "database.url", "--json"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	var response struct {
+		Key   string `json:"key"`
+		Value any    `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		t.Fatalf("parsing json output: %v\noutput:\n%s", err, output)
+	}
+	if response.Key != "database.url" {
+		t.Fatalf("expected database.url key, got %q", response.Key)
+	}
+
+	value, ok := response.Value.(string)
+	if !ok {
+		t.Fatalf("expected string value, got %#v", response.Value)
+	}
+	if strings.Contains(value, "user:secret") {
+		t.Fatalf("expected database credentials to be redacted, got %q", value)
+	}
+	if value != "postgres://***@db.example.com:5432/app" {
+		t.Fatalf("expected redacted database URL, got %q", value)
 	}
 }
 
@@ -1292,7 +1364,7 @@ func TestConfigGetMultipleKeys(t *testing.T) {
 		key      string
 		contains string
 	}{
-		{"server.host", "0.0.0.0"},
+		{"server.host", "127.0.0.1"},
 		{"server.port", "8090"},
 		{"admin.enabled", "true"},
 		{"auth.enabled", "false"},
@@ -1308,23 +1380,6 @@ func TestConfigGetMultipleKeys(t *testing.T) {
 		})
 		if !strings.Contains(output, tt.contains) {
 			t.Errorf("config get %s: expected %q in output, got %q", tt.key, tt.contains, output)
-		}
-	}
-}
-
-func TestDBBackupValidFormats(t *testing.T) {
-	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
-
-	// Valid format names should not produce "invalid format" error.
-	// They will fail on the pg_dump step or DB URL step, but not on format validation.
-	for _, format := range []string{"plain", "custom", "tar", "directory", "p", "c", "t", "d"} {
-		rootCmd.SetArgs([]string{"db", "backup", "--format", format, "--database-url", "postgresql://localhost/db"})
-		err := rootCmd.Execute()
-		if err != nil && strings.Contains(err.Error(), "invalid format") {
-			t.Errorf("format %q should be valid, got: %v", format, err)
 		}
 	}
 }

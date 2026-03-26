@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,19 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
+
+type authMetricsRecorderSpy struct {
+	signupCount int
+	loginCount  int
+}
+
+func (r *authMetricsRecorderSpy) RecordAuthSignup(context.Context) {
+	r.signupCount++
+}
+
+func (r *authMetricsRecorderSpy) RecordAuthLogin(context.Context) {
+	r.loginCount++
+}
 
 // Handler tests that don't require a database test the HTTP layer only:
 // decoding, error mapping, response format. DB-dependent tests (register,
@@ -257,6 +271,20 @@ func TestHandleVerifyEmailMissingToken(t *testing.T) {
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "token is required")
+}
+
+func TestHandlerSetMetricsRecorder(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestService()
+	h := NewHandler(svc, testutil.DiscardLogger())
+	recorder := &authMetricsRecorderSpy{}
+
+	h.SetMetricsRecorder(recorder)
+	testutil.Equal(t, 0, recorder.signupCount)
+	testutil.Equal(t, 0, recorder.loginCount)
+	_, ok := h.metricsRecorder.(*authMetricsRecorderSpy)
+	testutil.True(t, ok)
 }
 
 func TestHandleResendVerificationNoAuth(t *testing.T) {

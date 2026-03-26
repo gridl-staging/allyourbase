@@ -1,4 +1,5 @@
 # REST API Reference
+<!-- audited 2026-03-20 -->
 
 AYB auto-generates REST endpoints for every table in your PostgreSQL database.
 
@@ -148,6 +149,21 @@ CREATE INDEX posts_fts_idx ON posts USING GIN (
 );
 ```
 :::
+
+### Vector and semantic search parameters
+
+Collection list endpoints also support vector-search query modes:
+
+- `nearest=[...]` for raw nearest-neighbor search
+- `semantic_query=<text>` for embedding-based nearest-neighbor search
+- `search=<text>&semantic=true` for hybrid full-text + vector fusion
+
+Shared vector params:
+
+- `vector_column=<column_name>` when needed
+- `distance=cosine|l2|inner_product` (default: `cosine`)
+
+See [AI and Vector Search](/guide/ai-vector) for supported payloads, response fields, and admin vector index endpoints.
 
 ### Batch operations
 
@@ -333,6 +349,27 @@ curl -X POST http://localhost:8090/api/admin/apps \
 }
 ```
 
+## Admin: Sites
+
+Admin hosted-site endpoints are available under `/api/admin/sites` and require a valid admin token.
+
+```
+GET    /api/admin/sites                              List sites (paginated)
+POST   /api/admin/sites                              Create site
+GET    /api/admin/sites/{siteId}                     Get site
+PUT    /api/admin/sites/{siteId}                     Update site
+DELETE /api/admin/sites/{siteId}                     Delete site
+GET    /api/admin/sites/{siteId}/deploys             List deploys
+POST   /api/admin/sites/{siteId}/deploys             Create deploy
+GET    /api/admin/sites/{siteId}/deploys/{deployId}  Get deploy
+POST   /api/admin/sites/{siteId}/deploys/{deployId}/files   Upload deploy file (multipart)
+POST   /api/admin/sites/{siteId}/deploys/{deployId}/promote Promote deploy live
+POST   /api/admin/sites/{siteId}/deploys/{deployId}/fail    Mark deploy failed
+POST   /api/admin/sites/{siteId}/deploys/rollback           Roll back to previous live deploy
+```
+
+`/files` is mounted when storage services are configured (typical for hosted static-site deploy flows).
+
 ## Admin: API keys
 
 Admin API-key endpoints are available under `/api/admin/api-keys` and require a valid admin token.
@@ -373,6 +410,40 @@ If an API key is scoped to an app with a configured rate limit, exceeding the li
 ```
 
 The response also includes a `Retry-After` header with the number of seconds until the next allowed request window.
+
+## Admin: Usage Metering
+
+Admin usage-metering endpoints are available under `/api/admin/usage` and require a valid admin token.
+
+```
+GET /api/admin/usage                      List usage rows (paginated/filterable)
+GET /api/admin/usage/trends               Usage trend series
+GET /api/admin/usage/breakdown            Usage grouped breakdowns
+GET /api/admin/usage/{tenant_id}          Tenant usage summary
+GET /api/admin/usage/{tenant_id}/limits   Tenant usage limits
+```
+
+## Admin: Logs
+
+Admin log endpoints require a valid admin token.
+
+```
+GET /api/admin/logs   Operational admin logs feed
+GET /api/admin/audit  Admin audit trail query
+```
+
+## Admin: Storage CDN Purge
+
+Storage CDN purge endpoint requires a valid admin token.
+
+```
+POST /api/admin/storage/cdn/purge
+```
+
+Request body supports exactly one mode:
+
+- `{"urls":["https://cdn.example.com/a"]}` for targeted URL invalidation
+- `{"purge_all":true}` for full-cache purge (rate limited)
 
 ## Admin: Jobs
 
@@ -754,6 +825,190 @@ System template variables:
 - `auth.email_verification`: `AppName`, `ActionURL`
 - `auth.magic_link`: `AppName`, `ActionURL`
 
+## Admin: Push Notifications
+
+Admin push notification endpoints are available under `/api/admin/push` and require a valid admin token. Push must be enabled (`push.enabled = true`).
+
+```
+GET    /api/admin/push/devices              List device tokens
+POST   /api/admin/push/devices              Register device token
+DELETE /api/admin/push/devices/:id          Revoke device token
+POST   /api/admin/push/send                 Send push to user
+POST   /api/admin/push/send-to-token        Send to specific token
+GET    /api/admin/push/deliveries            List deliveries
+GET    /api/admin/push/deliveries/:id        Get delivery details
+```
+
+If push is not enabled, these endpoints return `503 Service Unavailable` with message `push notifications are not enabled`.
+
+### List device tokens
+
+```bash
+curl "http://localhost:8090/api/admin/push/devices?app_id=UUID&user_id=UUID&include_inactive=true" \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN"
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "app_id": "uuid",
+      "user_id": "uuid",
+      "provider": "fcm",
+      "platform": "android",
+      "token": "dGVzdC10b2tlbi0x...",
+      "device_name": "Pixel 8 Pro",
+      "is_active": true,
+      "last_refreshed_at": "2026-02-22T00:00:00Z",
+      "last_used": "2026-02-22T01:00:00Z",
+      "created_at": "2026-02-22T00:00:00Z",
+      "updated_at": "2026-02-22T00:00:00Z"
+    }
+  ]
+}
+```
+
+Query parameters: `app_id`, `user_id` (optional filters), `include_inactive` (default false).
+
+### Register device token
+
+```bash
+curl -X POST http://localhost:8090/api/admin/push/devices \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "uuid",
+    "user_id": "uuid",
+    "provider": "fcm",
+    "platform": "android",
+    "token": "device-token-string",
+    "device_name": "Test Device"
+  }'
+```
+
+**Response** (201 Created): Returns the created/updated device token object.
+
+`provider` must be `fcm` or `apns`. `platform` must be `android` or `ios`.
+
+### Send push notification
+
+```bash
+curl -X POST http://localhost:8090/api/admin/push/send \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "uuid",
+    "user_id": "uuid",
+    "title": "New comment",
+    "body": "Maya replied to your post",
+    "data": {"post_id": "abc123"}
+  }'
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "deliveries": [
+    {
+      "id": "uuid",
+      "device_token_id": "uuid",
+      "status": "pending",
+      "title": "New comment",
+      "body": "Maya replied to your post"
+    }
+  ]
+}
+```
+
+Fans out to all active tokens for the user. Each delivery is processed asynchronously via the job queue.
+
+### List deliveries
+
+```bash
+curl "http://localhost:8090/api/admin/push/deliveries?status=failed&limit=20" \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN"
+```
+
+**Response** (200 OK):
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "provider": "fcm",
+      "title": "New comment",
+      "status": "failed",
+      "error_code": "UNAVAILABLE",
+      "error_message": "FCM service unavailable",
+      "created_at": "2026-02-22T00:00:00Z"
+    }
+  ]
+}
+```
+
+Query parameters: `app_id`, `user_id`, `status` (`pending`, `sent`, `failed`, `invalid_token`), `limit` (default 50), `offset` (default 0).
+
+### Get delivery details
+
+```bash
+curl http://localhost:8090/api/admin/push/deliveries/DELIVERY_UUID \
+  -H "Authorization: Bearer $AYB_ADMIN_TOKEN"
+```
+
+Returns the full delivery record including body, data payload, error details, and linked job ID.
+
+## User-facing: Push Devices
+
+User-facing push device endpoints are available under `/api/push/devices` and require JWT authentication. The user's identity is extracted from JWT claims.
+
+```
+POST   /api/push/devices                    Register device token
+GET    /api/push/devices?app_id=UUID        List own active tokens
+DELETE /api/push/devices/:id                Revoke own device token
+```
+
+### Register device token
+
+```bash
+curl -X POST http://localhost:8090/api/push/devices \
+  -H "Authorization: Bearer $USER_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "uuid",
+    "provider": "fcm",
+    "platform": "android",
+    "token": "device-token-string",
+    "device_name": "My Phone"
+  }'
+```
+
+**Response** (201 Created): Returns the created/updated device token object.
+
+The `user_id` is extracted from JWT claims — clients do not specify it.
+
+### List own tokens
+
+```bash
+curl "http://localhost:8090/api/push/devices?app_id=UUID" \
+  -H "Authorization: Bearer $USER_JWT"
+```
+
+Returns only the authenticated user's active tokens for the specified app.
+
+### Revoke own token
+
+```bash
+curl -X DELETE http://localhost:8090/api/push/devices/DEVICE_TOKEN_ID \
+  -H "Authorization: Bearer $USER_JWT"
+```
+
+Returns `204 No Content`. Ownership validation ensures users can only revoke their own tokens — attempting to revoke another user's token returns `404`.
+
 ## Admin: OAuth Clients
 
 Admin OAuth client endpoints are available under `/api/admin/oauth/clients` and require a valid admin token. OAuth provider mode must be enabled.
@@ -881,13 +1136,43 @@ curl -X POST http://localhost:8090/api/auth/revoke \
 
 Always returns `200 OK` per RFC 7009. Accepts optional `token_type_hint` parameter.
 
+## GeoJSON columns (PostGIS)
+
+When your database has PostGIS installed, geometry and geography columns are automatically serialized as [GeoJSON](https://datatracker.ietf.org/doc/html/rfc7946) objects in API responses and accepted as GeoJSON in request bodies.
+
+### Create with GeoJSON
+
+```bash
+curl -X POST http://localhost:8090/api/collections/places \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Central Park",
+    "location": { "type": "Point", "coordinates": [-73.9654, 40.7829] }
+  }'
+```
+
+### Read — GeoJSON in responses
+
+```json
+{
+  "id": "550e8400-...",
+  "name": "Central Park",
+  "location": { "type": "Point", "coordinates": [-73.9654, 40.7829] },
+  "created_at": "2026-02-22T10:00:00Z"
+}
+```
+
+GeoJSON serialization applies to all read paths: single record, list, expand, batch responses, and SSE realtime events.
+
+See the [PostGIS guide](/guide/postgis) for setup, spatial query patterns, and deployment options.
+
 ## Schema
 
 ```bash
 curl http://localhost:8090/api/schema
 ```
 
-Returns the full database schema as JSON including tables, columns, types, primary keys, and foreign key relationships.
+Returns the full database schema as JSON including tables, columns, types, primary keys, and foreign key relationships. When PostGIS is installed, the response includes `hasPostGIS`, `postGISVersion`, and geometry column metadata (`isGeometry`, `geometryType`, `srid`).
 
 ## Health check
 
@@ -899,7 +1184,7 @@ Returns `200 OK` when the server is running and the database is reachable.
 
 ## Error format
 
-All errors return a consistent JSON format:
+REST endpoints return a consistent JSON format:
 
 ```json
 {
@@ -927,13 +1212,15 @@ For validation errors (constraint violations), the response includes a `data` fi
 
 The `doc_url` field links to relevant documentation when available.
 
+GraphQL endpoints use a different envelope (`{ "errors": [...] }`) and are documented in [GraphQL](/guide/graphql).
+
 Common HTTP status codes:
 
 | Status | Meaning |
 |--------|---------|
-| `400` | Invalid request (bad filter syntax, invalid JSON) |
+| `400` | Invalid request (bad filter syntax, invalid JSON, invalid type/constraint payloads) |
 | `401` | Unauthorized (missing or invalid JWT) |
+| `403` | Forbidden (insufficient permissions / RLS policy denial) |
 | `404` | Collection or record not found |
 | `409` | Conflict (unique constraint violation) |
-| `422` | Validation error (NOT NULL violation, check constraint) |
 | `500` | Internal server error |

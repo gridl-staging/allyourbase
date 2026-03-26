@@ -1,4 +1,4 @@
-import { test, expect, seedWebhook, deleteWebhook } from "../fixtures";
+import { test, expect, seedWebhook, deleteWebhook, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Webhooks - Create and Delete
@@ -16,7 +16,7 @@ test.describe("Smoke: Webhooks CRUD", () => {
 
     // Act: navigate to Webhooks page
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const webhooksButton = page.locator("aside").getByRole("button", { name: /^Webhooks$/i });
     await webhooksButton.click();
     await expect(page.getByRole("heading", { name: "Webhooks" })).toBeVisible();
@@ -33,7 +33,7 @@ test.describe("Smoke: Webhooks CRUD", () => {
 
     // Step 1: Navigate to admin dashboard
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
 
     // Step 2: Navigate to Webhooks section
     const webhooksButton = page.locator("aside").getByRole("button", { name: /^Webhooks$/i });
@@ -49,7 +49,7 @@ test.describe("Smoke: Webhooks CRUD", () => {
     await addWebhookBtn.click();
 
     // Step 5: Fill webhook URL
-    const webhookUrl = `https://httpbin.org/post?run=${runId}`;
+    const webhookUrl = `https://example.com/smoke-${runId}`;
     const urlInput = page.getByRole("textbox", { name: /^URL/i });
     await expect(urlInput).toBeVisible({ timeout: 5000 });
     await urlInput.fill(webhookUrl);

@@ -4,9 +4,12 @@ import "strings"
 
 // pgTypeToJSON maps a PostgreSQL type name (from format_type()) to a JSON type string.
 // Returns one of: "string", "integer", "number", "boolean", "object", "array".
-func pgTypeToJSON(typeName string, isArray bool, isEnum bool, isJSON bool) string {
+func pgTypeToJSON(typeName string, isArray bool, isEnum bool, isJSON bool, isGeometry bool) string {
 	if isArray {
 		return "array"
+	}
+	if isGeometry {
+		return "object"
 	}
 	if isJSON {
 		return "object"

@@ -218,6 +218,81 @@ func TestSMTPMailerFormatFrom(t *testing.T) {
 	}
 }
 
+func TestLogMailerSend_WithFrom(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	m := NewLogMailer(logger)
+
+	err := m.Send(context.Background(), &Message{
+		To:      "user@example.com",
+		Subject: "Test",
+		HTML:    "<p>Hello</p>",
+		From:    "custom@example.com",
+	})
+	testutil.NoError(t, err)
+	testutil.Contains(t, buf.String(), "custom@example.com")
+}
+
+func TestLogMailerSend_WithoutFrom(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	m := NewLogMailer(logger)
+
+	err := m.Send(context.Background(), &Message{
+		To:      "user@example.com",
+		Subject: "Test",
+		HTML:    "<p>Hello</p>",
+	})
+	testutil.NoError(t, err)
+	// "from" key should not appear in log output when From is empty.
+	output := buf.String()
+	testutil.Contains(t, output, "user@example.com")
+}
+
+func TestWebhookMailerSend_WithFrom(t *testing.T) {
+	t.Parallel()
+	var received webhookPayload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := NewWebhookMailer(WebhookConfig{URL: srv.URL})
+	err := m.Send(context.Background(), &Message{
+		To:      "user@example.com",
+		Subject: "Test",
+		HTML:    "<p>Hi</p>",
+		From:    "override@example.com",
+	})
+	testutil.NoError(t, err)
+	testutil.Equal(t, "override@example.com", received.From)
+}
+
+func TestWebhookMailerSend_WithoutFrom(t *testing.T) {
+	t.Parallel()
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := NewWebhookMailer(WebhookConfig{URL: srv.URL})
+	err := m.Send(context.Background(), &Message{
+		To:      "user@example.com",
+		Subject: "Test",
+		HTML:    "<p>Hi</p>",
+	})
+	testutil.NoError(t, err)
+	// With omitempty, "from" should not appear in JSON when empty.
+	testutil.True(t, !bytes.Contains(rawBody, []byte(`"from"`)),
+		"from field should be omitted when empty")
+}
+
 func TestSMTPMailerAuthTypes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

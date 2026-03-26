@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from "vitest";
 import { AYBClient } from "./client";
 import { AYBError } from "./errors";
+import type { RpcNotifyOption, RpcOptions } from "./index";
 
 // --- EventSource mock for realtime tests ---
 
@@ -77,6 +78,35 @@ describe("AYBClient", () => {
   });
 });
 
+describe("health", () => {
+  it("returns health response on 200", async () => {
+    const fetchFn = mockFetch(200, { status: "ok", database: "ok" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.health();
+
+    expect(result).toEqual({ status: "ok", database: "ok" });
+  });
+
+  it("throws AYBError with status 503 on degraded health", async () => {
+    const fetchFn = mockFetch(503, { status: "degraded", database: "unreachable" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await expect(client.health()).rejects.toBeInstanceOf(AYBError);
+    await expect(client.health()).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("omits auth header even when tokens are set", async () => {
+    const fetchFn = mockFetch(200, { status: "ok", database: "ok" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("tok", "ref");
+
+    await client.health();
+
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers.Authorization).toBeUndefined();
+  });
+});
+
 describe("records", () => {
   let fetchFn: ReturnType<typeof mockFetch>;
   let client: AYBClient;
@@ -99,6 +129,12 @@ describe("records", () => {
     await client.records.list("posts");
     const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(url).toBe("http://localhost:8090/api/collections/posts");
+  });
+
+  it("list encodes collection as one path segment", async () => {
+    await client.records.list("posts/../../admin");
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toBe("http://localhost:8090/api/collections/posts%2F..%2F..%2Fadmin");
   });
 
   it("get sends correct URL", async () => {
@@ -290,6 +326,13 @@ describe("storage", () => {
     );
   });
 
+  it("downloadURL encodes unsafe characters but preserves nested path separators", () => {
+    const client = new AYBClient("http://localhost:8090");
+    expect(client.storage.downloadURL("avatars", "nested/path to/image?.jpg")).toBe(
+      "http://localhost:8090/api/storage/avatars/nested/path%20to/image%3F.jpg",
+    );
+  });
+
   it("upload sends POST to /api/storage/{bucket}", async () => {
     const fetchFn = mockFetch(201, { id: "1", bucket: "avatars", name: "photo.jpg" });
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
@@ -306,6 +349,17 @@ describe("storage", () => {
     await client.storage.delete("avatars", "photo.jpg");
     const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(call[0]).toBe("http://localhost:8090/api/storage/avatars/photo.jpg");
+    expect(call[1].method).toBe("DELETE");
+  });
+
+  it("delete encodes bucket and object path safely", async () => {
+    const fetchFn = mockFetch(204, undefined);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.storage.delete("avatars/../private", "nested/path to/image?.jpg");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe(
+      "http://localhost:8090/api/storage/avatars%2F..%2Fprivate/nested/path%20to/image%3F.jpg",
+    );
     expect(call[1].method).toBe("DELETE");
   });
 
@@ -564,6 +618,14 @@ describe("rpc", () => {
     expect(JSON.parse(call[1].body as string)).toEqual({ user_id: "abc" });
   });
 
+  it("encodes rpc function name as one path segment", async () => {
+    const fetchFn = mockFetch(200, 42);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.rpc("dangerous/name with spaces");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("http://localhost:8090/api/rpc/dangerous%2Fname%20with%20spaces");
+  });
+
   it("calls without body when no args", async () => {
     const fetchFn = mockFetch(200, "PostgreSQL 16.2");
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
@@ -606,9 +668,10 @@ describe("rpc", () => {
     const fetchFn = mockFetch(200, 1);
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
     client.setTokens("my-jwt", "my-refresh");
-    await client.rpc("my_func");
+    await client.rpc("my_func", { id: "1" });
     const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(call[1].headers["Authorization"]).toBe("Bearer my-jwt");
+    expect(call[1].headers["Content-Type"]).toBe("application/json");
   });
 
   it("throws AYBError on function not found", async () => {
@@ -616,6 +679,69 @@ describe("rpc", () => {
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
     await expect(client.rpc("nope")).rejects.toThrow(AYBError);
     await expect(client.rpc("nope")).rejects.toThrow("function not found: nope");
+  });
+
+  it("sends notify headers when options.notify is present", async () => {
+    const fetchFn = mockFetch(200, 1);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.rpc("upsert_post", { id: "1" }, {
+      notify: { table: "posts", action: "update" },
+    });
+
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers["X-Notify-Table"]).toBe("posts");
+    expect(call[1].headers["X-Notify-Action"]).toBe("update");
+  });
+
+  it("sends no notify headers when notify option is absent", async () => {
+    const fetchFn = mockFetch(200, 1);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.rpc("upsert_post", { id: "1" });
+
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers["X-Notify-Table"]).toBeUndefined();
+    expect(call[1].headers["X-Notify-Action"]).toBeUndefined();
+  });
+
+  it("supports notify option with args present", async () => {
+    const fetchFn = mockFetch(200, { ok: true });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.rpc("create_post", { title: "hello" }, {
+      notify: { table: "posts", action: "create" },
+    });
+
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers["Content-Type"]).toBe("application/json");
+    expect(call[1].headers["X-Notify-Table"]).toBe("posts");
+    expect(call[1].headers["X-Notify-Action"]).toBe("create");
+    expect(JSON.parse(call[1].body as string)).toEqual({ title: "hello" });
+  });
+
+  it("supports notify option without args", async () => {
+    const fetchFn = mockFetch(200, "ok");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+
+    await client.rpc("cleanup", undefined, {
+      notify: { table: "jobs", action: "delete" },
+    });
+
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].body).toBeUndefined();
+    expect(call[1].headers["X-Notify-Table"]).toBe("jobs");
+    expect(call[1].headers["X-Notify-Action"]).toBe("delete");
+  });
+
+  it("keeps 2-arg rpc call signature and types third arg as RpcOptions", () => {
+    const fetchFn = mockFetch(200, 1);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    void client.rpc("my_func", { id: "1" });
+
+    type RpcThirdArg = Parameters<AYBClient["rpc"]>[2];
+    expectTypeOf<RpcThirdArg>().toEqualTypeOf<RpcOptions | undefined>();
+    expectTypeOf<RpcOptions["notify"]>().toEqualTypeOf<RpcNotifyOption | undefined>();
   });
 });
 

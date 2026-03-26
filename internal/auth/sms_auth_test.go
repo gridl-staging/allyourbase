@@ -58,14 +58,14 @@ func TestNormalizePhone(t *testing.T) {
 func TestNormalizePhoneRejectsInvalid(t *testing.T) {
 	t.Parallel()
 	invalid := []string{
-		"4155552671",            // no +
-		"+1",                    // too short
-		"+1234567890123456",     // too long (>15 digits)
-		"+abc",                  // non-digits
-		"",                      // empty
-		"not-a-phone",           // garbage
-		"+1+4155552671",         // multiple + signs
-		"++14155552671",         // double + at start
+		"4155552671",        // no +
+		"+1",                // too short
+		"+1234567890123456", // too long (>15 digits)
+		"+abc",              // non-digits
+		"",                  // empty
+		"not-a-phone",       // garbage
+		"+1+4155552671",     // multiple + signs
+		"++14155552671",     // double + at start
 		"+\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669\u0660", // Arabic-Indic digits (non-ASCII)
 	}
 	for _, p := range invalid {
@@ -102,9 +102,9 @@ func TestNormalizePhone_LibPhoneNumber(t *testing.T) {
 func TestNormalizePhone_RejectsInvalidForCountry(t *testing.T) {
 	t.Parallel()
 	invalid := []string{
-		"+19995551234",   // correct digit count but unassigned US area code (999)
-		"+449999999999",  // invalid UK number (no valid area code 999)
-		"+61012345678",   // invalid AU mobile (starts with 0 after country code)
+		"+19995551234",  // correct digit count but unassigned US area code (999)
+		"+449999999999", // invalid UK number (no valid area code 999)
+		"+61012345678",  // invalid AU mobile (starts with 0 after country code)
 	}
 	for _, p := range invalid {
 		_, err := normalizePhone(p)

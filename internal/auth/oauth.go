@@ -1,13 +1,12 @@
+// Package auth OAuth 2.0 integration for multiple providers including Google, GitHub, Microsoft, and Apple. It manages authorization flows, token exchange, user info fetching and parsing, CSRF state validation, and OAuth identity linking to user accounts.
 package auth
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,12 +31,69 @@ var oauthHTTPClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
-// OAuthProviderConfig holds the OAuth2 endpoints for a provider.
+// SetOAuthHTTPTransport overrides the transport used by the shared OAuth HTTP client.
+func SetOAuthHTTPTransport(rt http.RoundTripper) {
+	if rt == nil {
+		return
+	}
+	oauthHTTPClient.Transport = rt
+}
+
+type oauthContextKey string
+
+const oauthExpectedNonceContextKey oauthContextKey = "oauth_expected_nonce"
+
+type OAuthTokenAuthMethod string
+
+const (
+	// OAuthTokenAuthMethodClientSecretPost sends client_id/client_secret in the
+	// form body (the default for most providers).
+	OAuthTokenAuthMethodClientSecretPost OAuthTokenAuthMethod = "client_secret_post"
+	// OAuthTokenAuthMethodClientSecretBasic sends client credentials via HTTP
+	// Basic auth (used by providers like Zoom/Notion/Twitter confidential).
+	OAuthTokenAuthMethodClientSecretBasic OAuthTokenAuthMethod = "client_secret_basic"
+)
+
+type OAuthUserInfoSource string
+
+const (
+	// OAuthUserInfoSourceEndpoint fetches user info from the configured endpoint.
+	OAuthUserInfoSourceEndpoint OAuthUserInfoSource = "userinfo_endpoint"
+	// OAuthUserInfoSourceIDToken reads user info from the token response id_token.
+	OAuthUserInfoSourceIDToken OAuthUserInfoSource = "id_token"
+	// OAuthUserInfoSourceTokenResponse reads user info directly from token response JSON.
+	OAuthUserInfoSourceTokenResponse OAuthUserInfoSource = "token_response"
+)
+
+type OAuthTokenRequestMutator func(ctx context.Context, provider string, client OAuthClientConfig, form url.Values, headers http.Header) error
+type OAuthTokenResponseUserInfoExtractor func(tokenBody []byte) (*OAuthUserInfo, error)
+type OAuthIDTokenUserInfoParser func(ctx context.Context, idToken string) (*OAuthUserInfo, error)
+type OAuthUserInfoParser func(body []byte) (*OAuthUserInfo, error)
+
+// OAuthProviderConfig holds OAuth endpoints and provider-specific behavior knobs.
+// OAuthProviderConfig holds OAuth endpoint URLs, scopes, and provider-specific behavior controls including token authentication method, user info source strategy, and optional customization hooks for token requests and user info extraction.
 type OAuthProviderConfig struct {
 	AuthURL     string
 	TokenURL    string
 	UserInfoURL string
 	Scopes      []string
+
+	// Provider-specific optional config fields.
+	TeamID           string
+	KeyID            string
+	PrivateKey       string
+	TenantID         string
+	DiscoveryURL     string
+	ResponseMode     string
+	AdditionalParams map[string]string
+
+	// OAuth abstraction behavior controls.
+	TokenAuthMethod                OAuthTokenAuthMethod
+	UserInfoSource                 OAuthUserInfoSource
+	UserInfoHeaders                map[string]string
+	TokenRequestMutator            OAuthTokenRequestMutator
+	TokenResponseUserInfoExtractor OAuthTokenResponseUserInfoExtractor
+	IDTokenUserInfoParser          OAuthIDTokenUserInfoParser
 }
 
 // Known provider configurations.
@@ -56,13 +112,40 @@ var (
 			UserInfoURL: "https://api.github.com/user",
 			Scopes:      []string{"user:email"},
 		},
+		"microsoft": {
+			AuthURL:     "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+			TokenURL:    "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+			UserInfoURL: "https://graph.microsoft.com/v1.0/me",
+			Scopes:      []string{"openid", "profile", "email", "User.Read"},
+			TenantID:    "common",
+		},
+		"apple": {
+			AuthURL:        "https://appleid.apple.com/auth/authorize",
+			TokenURL:       "https://appleid.apple.com/auth/token",
+			Scopes:         []string{"name", "email"},
+			ResponseMode:   "form_post",
+			UserInfoSource: OAuthUserInfoSourceIDToken,
+		},
+	}
+	oauthUserInfoParsers = map[string]OAuthUserInfoParser{
+		"google":    parseGoogleUser,
+		"github":    parseGitHubUserPayload,
+		"microsoft": parseMicrosoftUser,
 	}
 )
 
 // defaultProviders stores the original provider configs for ResetProviderURLs.
 var defaultProviders = map[string]OAuthProviderConfig{
-	"google": oauthProviders["google"],
-	"github": oauthProviders["github"],
+	"google":    oauthProviders["google"],
+	"github":    oauthProviders["github"],
+	"microsoft": oauthProviders["microsoft"],
+	"apple":     oauthProviders["apple"],
+}
+
+var defaultUserInfoParsers = map[string]OAuthUserInfoParser{
+	"google":    parseGoogleUser,
+	"github":    parseGitHubUserPayload,
+	"microsoft": parseMicrosoftUser,
 }
 
 // SetProviderURLs overrides the URLs for a provider (for testing).
@@ -86,7 +169,51 @@ func getProviderConfig(provider string) (OAuthProviderConfig, bool) {
 	oauthMu.RLock()
 	defer oauthMu.RUnlock()
 	pc, ok := oauthProviders[provider]
-	return pc, ok
+	if !ok {
+		return OAuthProviderConfig{}, false
+	}
+	return pc.withResolvedTemplates(), true
+}
+
+// GetProviderConfigRaw returns the global OAuth provider config without
+// template resolution (for callers that need to preserve placeholders).
+func GetProviderConfigRaw(provider string) (OAuthProviderConfig, bool) {
+	oauthMu.RLock()
+	defer oauthMu.RUnlock()
+	pc, ok := oauthProviders[provider]
+	if !ok {
+		return OAuthProviderConfig{}, false
+	}
+	return pc, true
+}
+
+func getOAuthUserInfoParser(provider string) (OAuthUserInfoParser, bool) {
+	oauthMu.RLock()
+	defer oauthMu.RUnlock()
+	parser, ok := oauthUserInfoParsers[provider]
+	return parser, ok
+}
+
+// SetOAuthUserInfoParser registers a parser for a provider.
+func SetOAuthUserInfoParser(provider string, parser OAuthUserInfoParser) {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	if parser == nil {
+		delete(oauthUserInfoParsers, provider)
+		return
+	}
+	oauthUserInfoParsers[provider] = parser
+}
+
+// ResetOAuthUserInfoParser restores the default parser for a provider.
+func ResetOAuthUserInfoParser(provider string) {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	if parser, ok := defaultUserInfoParsers[provider]; ok {
+		oauthUserInfoParsers[provider] = parser
+		return
+	}
+	delete(oauthUserInfoParsers, provider)
 }
 
 // OAuthClientConfig holds the client credentials for one provider.
@@ -160,12 +287,39 @@ func (s *OAuthStateStore) Validate(token string) bool {
 	return time.Now().Before(exp)
 }
 
-// AuthorizationURL builds the URL to redirect the user to the OAuth provider.
-func AuthorizationURL(provider string, client OAuthClientConfig, redirectURI, state string) (string, error) {
-	pc, ok := getProviderConfig(provider)
-	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
+func (pc OAuthProviderConfig) tokenAuthMethod() OAuthTokenAuthMethod {
+	if pc.TokenAuthMethod == "" {
+		return OAuthTokenAuthMethodClientSecretPost
 	}
+	return pc.TokenAuthMethod
+}
+
+func (pc OAuthProviderConfig) userInfoSource() OAuthUserInfoSource {
+	if pc.UserInfoSource == "" {
+		return OAuthUserInfoSourceEndpoint
+	}
+	return pc.UserInfoSource
+}
+
+func (pc OAuthProviderConfig) tenantID() string {
+	tenant := strings.TrimSpace(pc.TenantID)
+	if tenant == "" {
+		return "common"
+	}
+	return tenant
+}
+
+func (pc OAuthProviderConfig) withResolvedTemplates() OAuthProviderConfig {
+	replaced := strings.NewReplacer("{tenant}", pc.tenantID())
+	pc.AuthURL = replaced.Replace(pc.AuthURL)
+	pc.TokenURL = replaced.Replace(pc.TokenURL)
+	pc.UserInfoURL = replaced.Replace(pc.UserInfoURL)
+	return pc
+}
+
+// Builds the authorization URL to redirect the user to the OAuth provider with the given client credentials, redirect URI, state token, and provider configuration including scopes and additional parameters.
+func authorizationURLWithConfig(provider string, client OAuthClientConfig, redirectURI, state string, pc OAuthProviderConfig) (string, error) {
+	pc = pc.withResolvedTemplates()
 
 	params := url.Values{
 		"client_id":     {client.ClientID},
@@ -178,191 +332,31 @@ func AuthorizationURL(provider string, client OAuthClientConfig, redirectURI, st
 	if provider == "google" {
 		params.Set("access_type", "offline")
 	}
+	// OIDC providers should carry a nonce so callback verification can enforce
+	// id_token nonce claim validation.
+	if pc.DiscoveryURL != "" {
+		params.Set("nonce", state)
+	}
+	if pc.ResponseMode != "" {
+		params.Set("response_mode", pc.ResponseMode)
+	}
+	for key, value := range pc.AdditionalParams {
+		if key == "" || value == "" {
+			continue
+		}
+		params.Set(key, value)
+	}
 
 	return pc.AuthURL + "?" + params.Encode(), nil
 }
 
-// ExchangeCode exchanges an authorization code for provider tokens,
-// then fetches user info from the provider.
-func ExchangeCode(ctx context.Context, provider string, client OAuthClientConfig, code, redirectURI string) (*OAuthUserInfo, error) {
+// AuthorizationURL builds the URL to redirect the user to the OAuth provider.
+func AuthorizationURL(provider string, client OAuthClientConfig, redirectURI, state string) (string, error) {
 	pc, ok := getProviderConfig(provider)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
+		return "", fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
 	}
-	return exchangeCode(ctx, provider, client, code, redirectURI, pc, oauthHTTPClient)
-}
-
-// exchangeCode is the unexported implementation of ExchangeCode. It accepts
-// explicit dependencies (provider config and HTTP client) so that tests can
-// exercise the full code path without touching package-level globals.
-func exchangeCode(ctx context.Context, provider string, client OAuthClientConfig, code, redirectURI string, pc OAuthProviderConfig, httpClient *http.Client) (*OAuthUserInfo, error) {
-	// Exchange code for access token.
-	data := url.Values{
-		"client_id":     {client.ClientID},
-		"client_secret": {client.ClientSecret},
-		"code":          {code},
-		"redirect_uri":  {redirectURI},
-		"grant_type":    {"authorization_code"},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pc.TokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("building token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOAuthCodeExchange, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading token response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: token endpoint returned %d", ErrOAuthCodeExchange, resp.StatusCode)
-	}
-
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return nil, fmt.Errorf("parsing token response: %w", err)
-	}
-	if tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("%w: empty access token", ErrOAuthCodeExchange)
-	}
-
-	// Fetch user info.
-	return fetchUserInfo(ctx, provider, pc.UserInfoURL, tokenResp.AccessToken, httpClient)
-}
-
-func fetchUserInfo(ctx context.Context, provider, userInfoURL, accessToken string, httpClient *http.Client) (*OAuthUserInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("building userinfo request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOAuthProviderError, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading userinfo response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: userinfo endpoint returned %d", ErrOAuthProviderError, resp.StatusCode)
-	}
-
-	switch provider {
-	case "google":
-		return parseGoogleUser(body)
-	case "github":
-		return parseGitHubUser(ctx, body, accessToken, httpClient)
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
-	}
-}
-
-func parseGoogleUser(body []byte) (*OAuthUserInfo, error) {
-	var u struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
-	}
-	if err := json.Unmarshal(body, &u); err != nil {
-		return nil, fmt.Errorf("parsing Google user: %w", err)
-	}
-	if u.ID == "" {
-		return nil, fmt.Errorf("%w: missing user ID", ErrOAuthProviderError)
-	}
-	return &OAuthUserInfo{
-		ProviderUserID: u.ID,
-		Email:          u.Email,
-		Name:           u.Name,
-	}, nil
-}
-
-func parseGitHubUser(ctx context.Context, body []byte, accessToken string, httpClient *http.Client) (*OAuthUserInfo, error) {
-	var u struct {
-		ID    int    `json:"id"`
-		Login string `json:"login"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
-	}
-	if err := json.Unmarshal(body, &u); err != nil {
-		return nil, fmt.Errorf("parsing GitHub user: %w", err)
-	}
-	if u.ID == 0 {
-		return nil, fmt.Errorf("%w: missing user ID", ErrOAuthProviderError)
-	}
-
-	email := u.Email
-	// GitHub users can have private emails — fetch from /user/emails.
-	if email == "" {
-		var err error
-		email, err = fetchGitHubPrimaryEmail(ctx, accessToken, httpClient)
-		if err != nil {
-			// Non-fatal: proceed without email.
-			email = ""
-		}
-	}
-
-	name := u.Name
-	if name == "" {
-		name = u.Login
-	}
-
-	return &OAuthUserInfo{
-		ProviderUserID: fmt.Sprintf("%d", u.ID),
-		Email:          email,
-		Name:           name,
-	}, nil
-}
-
-func fetchGitHubPrimaryEmail(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails", nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("emails endpoint returned %d", resp.StatusCode)
-	}
-
-	var emails []struct {
-		Email    string `json:"email"`
-		Primary  bool   `json:"primary"`
-		Verified bool   `json:"verified"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
-		return "", err
-	}
-
-	for _, e := range emails {
-		if e.Primary && e.Verified {
-			return e.Email, nil
-		}
-	}
-	return "", fmt.Errorf("no primary verified email")
+	return authorizationURLWithConfig(provider, client, redirectURI, state, pc)
 }
 
 // OAuthLogin finds or creates a user from an OAuth identity and returns
@@ -423,9 +417,9 @@ func (s *Service) OAuthLogin(ctx context.Context, provider string, info *OAuthUs
 	var user User
 	err = s.pool.QueryRow(ctx,
 		`INSERT INTO _ayb_users (email, password_hash) VALUES ($1, $2)
-		 RETURNING id, email, created_at, updated_at`,
+		 RETURNING id, email, is_anonymous, created_at, updated_at`,
 		email, hash,
-	).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.IsAnonymous, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		// Handle race: another request might have created this user.
 		var pgErr *pgconn.PgError
@@ -466,19 +460,20 @@ func (s *Service) linkOAuthAccount(ctx context.Context, userID, provider string,
 	return nil
 }
 
+// Logs in a user by ID, checking for MFA enrollment and returning either a pending MFA token for further authentication or full access and refresh tokens.
 func (s *Service) loginByID(ctx context.Context, userID string) (*User, string, string, error) {
 	user, err := s.UserByID(ctx, userID)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("looking up user: %w", err)
 	}
 
-	// If user has MFA enrolled, return a pending token instead of full tokens.
-	hasMFA, err := s.HasSMSMFA(ctx, userID)
+	// If user has any MFA factor enrolled, return a pending token instead of full tokens.
+	hasMFA, _, err := s.HasAnyMFA(ctx, userID)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("checking MFA enrollment: %w", err)
 	}
 	if hasMFA {
-		pendingToken, err := s.generateMFAPendingToken(user)
+		pendingToken, err := s.generateMFAPendingTokenWithMethod(user, "oauth")
 		if err != nil {
 			return nil, "", "", fmt.Errorf("generating MFA pending token: %w", err)
 		}
@@ -489,13 +484,17 @@ func (s *Service) loginByID(ctx context.Context, userID string) (*User, string, 
 }
 
 func (s *Service) issueTokens(ctx context.Context, user *User) (*User, string, string, error) {
-	token, err := s.generateToken(user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("generating token: %w", err)
-	}
-	refreshToken, err := s.createSession(ctx, user.ID)
+	sessionID, refreshToken, err := s.createSession(ctx, user.ID, nil)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("creating session: %w", err)
+	}
+	opts, err := s.sessionTokenOptions(ctx, user, &tokenOptions{SessionID: sessionID})
+	if err != nil {
+		return nil, "", "", fmt.Errorf("resolving session tenant: %w", err)
+	}
+	token, err := s.generateTokenWithOpts(ctx, user, opts)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generating token: %w", err)
 	}
 	return user, token, refreshToken, nil
 }

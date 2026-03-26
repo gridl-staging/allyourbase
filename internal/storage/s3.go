@@ -1,3 +1,4 @@
+// Package storage S3Backend provides object storage operations for S3-compatible services using the minio-go client.
 package storage
 
 import (
@@ -64,6 +65,7 @@ func (b *S3Backend) Put(ctx context.Context, bucket, name string, r io.Reader) (
 	return info.Size, nil
 }
 
+// Get retrieves an object from the S3-compatible store and returns its contents as an io.ReadCloser. It returns ErrNotFound if the object does not exist.
 func (b *S3Backend) Get(ctx context.Context, bucket, name string) (io.ReadCloser, error) {
 	key := b.key(bucket, name)
 	obj, err := b.client.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})

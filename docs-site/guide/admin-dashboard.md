@@ -1,143 +1,167 @@
+<!-- audited 2026-03-21 -->
 # Admin Dashboard
 
-AYB includes a built-in admin dashboard for browsing tables, managing records, and inspecting your database schema.
+AYB's admin dashboard is a built-in web UI for managing your project's database, services, users, and infrastructure. It combines a dynamic table browser with fixed admin views.
 
 ## Access
 
 The dashboard is available at `http://localhost:8090/admin` by default.
-
-## Configuration
 
 ```toml
 [admin]
 enabled = true
 path = "/admin"
 password = "your-admin-password"
+login_rate_limit = 20       # admin login attempts per minute per IP
+allowed_ips = []             # empty = allow all; set CIDRs to restrict admin access
 ```
 
-When `password` is set, the dashboard requires authentication. Without a password, the dashboard is open (suitable for local development only).
+Configure `admin.password` before relying on the dashboard. When `admin.password` is unset, admin login is not configured and admin-authenticated endpoints fail closed.
 
-## Features
+::: warning
+Never expose the admin dashboard with a weak or reused password on a public network.
+:::
 
-### Table browser
-
-- Sidebar listing all tables in your database
-- Paginated data table with sorting
-- Click any row to view full record details
-
-### Record management
-
-- **Create** new records with a form auto-generated from the table schema
-- **Edit** existing records inline
-- **Delete** records with confirmation
-
-### Schema viewer
-
-- View columns, data types, and constraints for each table
-- See primary keys, foreign key relationships, and indexes
-
-### Apps management
-
-- View all registered apps with owner and configured rate limits
-- Create new apps (name, description, owner user)
-- Delete apps that are no longer needed
-
-### API key app scoping
-
-- Create API keys as legacy user-scoped keys or scoped to a specific app
-- See each key's app association directly in the API keys table
-- View app-specific rate limit details in the key list and create-key confirmation modal
-
-### Per-app rate limits
-
-- Configure per-app request limits in the Apps UI (`rateLimitRps`, `rateLimitWindowSeconds`)
-- Enforce request ceilings for app-scoped keys in API middleware
-- Surface app rate-limit values in admin UI for quick audit and troubleshooting
-
-### OAuth client management
-
-When OAuth provider mode is enabled, the dashboard includes an OAuth Clients section:
-
-- View all registered OAuth clients with client ID, name, linked app, type (confidential/public), and active/revoked status
-- Register new OAuth clients linked to an existing app, with redirect URIs, scope selection, and client type
-- View token stats per client: active access tokens, active refresh tokens, total grants, last token issued
-- Revoke clients (soft-delete) and rotate client secrets for confidential clients
-- Client secret is displayed once on creation and rotation — it cannot be retrieved later
-
-### Email templates management
-
-The dashboard includes an Email Templates section under Messaging:
-
-- Table view shows system and custom template keys with source badge (`builtin`/`custom`), enabled state, and update timestamp
-- System keys are always present (`auth.password_reset`, `auth.email_verification`, `auth.magic_link`) even when no custom override exists
-- Selecting a row opens editors for:
-  - subject template (`text/template`)
-  - HTML template (`html/template`)
-- Live preview panel renders subject/HTML/text using JSON variables with debounced preview requests
-- Enable/disable toggle controls whether a custom override is active
-- `Reset to Default` removes a system-key override and returns to built-in content
-- `Delete Template` removes custom app keys
-- `Send Test Email` renders current content and sends to a provided recipient address
-
-Validation and safety behavior surfaced in the UI:
-
-- Missing variables or template syntax errors are displayed immediately in preview
-- Invalid JSON in preview variables is rejected client-side before any preview request is sent
-- Missing or broken custom auth templates safely fall back to built-in defaults during actual auth email sends
-
-### Jobs queue management
-
-When `jobs.enabled = true`, the dashboard includes a Jobs section:
-
-- Queue stats summary: queued/running/completed/failed/canceled and oldest queued age
-- Job table with state badge, type, created time, attempts, and last error preview
-- Filters by state and job type
-- Row actions:
-  - Retry failed jobs
-  - Cancel queued jobs
-
-When jobs are disabled, jobs endpoints return `503` and the view cannot load queue data.
-
-### Schedules management
-
-When `jobs.enabled = true`, the dashboard includes a Schedules section:
-
-- List schedules with name, job type, cron, timezone, enabled status, last run, next run
-- Enable/disable toggle per schedule
-- Create/edit modal with validation:
-  - cron expression format validation
-  - payload JSON validation
-- Delete confirmation flow
-
-### Materialized views management
-
-The dashboard includes a Materialized Views section for managing registered views and their refresh lifecycle:
-
-- Table listing registered matviews: schema, view name, refresh mode, last refresh time/status/duration, error preview
-- **Refresh now** button per row — triggers an immediate synchronous refresh with duration feedback
-- **Register** modal — dropdown of discovered materialized views from the schema cache, refresh mode selection (standard or concurrent)
-- **Edit** mode — update refresh mode for existing registrations
-- **Unregister** — remove a matview registration (does not drop the view from the database)
-
-Refresh status indicators:
-- Green badge for successful last refresh
-- Red badge with error preview for failed refreshes
-- Advisory lock conflicts show "refresh already in progress"
-
-## Security
-
-For production deployments, always set an admin password:
+For production deployments, set an admin password explicitly:
 
 ```bash
 AYB_ADMIN_PASSWORD=your-secure-password ayb start
 ```
 
-Or reset the auto-generated admin password:
+If you rely on AYB's generated password, reset it with:
 
 ```bash
 ayb admin reset-password
 ```
 
-::: warning
-Never expose the admin dashboard without a password on a public network.
-:::
+If `admin.password` or `AYB_ADMIN_PASSWORD` is explicitly set, change that value and restart instead of using `reset-password`.
+
+## Navigating the Dashboard
+
+The sidebar organizes views into six actual sections: **Database**, **Services**, **Messaging**, **Admin**, **AI**, and **Auth**. Use the **Command Palette** (click the search hint at the top of the sidebar or press <kbd>Cmd/Ctrl+K</kbd>) to jump to any view by name.
+
+### Table browser
+
+The **Tables** section at the top of the sidebar lists your project's database tables, generated from the schema at runtime. Click **+ New Table** to open the SQL Editor and create one. When you select a table, the content area shows three tabs:
+
+- **Data** — browse and edit rows
+- **Schema** — inspect columns and constraints
+- **SQL** — run queries scoped to the selected table
+
+### Theme
+
+Toggle between light and dark mode using the theme button at the bottom of the sidebar.
+
+---
+
+## Actual Sidebar Sections
+
+These are the sidebar sections and view names implemented in `Sidebar.tsx` and routed in `ContentRouter.tsx`.
+
+### Database
+
+- **SQL Editor** — run ad hoc SQL for schema changes, data queries, and migrations.
+- **Functions** — browse schema-discovered database functions.
+- **RLS Policies** — manage row-level security policies.
+- **Matviews** — register and refresh materialized views.
+- **Schema Designer** — inspect and model schema relationships visually.
+- **FDW** — manage foreign data wrapper servers and foreign tables.
+
+### Services
+
+- **Storage** — manage object storage.
+- **Sites** — manage hosted static sites.
+- **Edge Functions** — build and deploy edge functions.
+- **Webhooks** — manage outbound webhook delivery.
+
+### Messaging
+
+- **SMS Health** — inspect SMS provider health.
+- **SMS Messages** — inspect sent and queued SMS records.
+- **Email Templates** — edit and preview email templates.
+- **Push Notifications** — manage push devices and deliveries.
+
+### Admin
+
+- **Users** — manage user accounts and related state.
+- **Apps** — manage app records and app-scoped rate limits.
+- **API Keys** — create, rotate, and revoke API keys.
+- **OAuth Clients** — manage OAuth provider-mode clients.
+- **API Explorer** — interactively test AYB endpoints.
+- **Jobs** — inspect background job execution.
+- **Schedules** — manage recurring schedules.
+- **Realtime Inspector** — inspect active realtime connections.
+- **Security Advisor** — review security findings.
+- **Performance Advisor** — review performance findings.
+- **Backups** — manage backups and PITR flows.
+- **Analytics** — inspect analytics views.
+- **Usage** — inspect usage and metering views.
+- **Replicas** — manage read replicas.
+- **Branches** — manage database branches.
+- **Audit Logs** — inspect administrative audit events.
+- **Admin Logs** — inspect operational admin logs.
+- **Secrets** — manage encrypted vault-backed secrets.
+- **Custom Domains** — manage custom domain mappings.
+- **Extensions** — enable and inspect PostgreSQL extensions.
+- **Vector Indexes** — create and inspect vector indexes.
+- **Log Drains** — manage external log sinks.
+- **Stats** — inspect service and platform stats.
+- **Notifications** — manage in-app notifications.
+- **Incidents** — manage incidents.
+- **Support Tickets** — manage support ticket workflows.
+- **Tenants** — manage tenant lifecycle and membership.
+- **Organizations** — manage organizations, teams, members, usage, and tenant assignments.
+
+### AI
+
+- **AI Assistant** — use the dashboard AI assistant. Vector indexes are not in the AI sidebar section; they live under **Admin**.
+
+### Auth
+
+- **Auth Settings** — configure auth providers and flows.
+- **MFA Management** — manage MFA enrollment and assurance state.
+- **Account Linking** — manage linked identities.
+- **SAML** — configure SAML/SSO.
+- **Auth Hooks** — manage auth hook extensions.
+
+## Workflow Crosswalk
+
+The rest of this guide uses workflow-oriented groupings. These cut across the actual sidebar sections above.
+
+### Schema & Data Modeling
+
+- **SQL Editor**, **Schema Designer**, **Functions**, **RLS Policies**, **Matviews**, **FDW**, and **API Explorer**.
+
+### Identity & Access
+
+- **Users**, **Auth Settings**, **MFA Management**, **Account Linking**, **SAML**, **Auth Hooks**, **API Keys**, and **OAuth Clients**.
+
+### App Services & Delivery
+
+- **Storage**, **Sites**, **Edge Functions**, **Webhooks**, **Custom Domains**, **Extensions**, **AI Assistant**, and **Vector Indexes**.
+
+### Messaging & Engagement
+
+- **SMS Health**, **SMS Messages**, **Email Templates**, **Push Notifications**, and **Notifications**.
+
+### Operations & Observability
+
+- **Jobs**, **Schedules**, **Realtime Inspector**, **Security Advisor**, **Performance Advisor**, **Backups**, **Analytics**, **Usage**, **Replicas**, **Branches**, **Audit Logs**, **Admin Logs**, **Log Drains**, **Stats**, **Incidents**, and **Support Tickets**.
+
+### Platform Governance
+
+- **Apps**, **Tenants**, and **Organizations**.
+
+### Apps management
+
+Use **Admin -> Apps** to create and maintain application records that represent distinct clients (for example: web app, iOS app, and partner integration). App records are used by app-scoped API keys and per-app request controls.
+
+### API key app scoping
+
+When creating keys in **Admin -> API Keys**, set an app scope so a key can only access data and operations for its assigned app. This keeps tenant-wide keys from being reused across unrelated client surfaces and makes key rotation safer by app boundary.
+
+### Per-app rate limits
+
+Use **Admin -> Apps** to configure per-app rate limits so noisy or abusive traffic from one app is constrained without impacting other apps in the same project. Requests that exceed the configured cap return `429 Too Many Requests`.
+
+MCP server integration is documented separately; it is not a dashboard sidebar view. See [MCP Server](/guide/mcp).

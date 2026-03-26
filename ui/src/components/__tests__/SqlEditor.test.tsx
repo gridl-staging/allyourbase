@@ -24,16 +24,13 @@ vi.mock("@uiw/react-codemirror", () => ({
       />
     );
   },
+  keymap: { of: () => [] },
+  EditorView: { contentAttributes: { of: () => [] } },
 }));
 
 vi.mock("@codemirror/lang-sql", () => ({
   sql: () => [],
   PostgreSQL: {},
-}));
-
-vi.mock("@codemirror/view", () => ({
-  keymap: { of: () => [] },
-  EditorView: { contentAttributes: { of: () => [] } },
 }));
 
 vi.mock("../../api", () => ({
@@ -235,6 +232,40 @@ describe("SqlEditor", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/3 rows affected/)).toBeInTheDocument();
+    });
+  });
+
+  it("awaits onSchemaChange before finishing DDL execution", async () => {
+    mockExecuteSQL.mockResolvedValueOnce({
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      durationMs: 2,
+    });
+    let resolveSchemaChange: (() => void) | undefined;
+    const onSchemaChange = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSchemaChange = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+
+    localStorage.setItem("ayb_sql_query", "CREATE TABLE foo (id int);");
+    render(<SqlEditor onSchemaChange={onSchemaChange} />);
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    await waitFor(() => {
+      expect(onSchemaChange).toHaveBeenCalledOnce();
+      expect(screen.getByRole("button", { name: /Running.../ })).toBeDisabled();
+    });
+
+    resolveSchemaChange?.();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Execute/ })).toBeEnabled();
+      expect(
+        screen.getByText(/Statement executed successfully/),
+      ).toBeInTheDocument();
     });
   });
 

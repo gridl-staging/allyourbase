@@ -1,0 +1,23 @@
+PackageIdentifier: allyourbase.ayb
+PackageVersion: 0.0.0
+PackageName: AYB
+Publisher: Gridl
+License: MIT
+ShortDescription: Backend-as-a-Service for PostgreSQL. Single binary, one config file.
+ManifestType: singleton
+ManifestVersion: 1.6.0
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip
+    InstallerSha256: REPLACE_WITH_SHA256_X64
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: ayb.exe
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip
+    InstallerSha256: REPLACE_WITH_SHA256_ARM64
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: ayb.exe

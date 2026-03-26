@@ -1,0 +1,9 @@
+{
+  "table": {"schema": "public", "name": "posts"},
+  "select_permissions": [
+    {
+      "role": "editor",
+      "permission": {"filter": {}}
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+// Package auth Implements RFC 7009 OAuth token revocation handling for the auth handler.
 package auth
 
 import (
@@ -10,6 +11,7 @@ type oauthRevokeProvider interface {
 	RevokeOAuthToken(ctx context.Context, token string) error
 }
 
+// Handles an OAuth token revocation request per RFC 7009, validating that the request body is form-encoded and contains a required token parameter, then invoking the underlying service to revoke the token. Always returns 200 OK regardless of whether revocation succeeds; revocation errors are logged but do not affect the HTTP response.
 func (h *Handler) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	if !isFormURLEncoded(r.Header.Get("Content-Type")) {
 		writeOAuthError(w, http.StatusBadRequest, OAuthErrInvalidRequest, "Content-Type must be application/x-www-form-urlencoded")

@@ -21,7 +21,7 @@ features:
     linkText: API docs
   - icon: "\uD83D\uDD12"
     title: Built-in Auth & RLS
-    details: Email/password, JWT sessions, OAuth (Google, GitHub). Row-Level Security lets you write access rules in SQL.
+    details: Email/password, JWT sessions, OAuth (Google, GitHub, Microsoft, Apple, and more built-in providers). Row-Level Security lets you write access rules in SQL.
     link: /guide/authentication
     linkText: Auth docs
   - icon: "\uD83D\uDCE1"
@@ -56,7 +56,8 @@ features:
 **curl (macOS / Linux)**
 
 ```bash
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
+sh /tmp/ayb-install.sh
 ```
 
 </div>
@@ -75,15 +76,6 @@ brew install gridlhq/tap/ayb
 
 ```bash
 docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
-```
-
-</div>
-<div class="install-option">
-
-**Go**
-
-```bash
-go install github.com/allyourbase/ayb/cmd/ayb@latest
 ```
 
 </div>

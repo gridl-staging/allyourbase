@@ -1,3 +1,4 @@
+// Package cli provides the mcp subcommand for starting a Model Context Protocol server that connects AI coding assistants to AYB instances.
 package cli
 
 import (
@@ -48,6 +49,7 @@ func init() {
 	mcpCmd.Flags().String("token", "", "User JWT for RLS-filtered access (or set AYB_TOKEN)")
 }
 
+// runMCP starts an MCP (Model Context Protocol) server that exposes AYB's API as tools and resources for AI coding assistants. It retrieves configuration from command-line flags or environment variables, creates an MCP server instance with the provided credentials, and runs it over stdio transport with graceful handling of interrupt and termination signals.
 func runMCP(cmd *cobra.Command, args []string) error {
 	baseURL, _ := cmd.Flags().GetString("url")
 	adminToken, _ := cmd.Flags().GetString("admin-token")

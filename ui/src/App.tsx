@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { getAdminStatus, getSchema, clearToken, ApiError } from "./api";
+import { getAdminStatus, getSchema, clearAuthToken, clearToken, ApiError } from "./api";
 import type { SchemaCache } from "./types";
 import { Login } from "./components/Login";
 import { Layout } from "./components/Layout";
@@ -66,6 +66,7 @@ function AdminDashboard() {
       setState({ kind: "ready", schema });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        clearAuthToken();
         clearToken();
         setState({ kind: "login" });
         return;
@@ -100,6 +101,7 @@ function AdminDashboard() {
   }, [boot]);
 
   const handleLogout = useCallback(() => {
+    clearAuthToken();
     clearToken();
     setState({ kind: "login" });
   }, []);
@@ -110,6 +112,7 @@ function AdminDashboard() {
       setState({ kind: "ready", schema });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        clearAuthToken();
         clearToken();
         setState({ kind: "login" });
       }

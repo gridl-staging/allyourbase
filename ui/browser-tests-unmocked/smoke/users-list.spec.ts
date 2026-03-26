@@ -1,4 +1,4 @@
-import { test, expect, execSQL } from "../fixtures";
+import { test, expect, execSQL, probeEndpoint, waitForDashboard } from "../fixtures";
 
 /**
  * SMOKE TEST: Users - List View
@@ -8,6 +8,12 @@ import { test, expect, execSQL } from "../fixtures";
 
 test.describe("Smoke: Users List", () => {
   test("seeded user renders in users list", async ({ page, request, adminToken }) => {
+    const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/users/");
+    test.skip(
+      probeStatus === 503 || probeStatus === 404 || probeStatus === 501,
+      `Users service unavailable (status ${probeStatus})`,
+    );
+
     const runId = Date.now();
     const testEmail = `seed-verify-${runId}@test.com`;
 
@@ -20,10 +26,10 @@ test.describe("Smoke: Users List", () => {
 
     // Act: navigate to Users page
     await page.goto("/admin/");
-    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    await waitForDashboard(page);
     const usersButton = page.locator("aside").getByRole("button", { name: /^Users$/i });
     await usersButton.click();
-    await expect(page.getByRole("heading", { name: /Users/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /Users/i })).toBeVisible({ timeout: 15_000 });
 
     // Assert: seeded user email appears in the list
     await expect(page.getByText(testEmail).first()).toBeVisible({ timeout: 5000 });

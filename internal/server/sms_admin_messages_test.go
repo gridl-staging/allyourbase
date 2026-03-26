@@ -145,7 +145,7 @@ func TestAdminSMSMessages_Pagination(t *testing.T) {
 
 	var resp adminSMSListResponse
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	testutil.Equal(t, 5, len(resp.Items))   // 15 total, page 2 of 10 = items 11-15
+	testutil.Equal(t, 5, len(resp.Items)) // 15 total, page 2 of 10 = items 11-15
 	testutil.Equal(t, 2, resp.Page)
 	testutil.Equal(t, 10, resp.PerPage)
 	testutil.Equal(t, 15, resp.TotalItems)

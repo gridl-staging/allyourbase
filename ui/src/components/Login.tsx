@@ -26,10 +26,10 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
     <div className="flex items-center justify-center min-h-screen">
       <form
         onSubmit={handleSubmit}
-        className="bg-white border rounded-lg shadow-sm p-8 w-full max-w-sm"
+        className="bg-white dark:bg-gray-800 border rounded-lg shadow-sm p-8 w-full max-w-sm"
       >
         <h1 className="text-xl font-semibold mb-1">👾 Allyourbase</h1>
-        <p className="text-sm text-gray-500 mb-6">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
           Enter the admin password to continue.
         </p>
 

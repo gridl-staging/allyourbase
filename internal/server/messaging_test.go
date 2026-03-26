@@ -7,16 +7,23 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/sms"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+)
+
+const (
+	testTwilioWebhookURL = "https://example.com/api/webhooks/sms/status"
+	testTwilioToken      = "test_twilio_token"
 )
 
 // --- Fakes ---
@@ -232,10 +239,10 @@ func (e *errOnUpdateDeliveryStatusMsgStore) UpdateDeliveryStatus(_ context.Conte
 
 // mockSMSProvider records Send calls and returns configurable results.
 type mockSMSProvider struct {
-	mu       sync.Mutex
-	calls    []sms.CaptureCall
-	result   *sms.SendResult
-	sendErr  error
+	mu      sync.Mutex
+	calls   []sms.CaptureCall
+	result  *sms.SendResult
+	sendErr error
 }
 
 func (m *mockSMSProvider) Send(_ context.Context, to, body string) (*sms.SendResult, error) {
@@ -255,16 +262,30 @@ func (m *mockSMSProvider) Send(_ context.Context, to, body string) (*sms.SendRes
 
 func newMessagingTestServer(t *testing.T, opts ...func(*Server)) *Server {
 	t.Helper()
+	cfg := config.Default()
+	cfg.Auth.TwilioToken = testTwilioToken
+	cfg.Auth.SMSWebhookURL = testTwilioWebhookURL
 	s := &Server{
 		smsProvider:     &mockSMSProvider{},
 		smsProviderName: "test",
 		msgStore:        &fakeMsgStore{},
 		logger:          testutil.DiscardLogger(),
+		cfg:             cfg,
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
+}
+
+func signedTwilioWebhookReq(t *testing.T, body string) *http.Request {
+	t.Helper()
+	form, err := url.ParseQuery(body)
+	testutil.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Twilio-Signature", twilioRequestSignature(testTwilioWebhookURL, form, testTwilioToken))
+	return req
 }
 
 // sendReq builds an authenticated POST request to the SMS send handler.
@@ -680,8 +701,7 @@ func TestSMSDeliveryWebhook_TwilioUpdatesStatus(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	body := "MessageSid=SM_abc123&MessageStatus=delivered"
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, body)
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code)
@@ -704,8 +724,7 @@ func TestSMSDeliveryWebhook_StatusProgression(t *testing.T) {
 	for _, status := range statuses {
 		w := httptest.NewRecorder()
 		body := fmt.Sprintf("MessageSid=SM_prog&MessageStatus=%s", status)
-		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req := signedTwilioWebhookReq(t, body)
 		srv.handleSMSDeliveryWebhook(w, req)
 		testutil.Equal(t, http.StatusOK, w.Code)
 	}
@@ -726,8 +745,7 @@ func TestSMSDeliveryWebhook_FailedStatus(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	body := "MessageSid=SM_fail&MessageStatus=failed&ErrorCode=30003&ErrorMessage=Unreachable"
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, body)
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code)
@@ -744,8 +762,7 @@ func TestSMSDeliveryWebhook_UnknownMessageSid(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	body := "MessageSid=SM_unknown&MessageStatus=delivered"
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, body)
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code) // idempotent, no error
@@ -757,8 +774,7 @@ func TestSMSDeliveryWebhook_MissingFields(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	body := "MessageStatus=delivered" // no MessageSid
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, body)
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
@@ -779,9 +795,7 @@ func TestSMSDeliveryWebhook_MissingMessageStatus(t *testing.T) {
 
 	// Callback with MessageSid but no MessageStatus — must be silently ignored.
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status",
-		strings.NewReader("MessageSid=SM_nostatus"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, "MessageSid=SM_nostatus")
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	testutil.Equal(t, http.StatusOK, w.Code)
@@ -806,17 +820,13 @@ func TestSMSDeliveryWebhook_OutOfOrderStatus(t *testing.T) {
 
 	// First: "delivered" arrives — should advance from queued → delivered.
 	w1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status",
-		strings.NewReader("MessageSid=SM_ooo&MessageStatus=delivered"))
-	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req1 := signedTwilioWebhookReq(t, "MessageSid=SM_ooo&MessageStatus=delivered")
 	srv.handleSMSDeliveryWebhook(w1, req1)
 	testutil.Equal(t, http.StatusOK, w1.Code)
 
 	// Second: out-of-order "sent" arrives — must NOT regress from delivered to sent.
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status",
-		strings.NewReader("MessageSid=SM_ooo&MessageStatus=sent"))
-	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2 := signedTwilioWebhookReq(t, "MessageSid=SM_ooo&MessageStatus=sent")
 	srv.handleSMSDeliveryWebhook(w2, req2)
 	testutil.Equal(t, http.StatusOK, w2.Code)
 
@@ -834,13 +844,121 @@ func TestSMSDeliveryWebhook_DBError(t *testing.T) {
 	srv := newMessagingTestServer(t, func(s *Server) { s.msgStore = errStore })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status",
-		strings.NewReader("MessageSid=SM_err&MessageStatus=delivered"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := signedTwilioWebhookReq(t, "MessageSid=SM_err&MessageStatus=delivered")
 	srv.handleSMSDeliveryWebhook(w, req)
 
 	// DB error must not produce a non-2xx — Twilio would retry indefinitely.
 	testutil.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSMSDeliveryWebhook_PayloadTooLargeRejected(t *testing.T) {
+	t.Parallel()
+	store := &fakeMsgStore{}
+	srv := newMessagingTestServer(t, func(s *Server) {
+		s.msgStore = store
+	})
+
+	padding := strings.Repeat("a", twilioWebhookMaxBodySize)
+	req := signedTwilioWebhookReq(t, "MessageSid=SM_big&MessageStatus=delivered&Padding="+padding)
+	w := httptest.NewRecorder()
+	srv.handleSMSDeliveryWebhook(w, req)
+
+	testutil.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	testutil.Equal(t, 0, len(store.messages))
+}
+
+func TestSMSDeliveryWebhook_InvalidFormPayloadRejected(t *testing.T) {
+	t.Parallel()
+	srv := newMessagingTestServer(t)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader("MessageSid=%zz&MessageStatus=delivered"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.handleSMSDeliveryWebhook(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSMSDeliveryWebhook_RejectsMissingSignatureWhenTwilioConfigured(t *testing.T) {
+	t.Parallel()
+	store := &fakeMsgStore{}
+	srv := newMessagingTestServer(t, func(s *Server) {
+		s.msgStore = store
+		cfg := config.Default()
+		cfg.Auth.TwilioToken = "test_twilio_token"
+		cfg.Auth.SMSWebhookURL = "https://example.com/api/webhooks/sms/status"
+		s.cfg = cfg
+	})
+
+	ctx := context.Background()
+	id, _ := store.InsertMessage(ctx, "user-1", "+12025551234", "hello", "twilio")
+	store.UpdateMessageSent(ctx, id, "SM_sig_missing", "queued")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader("MessageSid=SM_sig_missing&MessageStatus=delivered"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.handleSMSDeliveryWebhook(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	testutil.Equal(t, "queued", store.messages[0].Status)
+}
+
+func TestSMSDeliveryWebhook_RejectsWhenTwilioTokenUnset(t *testing.T) {
+	t.Parallel()
+	store := &fakeMsgStore{}
+	srv := newMessagingTestServer(t, func(s *Server) {
+		s.msgStore = store
+		s.cfg.Auth.TwilioToken = ""
+	})
+
+	ctx := context.Background()
+	id, _ := store.InsertMessage(ctx, "user-1", "+12025551234", "hello", "twilio")
+	store.UpdateMessageSent(ctx, id, "SM_sig_unset", "queued")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader("MessageSid=SM_sig_unset&MessageStatus=delivered"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.handleSMSDeliveryWebhook(w, req)
+
+	testutil.Equal(t, http.StatusForbidden, w.Code)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	testutil.Equal(t, "queued", store.messages[0].Status)
+}
+
+func TestSMSDeliveryWebhook_AcceptsValidSignatureWhenTwilioConfigured(t *testing.T) {
+	t.Parallel()
+	store := &fakeMsgStore{}
+	webhookURL := testTwilioWebhookURL
+	twilioToken := testTwilioToken
+	srv := newMessagingTestServer(t, func(s *Server) {
+		s.msgStore = store
+	})
+
+	ctx := context.Background()
+	id, _ := store.InsertMessage(ctx, "user-1", "+12025551234", "hello", "twilio")
+	store.UpdateMessageSent(ctx, id, "SM_sig_ok", "queued")
+
+	form, err := url.ParseQuery("MessageSid=SM_sig_ok&MessageStatus=delivered")
+	testutil.NoError(t, err)
+	sig := twilioRequestSignature(webhookURL, form, twilioToken)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/sms/status", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Twilio-Signature", sig)
+	srv.handleSMSDeliveryWebhook(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	testutil.Equal(t, "delivered", store.messages[0].Status)
 }
 
 // TestMessagingSMSSend_DBErrorOnInsert verifies that a DB failure during message insertion

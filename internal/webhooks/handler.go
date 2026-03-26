@@ -1,3 +1,4 @@
+// Package webhooks Handler serves HTTP CRUD endpoints for webhooks and delivery log inspection.
 package webhooks
 
 import (
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -82,15 +84,24 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": resp})
 }
 
-func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
-	hook, err := h.store.Get(r.Context(), chi.URLParam(r, "id"))
+// getWebhookOr404 fetches a webhook by ID, writing 404/500 responses on failure.
+func (h *Handler) getWebhookOr404(w http.ResponseWriter, r *http.Request, id string) (*Webhook, bool) {
+	hook, err := h.store.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteError(w, http.StatusNotFound, "webhook not found")
-			return
+			return nil, false
 		}
 		h.logger.Error("get webhook", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return nil, false
+	}
+	return hook, true
+}
+
+func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
+	hook, ok := h.getWebhookOr404(w, r, chi.URLParam(r, "id"))
+	if !ok {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, toResponse(hook))
@@ -106,11 +117,11 @@ type webhookRequest struct {
 
 var validEvents = map[string]bool{"create": true, "update": true, "delete": true}
 
-func validateRequest(req *webhookRequest) string {
-	if req.URL == "" {
-		return "url is required"
-	}
-	for _, e := range req.Events {
+// apiDocURL is the documentation link included in validation error responses.
+const apiDocURL = "https://allyourbase.io/guide/api-reference"
+
+func validateEvents(events []string) string {
+	for _, e := range events {
 		if !validEvents[e] {
 			return "invalid event: " + e + " (must be create, update, or delete)"
 		}
@@ -118,14 +129,40 @@ func validateRequest(req *webhookRequest) string {
 	return ""
 }
 
+func validateWebhookURL(raw string) string {
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.Host == "" {
+		return "url must be an absolute http or https URL"
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "url must be an absolute http or https URL"
+	}
+	// Keep shared secrets out of persisted webhook URLs so list/get responses never
+	// echo credentials back to admin clients.
+	if parsed.User != nil {
+		return "url must not include embedded credentials"
+	}
+	return ""
+}
+
+func validateRequest(req *webhookRequest) string {
+	if req.URL == "" {
+		return "url is required"
+	}
+	if msg := validateWebhookURL(req.URL); msg != "" {
+		return msg
+	}
+	return validateEvents(req.Events)
+}
+
+// handleCreate handles POST requests to create a new webhook. It validates the URL and event types, applies defaults for enabled status (true), events (all types if omitted), and tables (empty list if unset), then stores the webhook and returns its response representation.
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req webhookRequest
 	if !httputil.DecodeJSON(w, r, &req) {
 		return
 	}
 	if msg := validateRequest(&req); msg != "" {
-		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg,
-			"https://allyourbase.io/guide/api-reference")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg, apiDocURL)
 		return
 	}
 
@@ -157,18 +194,12 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, toResponse(hook))
 }
 
+// handleUpdate handles PATCH requests to update an existing webhook by ID. It loads the existing webhook, merges non-empty request fields, revalidates event types, stores the updated webhook, and returns its response representation.
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	// Load existing to merge.
-	existing, err := h.store.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "webhook not found")
-			return
-		}
-		h.logger.Error("get webhook for update", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+	existing, ok := h.getWebhookOr404(w, r, id)
+	if !ok {
 		return
 	}
 
@@ -179,18 +210,21 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Apply partial updates.
 	if req.URL != "" {
+		if msg := validateWebhookURL(req.URL); msg != "" {
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg, apiDocURL)
+			return
+		}
 		existing.URL = req.URL
 	}
+	// PATCH currently cannot clear an existing secret via {"secret":""}; this
+	// security-sensitive behavior is intentionally deferred for separate review.
 	if req.Secret != "" {
 		existing.Secret = req.Secret
 	}
-	if len(req.Events) > 0 {
-		for _, e := range req.Events {
-			if !validEvents[e] {
-				httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid event: "+e+" (must be create, update, or delete)",
-					"https://allyourbase.io/guide/api-reference")
-				return
-			}
+	if req.Events != nil {
+		if msg := validateEvents(req.Events); msg != "" {
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg, apiDocURL)
+			return
 		}
 		existing.Events = req.Events
 	}
@@ -234,15 +268,10 @@ type testResponse struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// handleTest handles POST requests to test a webhook by sending a synthetic event to the webhook URL. It creates a test event, optionally signs the payload if the webhook has a secret, measures the HTTP round-trip time with a 10-second timeout, and returns the response status, duration, and any errors.
 func (h *Handler) handleTest(w http.ResponseWriter, r *http.Request) {
-	hook, err := h.store.Get(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "webhook not found")
-			return
-		}
-		h.logger.Error("get webhook for test", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+	hook, ok := h.getWebhookOr404(w, r, chi.URLParam(r, "id"))
+	if !ok {
 		return
 	}
 
@@ -296,6 +325,14 @@ func (h *Handler) handleTest(w http.ResponseWriter, r *http.Request) {
 
 // --- Delivery log endpoints ---
 
+func (h *Handler) requireDeliveryStore(w http.ResponseWriter) bool {
+	if h.deliveryS != nil {
+		return true
+	}
+	httputil.WriteError(w, http.StatusServiceUnavailable, "delivery history is unavailable")
+	return false
+}
+
 type deliveryListResponse struct {
 	Items      []Delivery `json:"items"`
 	Page       int        `json:"page"`
@@ -304,17 +341,14 @@ type deliveryListResponse struct {
 	TotalPages int        `json:"totalPages"`
 }
 
+// handleListDeliveries handles GET requests to list delivery logs for a webhook with pagination. It verifies the webhook exists, parses page and perPage query parameters with defaults of 1 and 20 and maximum 100, queries the delivery store, and returns paginated items with metadata including total count.
 func (h *Handler) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
-	webhookID := chi.URLParam(r, "id")
+	if !h.requireDeliveryStore(w) {
+		return
+	}
 
-	// Verify webhook exists.
-	if _, err := h.store.Get(r.Context(), webhookID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "webhook not found")
-			return
-		}
-		h.logger.Error("get webhook for deliveries", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+	webhookID := chi.URLParam(r, "id")
+	if _, ok := h.getWebhookOr404(w, r, webhookID); !ok {
 		return
 	}
 
@@ -347,9 +381,17 @@ func (h *Handler) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetDelivery handles GET requests to retrieve a single delivery log by webhook ID and delivery ID, returning the full delivery record.
 func (h *Handler) handleGetDelivery(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDeliveryStore(w) {
+		return
+	}
+
 	webhookID := chi.URLParam(r, "id")
 	deliveryID := chi.URLParam(r, "deliveryId")
+	if _, ok := h.getWebhookOr404(w, r, webhookID); !ok {
+		return
+	}
 
 	del, err := h.deliveryS.GetDelivery(r.Context(), webhookID, deliveryID)
 	if err != nil {

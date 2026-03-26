@@ -1,20 +1,22 @@
+// Package api Handler serves the auto-generated CRUD REST API, providing HTTP handlers for list, create, read, update, delete, import, export, and other operations on database tables.
 package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
-	"strconv"
-	"strings"
+	"reflect"
 
+	"github.com/allyourbase/ayb/internal/audit"
 	"github.com/allyourbase/ayb/internal/auth"
-	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/realtime"
+	"github.com/allyourbase/ayb/internal/replica"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/tenant"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,23 +34,145 @@ type EventSink interface {
 	Enqueue(event *realtime.Event)
 }
 
+// hubPublisher is the narrow interface for publishing realtime events.
+// *realtime.Hub satisfies this interface; tests can supply a stub or nil.
+type hubPublisher interface {
+	Publish(event *realtime.Event)
+}
+
+func normalizeHubPublisher(hub hubPublisher) hubPublisher {
+	if hub == nil {
+		return nil
+	}
+	value := reflect.ValueOf(hub)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return nil
+		}
+	}
+	return hub
+}
+
+// EmbedFunc embeds text inputs into vectors. Used for semantic search.
+type EmbedFunc func(ctx context.Context, texts []string) ([][]float64, error)
+
+// HandlerOption configures optional Handler features.
+type HandlerOption func(*Handler)
+
+// WithEmbedder enables semantic search by providing an embedding function.
+func WithEmbedder(fn EmbedFunc) HandlerOption {
+	return func(h *Handler) { h.embedFn = fn }
+}
+
+// WithConfiguredEmbeddingDimension sets an expected embedding dimension derived
+// from configuration for the selected provider/model pair.
+func WithConfiguredEmbeddingDimension(dim int) HandlerOption {
+	return func(h *Handler) { h.configEmbeddingDim = dim }
+}
+
+// WithAPILimits overrides runtime API limits and feature flags.
+func WithAPILimits(cfg config.APIConfig) HandlerOption {
+	return func(h *Handler) {
+		h.apiCfg = cfg
+	}
+}
+
+// WithPoolRouter wires optional read-routing for unauthenticated read-only requests.
+// Nil routers are ignored to preserve existing behavior.
+func WithPoolRouter(router *replica.PoolRouter) HandlerOption {
+	return func(h *Handler) {
+		if router == nil {
+			return
+		}
+		h.poolRouter = router
+	}
+}
+
 // Handler serves the auto-generated CRUD REST API.
 type Handler struct {
-	pool       *pgxpool.Pool
-	schema     *schema.CacheHolder
-	logger     *slog.Logger
-	hub        *realtime.Hub // nil when realtime is unused
-	dispatcher EventSink     // nil when webhooks are unused
+	pool               *pgxpool.Pool
+	poolRouter         *replica.PoolRouter
+	schema             *schema.CacheHolder
+	logger             *slog.Logger
+	hub                hubPublisher // nil when realtime is unused
+	dispatcher         EventSink    // nil when webhooks are unused
+	auditSink          audit.Sink   // nil when audit logging is disabled
+	apiCfg             config.APIConfig
+	fieldEncryptor     *FieldEncryptor
+	embedFn            EmbedFunc // nil when semantic search is not configured
+	configEmbeddingDim int
+}
+
+type txFinalizer interface {
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }
 
 // NewHandler creates a new API handler.
-func NewHandler(pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, hub *realtime.Hub, dispatcher EventSink) *Handler {
+func NewHandler(pool *pgxpool.Pool, schemaCache *schema.CacheHolder, logger *slog.Logger, hub hubPublisher, dispatcher EventSink, auditSink audit.Sink, fieldEncryptors ...*FieldEncryptor) *Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	apiCfg := config.Default().API
+	var fieldEncryptor *FieldEncryptor
+	if len(fieldEncryptors) > 0 {
+		fieldEncryptor = fieldEncryptors[0]
+	}
 	return &Handler{
-		pool:       pool,
-		schema:     schemaCache,
-		logger:     logger,
-		hub:        hub,
-		dispatcher: dispatcher,
+		pool:           pool,
+		schema:         schemaCache,
+		apiCfg:         apiCfg,
+		logger:         logger,
+		hub:            normalizeHubPublisher(hub),
+		dispatcher:     dispatcher,
+		auditSink:      auditSink,
+		fieldEncryptor: fieldEncryptor,
+	}
+}
+
+// effectiveAPIConfig returns the effective API configuration by applying defaults to any unset numeric limits (ImportMaxSizeMB, ImportMaxRows, ExportMaxRows). When only some limits are configured without explicitly setting AggregateEnabled, the default aggregate behavior is preserved to maintain backward compatibility.
+func (h *Handler) effectiveAPIConfig() config.APIConfig {
+	defaults := config.Default().API
+	apiCfg := h.apiCfg
+	if apiCfg.ImportMaxSizeMB <= 0 {
+		apiCfg.ImportMaxSizeMB = defaults.ImportMaxSizeMB
+	}
+	if apiCfg.ImportMaxRows <= 0 {
+		apiCfg.ImportMaxRows = defaults.ImportMaxRows
+	}
+	if apiCfg.ExportMaxRows <= 0 {
+		apiCfg.ExportMaxRows = defaults.ExportMaxRows
+	}
+	// When callers partially override numeric limits with WithAPILimits and omit
+	// AggregateEnabled, preserve the default aggregate behavior.
+	if !h.apiCfg.AggregateEnabled {
+		configuredLimits := configuredAPILimitCount(h.apiCfg)
+		if configuredLimits > 0 && configuredLimits < 3 {
+			apiCfg.AggregateEnabled = defaults.AggregateEnabled
+		}
+	}
+	return apiCfg
+}
+
+func configuredAPILimitCount(cfg config.APIConfig) int {
+	count := 0
+	if cfg.ImportMaxSizeMB > 0 {
+		count++
+	}
+	if cfg.ImportMaxRows > 0 {
+		count++
+	}
+	if cfg.ExportMaxRows > 0 {
+		count++
+	}
+	return count
+}
+
+// ApplyOptions applies HandlerOptions after construction.
+func (h *Handler) ApplyOptions(opts ...HandlerOption) {
+	for _, o := range opts {
+		o(h)
 	}
 }
 
@@ -67,16 +191,29 @@ func (h *Handler) Routes() chi.Router {
 
 	r.Route("/collections/{table}", func(r chi.Router) {
 		r.Get("/", h.handleList)
-		r.Post("/", h.handleCreate)
-		r.Post("/batch", h.handleBatch)
+		r.With(middleware.AllowContentType("application/json")).Post("/", h.handleCreate)
+		r.With(middleware.AllowContentType("application/json")).Post("/batch", h.handleBatch)
+		r.Get("/export.csv", h.handleExportCSV)
+		r.Get("/export.json", h.handleExportJSON)
+		r.With(middleware.AllowContentType("application/json", "text/csv")).Post("/import", h.handleImport)
 		r.Get("/{id}", h.handleRead)
-		r.Patch("/{id}", h.handleUpdate)
+		r.With(middleware.AllowContentType("application/json")).Patch("/{id}", h.handleUpdate)
 		r.Delete("/{id}", h.handleDelete)
 	})
 
-	r.Post("/rpc/{function}", h.handleRPC)
+	r.With(middleware.AllowContentType("application/json")).Post("/rpc/{function}", h.handleRPC)
 
 	return r
+}
+
+func (h *Handler) beginTx(ctx context.Context) (pgx.Tx, error) {
+	if requestConn := tenant.RequestConnFromContext(ctx); requestConn != nil {
+		return requestConn.Begin(ctx)
+	}
+	if h.pool == nil {
+		return nil, fmt.Errorf("database pool is not configured")
+	}
+	return h.pool.Begin(ctx)
 }
 
 // withRLS returns a Querier for executing database operations. When JWT claims
@@ -84,13 +221,22 @@ func (h *Handler) Routes() chi.Router {
 // variables, and returns the tx. The caller must invoke the returned cleanup
 // function when done (commits the tx on success, rolls back on error).
 // When no claims are present, returns the pool directly with a no-op cleanup.
-func (h *Handler) withRLS(r *http.Request) (Querier, func(error), error) {
+func (h *Handler) withRLS(r *http.Request) (Querier, func(error) error, error) {
+	if requestConn := tenant.RequestConnFromContext(r.Context()); requestConn != nil && auth.ClaimsFromContext(r.Context()) == nil {
+		return requestConn, func(error) error { return nil }, nil
+	}
+	if h.pool == nil && tenant.RequestConnFromContext(r.Context()) == nil {
+		return nil, nil, fmt.Errorf("database pool is not configured")
+	}
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		return h.pool, func(error) {}, nil
+		if h.poolRouter != nil && replica.IsReadOnly(r.Context()) {
+			return h.poolRouter.ReadPool(), func(error) error { return nil }, nil
+		}
+		return h.pool, func(error) error { return nil }, nil
 	}
 
-	tx, err := h.pool.Begin(r.Context())
+	tx, err := h.beginTx(r.Context())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,16 +246,24 @@ func (h *Handler) withRLS(r *http.Request) (Querier, func(error), error) {
 		return nil, nil, err
 	}
 
-	done := func(queryErr error) {
-		if queryErr != nil {
-			_ = tx.Rollback(r.Context())
-		} else {
-			if err := tx.Commit(r.Context()); err != nil {
-				h.logger.Error("tx commit failed", "error", err)
-			}
-		}
-	}
+	done := func(queryErr error) error { return finalizeTx(r.Context(), tx, queryErr, h.logger) }
 	return tx, done, nil
+}
+
+func finalizeTx(ctx context.Context, tx txFinalizer, queryErr error, logger *slog.Logger) error {
+	if queryErr != nil {
+		if err := tx.Rollback(ctx); err != nil && logger != nil {
+			logger.Error("tx rollback failed", "error", err)
+		}
+		return nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		if logger != nil {
+			logger.Error("tx commit failed", "error", err)
+		}
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 // resolveTable looks up the table in the schema cache, validates it exists,
@@ -162,569 +316,4 @@ func requirePK(w http.ResponseWriter, tbl *schema.Table) bool {
 		return false
 	}
 	return true
-}
-
-// extractPK parses the "id" URL parameter into PK values and validates the count.
-// Returns nil and writes a 400 error if the PK is invalid.
-func extractPK(w http.ResponseWriter, r *http.Request, tbl *schema.Table) []string {
-	idParam := chi.URLParam(r, "id")
-	pkValues := parsePKValues(idParam, len(tbl.PrimaryKey))
-	if len(pkValues) != len(tbl.PrimaryKey) {
-		writeError(w, http.StatusBadRequest, "invalid primary key: expected "+strconv.Itoa(len(tbl.PrimaryKey))+" values")
-		return nil
-	}
-	return pkValues
-}
-
-// handleRead handles GET /collections/{table}/{id}
-func (h *Handler) handleRead(w http.ResponseWriter, r *http.Request) {
-	tbl := h.resolveTable(w, r)
-	if tbl == nil {
-		return
-	}
-	if !requirePK(w, tbl) {
-		return
-	}
-
-	pkValues := extractPK(w, r, tbl)
-	if pkValues == nil {
-		return
-	}
-
-	fields := parseFields(r)
-	query, args := buildSelectOne(tbl, fields, pkValues)
-
-	q, done, err := h.withRLS(r)
-	if err != nil {
-		h.logger.Error("rls setup error", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	rows, err := q.Query(r.Context(), query, args...)
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("query error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	record, err := scanRow(rows)
-	rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("scan error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-	if record == nil {
-		done(nil)
-		writeError(w, http.StatusNotFound, "record not found")
-		return
-	}
-
-	// Handle expand if requested.
-	if expandParam := r.URL.Query().Get("expand"); expandParam != "" {
-		sc := h.schema.Get()
-		if sc != nil {
-			expandRecords(r.Context(), q, sc, tbl, []map[string]any{record}, expandParam, h.logger)
-		}
-	}
-
-	done(nil)
-	writeJSON(w, http.StatusOK, record)
-}
-
-// decodeAndValidateBody reads, decodes, and validates a JSON request body against the table schema.
-// Returns the decoded data and true on success. On failure, writes an error response and returns nil, false.
-func decodeAndValidateBody(w http.ResponseWriter, r *http.Request, tbl *schema.Table) (map[string]any, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
-	var data map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return nil, false
-	}
-
-	if len(data) == 0 {
-		writeError(w, http.StatusBadRequest, "empty request body")
-		return nil, false
-	}
-
-	if countKnownColumns(tbl, data) == 0 {
-		writeError(w, http.StatusBadRequest, "no recognized columns in request body")
-		return nil, false
-	}
-
-	return data, true
-}
-
-// handleCreate handles POST /collections/{table}
-func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
-	tbl := h.resolveTable(w, r)
-	if tbl == nil {
-		return
-	}
-	if !requireWriteScope(w, r) {
-		return
-	}
-	if !requireWritable(w, tbl) {
-		return
-	}
-
-	data, ok := decodeAndValidateBody(w, r, tbl)
-	if !ok {
-		return
-	}
-
-	query, args := buildInsert(tbl, data)
-
-	q, done, err := h.withRLS(r)
-	if err != nil {
-		h.logger.Error("rls setup error", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	rows, err := q.Query(r.Context(), query, args...)
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("insert error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	record, err := scanRow(rows)
-	rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("scan error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	done(nil)
-	writeJSON(w, http.StatusCreated, record)
-	h.publishEvent("create", tbl.Name, record)
-}
-
-// handleUpdate handles PATCH /collections/{table}/{id}
-func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	tbl := h.resolveTable(w, r)
-	if tbl == nil {
-		return
-	}
-	if !requireWriteScope(w, r) {
-		return
-	}
-	if !requireWritable(w, tbl) {
-		return
-	}
-	if !requirePK(w, tbl) {
-		return
-	}
-
-	pkValues := extractPK(w, r, tbl)
-	if pkValues == nil {
-		return
-	}
-
-	data, ok := decodeAndValidateBody(w, r, tbl)
-	if !ok {
-		return
-	}
-
-	query, args := buildUpdate(tbl, data, pkValues)
-
-	q, done, err := h.withRLS(r)
-	if err != nil {
-		h.logger.Error("rls setup error", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	rows, err := q.Query(r.Context(), query, args...)
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("update error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	record, err := scanRow(rows)
-	rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("scan error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-	if record == nil {
-		done(nil)
-		writeError(w, http.StatusNotFound, "record not found")
-		return
-	}
-
-	done(nil)
-	writeJSON(w, http.StatusOK, record)
-	h.publishEvent("update", tbl.Name, record)
-}
-
-// handleDelete handles DELETE /collections/{table}/{id}
-func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
-	tbl := h.resolveTable(w, r)
-	if tbl == nil {
-		return
-	}
-	if !requireWriteScope(w, r) {
-		return
-	}
-	if !requireWritable(w, tbl) {
-		return
-	}
-	if !requirePK(w, tbl) {
-		return
-	}
-
-	pkValues := extractPK(w, r, tbl)
-	if pkValues == nil {
-		return
-	}
-
-	query, args := buildDelete(tbl, pkValues)
-
-	q, done, err := h.withRLS(r)
-	if err != nil {
-		h.logger.Error("rls setup error", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	tag, err := q.Exec(r.Context(), query, args...)
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("delete error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	if tag.RowsAffected() == 0 {
-		done(nil)
-		writeError(w, http.StatusNotFound, "record not found")
-		return
-	}
-
-	done(nil)
-	w.WriteHeader(http.StatusNoContent)
-
-	// Publish delete event with PK values.
-	record := make(map[string]any, len(tbl.PrimaryKey))
-	for i, pk := range tbl.PrimaryKey {
-		record[pk] = pkValues[i]
-	}
-	h.publishEvent("delete", tbl.Name, record)
-}
-
-// handleList handles GET /collections/{table}
-func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
-	tbl := h.resolveTable(w, r)
-	if tbl == nil {
-		return
-	}
-
-	q := r.URL.Query()
-
-	// Parse pagination.
-	page, _ := strconv.Atoi(q.Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	if page > maxPage {
-		page = maxPage
-	}
-	perPage, _ := strconv.Atoi(q.Get("perPage"))
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 500 {
-		perPage = 500
-	}
-	skipTotal := q.Get("skipTotal") == "true"
-
-	// Parse fields.
-	fields := parseFields(r)
-
-	// Parse sort.
-	sortSQL := parseSortSQL(tbl, q.Get("sort"))
-
-	// Parse filter.
-	var filterSQL string
-	var filterArgs []any
-	if filterStr := q.Get("filter"); filterStr != "" {
-		if len(filterStr) > maxFilterLen {
-			writeErrorWithDoc(w, http.StatusBadRequest, "filter expression too long", docURL("/guide/api-reference#filter-syntax"))
-			return
-		}
-		var err error
-		filterSQL, filterArgs, err = parseFilter(tbl, filterStr)
-		if err != nil {
-			writeErrorWithDoc(w, http.StatusBadRequest, "invalid filter: "+err.Error(), docURL("/guide/api-reference#filter-syntax"))
-			return
-		}
-	}
-
-	// Parse search (full-text search).
-	var searchSQL, searchRank string
-	var searchArgs []any
-	if searchStr := strings.TrimSpace(q.Get("search")); searchStr != "" {
-		if len(searchStr) > maxSearchLen {
-			writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
-			return
-		}
-		// Search arg index starts after all filter args.
-		argOffset := len(filterArgs) + 1
-		var err error
-		searchSQL, searchRank, searchArgs, err = buildSearchSQL(tbl, searchStr, argOffset)
-		if err != nil {
-			writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))
-			return
-		}
-	}
-
-	opts := listOpts{
-		page:       page,
-		perPage:    perPage,
-		skipTotal:  skipTotal,
-		fields:     fields,
-		sortSQL:    sortSQL,
-		filterSQL:  filterSQL,
-		filterArgs: filterArgs,
-		searchSQL:  searchSQL,
-		searchRank: searchRank,
-		searchArgs: searchArgs,
-	}
-
-	dataQuery, dataArgs, countQuery, countArgs := buildList(tbl, opts)
-
-	querier, done, err := h.withRLS(r)
-	if err != nil {
-		h.logger.Error("rls setup error", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// Get total count (unless skipTotal).
-	totalItems := -1
-	totalPages := -1
-	if !skipTotal {
-		err := querier.QueryRow(r.Context(), countQuery, countArgs...).Scan(&totalItems)
-		if err != nil {
-			done(err)
-			h.logger.Error("count error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		totalPages = int(math.Ceil(float64(totalItems) / float64(perPage)))
-	}
-
-	// Get data rows.
-	rows, err := querier.Query(r.Context(), dataQuery, dataArgs...)
-	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("list error", "error", err, "table", tbl.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
-		return
-	}
-
-	items, err := scanRows(rows)
-	rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
-	if err != nil {
-		done(err)
-		h.logger.Error("scan error", "error", err, "table", tbl.Name)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// Handle expand if requested.
-	if expandParam := q.Get("expand"); expandParam != "" && len(items) > 0 {
-		sc := h.schema.Get()
-		if sc != nil {
-			expandRecords(r.Context(), querier, sc, tbl, items, expandParam, h.logger)
-		}
-	}
-
-	done(nil)
-	writeJSON(w, http.StatusOK, ListResponse{
-		Page:       page,
-		PerPage:    perPage,
-		TotalItems: totalItems,
-		TotalPages: totalPages,
-		Items:      items,
-	})
-}
-
-// publishEvent sends a realtime event to the hub and webhook dispatcher.
-func (h *Handler) publishEvent(action, table string, record map[string]any) {
-	if h.hub == nil && h.dispatcher == nil {
-		return
-	}
-	event := &realtime.Event{
-		Action: action,
-		Table:  table,
-		Record: record,
-	}
-	if h.hub != nil {
-		h.hub.Publish(event)
-	}
-	if h.dispatcher != nil {
-		h.dispatcher.Enqueue(event)
-	}
-}
-
-// countKnownColumns returns the number of keys in data that match a column in the table schema.
-func countKnownColumns(tbl *schema.Table, data map[string]any) int {
-	n := 0
-	for col := range data {
-		if tbl.ColumnByName(col) != nil {
-			n++
-		}
-	}
-	return n
-}
-
-// parseFields extracts the fields query parameter.
-func parseFields(r *http.Request) []string {
-	f := r.URL.Query().Get("fields")
-	if f == "" {
-		return nil
-	}
-	parts := strings.Split(f, ",")
-	fields := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			fields = append(fields, p)
-		}
-	}
-	return fields
-}
-
-// parseSortSQL converts the sort parameter to a SQL ORDER BY clause.
-// Format: "-created,+name" → "created" DESC, "name" ASC
-func parseSortSQL(tbl *schema.Table, sortParam string) string {
-	if sortParam == "" {
-		return ""
-	}
-
-	parts := strings.Split(sortParam, ",")
-	clauses := make([]string, 0, len(parts))
-
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-
-		dir := "ASC"
-		col := p
-		if strings.HasPrefix(p, "-") {
-			dir = "DESC"
-			col = p[1:]
-		} else if strings.HasPrefix(p, "+") {
-			col = p[1:]
-		}
-
-		// Validate column exists in schema.
-		if tbl.ColumnByName(col) == nil {
-			continue
-		}
-
-		clauses = append(clauses, quoteIdent(col)+" "+dir)
-		if len(clauses) >= maxSortFields {
-			break
-		}
-	}
-
-	return strings.Join(clauses, ", ")
-}
-
-// scanRow scans a single row from a pgx.Rows result using field descriptions.
-// Returns nil if no rows are present.
-func scanRow(rows pgx.Rows) (map[string]any, error) {
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-
-	return scanCurrentRow(rows)
-}
-
-// scanRows scans all rows from a pgx.Rows result.
-func scanRows(rows pgx.Rows) ([]map[string]any, error) {
-	var result []map[string]any
-
-	for rows.Next() {
-		record, err := scanCurrentRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	if result == nil {
-		result = []map[string]any{}
-	}
-	return result, nil
-}
-
-// scanCurrentRow scans the current row into a map.
-func scanCurrentRow(rows pgx.Rows) (map[string]any, error) {
-	descs := rows.FieldDescriptions()
-	values := make([]any, len(descs))
-	ptrs := make([]any, len(descs))
-	for i := range values {
-		ptrs[i] = &values[i]
-	}
-
-	if err := rows.Scan(ptrs...); err != nil {
-		return nil, err
-	}
-
-	record := make(map[string]any, len(descs))
-	for i, desc := range descs {
-		record[desc.Name] = normalizeValue(values[i])
-	}
-	return record, nil
-}
-
-// normalizeValue converts pgx binary-protocol types into JSON-friendly forms.
-// In particular, UUID columns scanned into `any` arrive as [16]byte; we convert
-// them to the standard "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" string.
-func normalizeValue(v any) any {
-	switch val := v.(type) {
-	case [16]byte:
-		return fmt.Sprintf("%x-%x-%x-%x-%x", val[0:4], val[4:6], val[6:8], val[8:10], val[10:16])
-	default:
-		return v
-	}
 }

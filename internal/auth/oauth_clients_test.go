@@ -347,4 +347,3 @@ func TestNewOAuthError(t *testing.T) {
 	testutil.Contains(t, e.Error(), "invalid_request")
 	testutil.Contains(t, e.Error(), "missing parameter")
 }
-

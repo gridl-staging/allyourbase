@@ -38,6 +38,7 @@ func initHelp() {
 		"demo":   groupCore,
 		"logs":   groupCore,
 		"stats":  groupCore,
+		"deploy": groupCore,
 
 		"sql":     groupData,
 		"query":   groupData,

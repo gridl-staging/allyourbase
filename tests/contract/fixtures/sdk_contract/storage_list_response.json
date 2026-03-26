@@ -1,0 +1,1 @@
+{"items":[{"id":"file_1","bucket":"uploads","name":"doc1.pdf","size":1024,"contentType":"application/pdf","userId":"usr_1","createdAt":"2026-01-01T00:00:00Z","updatedAt":null},{"id":"file_2","bucket":"uploads","name":"image.png","size":2048,"contentType":"image/png","userId":null,"createdAt":"2026-01-02T00:00:00Z","updatedAt":null}],"totalItems":2}

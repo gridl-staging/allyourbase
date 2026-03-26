@@ -1,0 +1,30 @@
+{
+  "version": "0.0.0",
+  "description": "Backend-as-a-Service for PostgreSQL. Single binary, one config file.",
+  "homepage": "https://github.com/gridlhq/allyourbase",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_amd64.zip",
+      "hash": "REPLACE_WITH_SHA256_X64"
+    },
+    "arm64": {
+      "url": "https://github.com/gridlhq/allyourbase/releases/download/v0.0.0/ayb_0.0.0_windows_arm64.zip",
+      "hash": "REPLACE_WITH_SHA256_ARM64"
+    }
+  },
+  "bin": "ayb.exe",
+  "checkver": {
+    "github": "https://github.com/gridlhq/allyourbase"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/gridlhq/allyourbase/releases/download/v$version/ayb_$version_windows_amd64.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/gridlhq/allyourbase/releases/download/v$version/ayb_$version_windows_arm64.zip"
+      }
+    }
+  }
+}

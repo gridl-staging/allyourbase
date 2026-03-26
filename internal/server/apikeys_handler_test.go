@@ -22,6 +22,7 @@ type fakeAPIKeyManager struct {
 	revErr    error
 	createErr error
 	created   []string // track created key names
+	lastOpts  *auth.CreateAPIKeyOptions
 }
 
 func (f *fakeAPIKeyManager) ListAllAPIKeys(_ context.Context, page, perPage int) (*auth.APIKeyListResult, error) {
@@ -90,7 +91,9 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 	scope := "*"
 	var allowedTables []string
 	var appID *string
+	var orgID *string
 	if len(opts) > 0 {
+		f.lastOpts = &opts[0]
 		if opts[0].Scope != "" {
 			scope = opts[0].Scope
 		}
@@ -99,6 +102,7 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 		}
 		allowedTables = opts[0].AllowedTables
 		appID = opts[0].AppID
+		orgID = opts[0].OrgID
 	}
 	if allowedTables == nil {
 		allowedTables = []string{}
@@ -112,6 +116,7 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 		Scope:         scope,
 		AllowedTables: allowedTables,
 		AppID:         appID,
+		OrgID:         orgID,
 		CreatedAt:     time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC),
 	}
 	return "ayb_aabbccdd11223344aabbccdd11223344aabbccdd11223344", &key, nil
@@ -276,7 +281,7 @@ func TestAdminRevokeAPIKeyNoID(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
-	testutil.Contains(t, w.Body.String(), "api key id is required")
+	testutil.Contains(t, w.Body.String(), "invalid api key id format")
 }
 
 func TestAdminRevokeAPIKeyServiceError(t *testing.T) {
@@ -675,6 +680,45 @@ func TestAdminCreateAPIKeyWithoutAppID(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Equal(t, "Legacy Key", resp.APIKey.Name)
 	testutil.Nil(t, resp.APIKey.AppID)
+}
+
+func TestAdminCreateAPIKeyWithOrgID(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Org Key","orgId":"00000000-0000-0000-0000-000000000021"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusCreated, w.Code)
+
+	var resp adminCreateAPIKeyResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	testutil.NoError(t, err)
+	testutil.NotNil(t, resp.APIKey.OrgID)
+	testutil.Equal(t, "00000000-0000-0000-0000-000000000021", *resp.APIKey.OrgID)
+	testutil.True(t, mgr.lastOpts != nil, "expected create opts to be captured")
+	testutil.NotNil(t, mgr.lastOpts.OrgID)
+	testutil.Equal(t, "00000000-0000-0000-0000-000000000021", *mgr.lastOpts.OrgID)
+}
+
+func TestAdminCreateAPIKeyRejectsAppAndOrgIDTogether(t *testing.T) {
+	t.Parallel()
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminCreateAPIKey(mgr)
+
+	body := `{"userId":"00000000-0000-0000-0000-000000000011","name":"Bad Key","appId":"00000000-0000-0000-0000-000000000001","orgId":"00000000-0000-0000-0000-000000000021"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "mutually exclusive")
+	testutil.True(t, mgr.lastOpts == nil, "handler should reject before service call")
 }
 
 func TestAdminCreateAPIKeyInvalidAppID(t *testing.T) {

@@ -1,4 +1,5 @@
 # Job Queue
+<!-- audited 2026-03-23 -->
 
 AYB includes a persistent Postgres-backed job queue with an in-process scheduler for recurring maintenance work.
 
@@ -12,6 +13,9 @@ Enable jobs when you want built-in background cleanup to run through the queue a
 - webhook delivery log pruning
 - expired OAuth token/code cleanup
 - expired magic-link/password-reset cleanup
+- expired resumable upload cleanup
+- audit log retention pruning
+- request log retention pruning
 
 Keep it disabled if you want legacy timer-only behavior (default).
 
@@ -46,6 +50,9 @@ Environment variable overrides:
 | `webhook_delivery_prune` | Old rows in `_ayb_webhook_deliveries` (default retention `168` hours) |
 | `expired_oauth_cleanup` | Expired/revoked rows in `_ayb_oauth_tokens`; expired/used-old rows in `_ayb_oauth_authorization_codes` |
 | `expired_auth_cleanup` | Expired rows in `_ayb_magic_links` and `_ayb_password_resets` |
+| `expired_resumable_upload_cleanup` | Expired resumable upload sessions/artifacts |
+| `audit_log_retention` | Audit rows older than configured retention days (`audit.retention_days`, default 90) |
+| `request_log_retention` | Request-log rows older than configured retention days (`logging.request_log_retention_days`, default 7) |
 
 ## Default schedules
 
@@ -53,10 +60,19 @@ These schedules are upserted on startup when jobs are enabled:
 
 | Name | Job type | Cron (UTC) |
 |---|---|---|
+| `audit_log_retention_daily` | `audit_log_retention` | `0 2 * * *` |
 | `session_cleanup_hourly` | `stale_session_cleanup` | `0 * * * *` |
 | `webhook_delivery_prune_daily` | `webhook_delivery_prune` | `0 3 * * *` |
 | `expired_oauth_cleanup_daily` | `expired_oauth_cleanup` | `0 4 * * *` |
 | `expired_auth_cleanup_daily` | `expired_auth_cleanup` | `0 5 * * *` |
+| `request_log_retention_daily` | `request_log_retention` | `0 6 * * *` |
+| `expired_resumable_upload_cleanup` | `expired_resumable_upload_cleanup` | `*/10 * * * *` |
+
+When push notifications are also enabled, startup wiring additionally upserts:
+
+| Name | Job type | Cron (UTC) |
+|---|---|---|
+| `push_token_cleanup_daily` | `push_token_cleanup` | `0 2 * * *` |
 
 ## State model
 
@@ -71,7 +87,7 @@ Crash recovery requeues stale `running` jobs when lease expires.
 
 ## Admin and CLI operations
 
-Admin API:
+All endpoints require admin auth (`Authorization: Bearer <admin-token>`).
 
 - `GET /api/admin/jobs`
 - `GET /api/admin/jobs/stats`
@@ -84,6 +100,15 @@ Admin API:
 - `DELETE /api/admin/schedules/{id}`
 - `POST /api/admin/schedules/{id}/enable`
 - `POST /api/admin/schedules/{id}/disable`
+
+Retry/cancel return HTTP `409` when the job is missing or not in the required source state (`failed` for retry, `queued` for cancel).
+
+`GET /api/admin/jobs` supports optional query params:
+
+- `state`: filters by one of `queued`, `running`, `completed`, `failed`, `canceled`; invalid values return HTTP `400`.
+- `type`: filters by job type string.
+- `limit`: page size; defaults to `50`, clamped to a max of `500`.
+- `offset`: zero-based offset; defaults to `0` (negative values are normalized to `0`).
 
 CLI:
 

@@ -1,3 +1,4 @@
+// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/rpc.go.
 package api
 
 import (
@@ -9,10 +10,11 @@ import (
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/sqlutil"
 	"github.com/go-chi/chi/v5"
 )
 
-// handleRPC handles POST /rpc/{function}
+// TODO: Document Handler.handleRPC.
 func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if !requireWriteScope(w, r) {
 		return
@@ -21,15 +23,11 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if fn == nil {
 		return
 	}
+	notify := normalizeRPCNotifyContract(r.Header)
 
-	// Decode JSON body as named arguments (empty body = no args).
-	var args map[string]any
-	if r.ContentLength > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
-		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
+	args, ok := decodeRPCArgs(w, r)
+	if !ok {
+		return
 	}
 
 	query, queryArgs, err := buildRPCCall(fn, args)
@@ -46,27 +44,70 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if fn.IsVoid {
-		_, err := q.Exec(r.Context(), query, queryArgs...)
-		if err != nil {
-			done(err)
-			if !mapPGError(w, err) {
-				h.logger.Error("rpc error", "error", err, "function", fn.Name)
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
-		done(nil)
-		w.WriteHeader(http.StatusNoContent)
+		h.executeVoidRPC(w, r, fn, q, done, query, queryArgs)
 		return
 	}
 
+	h.executeReadRPC(w, r, fn, q, done, query, queryArgs, notify)
+}
+
+func decodeRPCArgs(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
+	// Decode JSON body as named arguments (empty body = no args).
+	var args map[string]any
+	if r.ContentLength <= 0 {
+		return args, true
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil, false
+	}
+	return args, true
+}
+
+type rpcNotifyContract struct {
+	action  string
+	table   string
+	enabled bool
+}
+
+// normalizeRPCNotifyContract enables notify publishing only when both headers
+// are present and the action is one of the supported realtime verbs.
+func normalizeRPCNotifyContract(headers http.Header) rpcNotifyContract {
+	table := strings.TrimSpace(headers.Get("X-Notify-Table"))
+	action := strings.ToLower(strings.TrimSpace(headers.Get("X-Notify-Action")))
+	if table == "" || action == "" {
+		return rpcNotifyContract{}
+	}
+	switch action {
+	case "create", "update", "delete":
+		return rpcNotifyContract{
+			action:  action,
+			table:   table,
+			enabled: true,
+		}
+	default:
+		return rpcNotifyContract{}
+	}
+}
+
+func (h *Handler) executeVoidRPC(w http.ResponseWriter, r *http.Request, fn *schema.Function, q Querier, done func(error) error, query string, queryArgs []any) {
+	_, err := q.Exec(r.Context(), query, queryArgs...)
+	if err != nil {
+		h.writeRPCDatabaseError(w, err, fn.Name, done, "rpc error")
+		return
+	}
+	if !writeRPCDone(w, done) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TODO: Document Handler.executeReadRPC.
+func (h *Handler) executeReadRPC(w http.ResponseWriter, r *http.Request, fn *schema.Function, q Querier, done func(error) error, query string, queryArgs []any, notify rpcNotifyContract) {
 	rows, err := q.Query(r.Context(), query, queryArgs...)
 	if err != nil {
-		done(err)
-		if !mapPGError(w, err) {
-			h.logger.Error("rpc error", "error", err, "function", fn.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
-		}
+		h.writeRPCDatabaseError(w, err, fn.Name, done, "rpc error")
 		return
 	}
 
@@ -74,12 +115,15 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 		items, err := scanRows(rows)
 		rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
 		if err != nil {
-			done(err)
-			h.logger.Error("rpc scan error", "error", err, "function", fn.Name)
-			writeError(w, http.StatusInternalServerError, "internal error")
+			h.writeRPCDatabaseError(w, err, fn.Name, done, "rpc scan error")
 			return
 		}
-		done(nil)
+		if !writeRPCDone(w, done) {
+			return
+		}
+		for _, record := range items {
+			h.publishRPCNotifyRecord(notify, record)
+		}
 		writeJSON(w, http.StatusOK, items)
 		return
 	}
@@ -88,18 +132,48 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	record, err := scanRow(rows)
 	rows.Close() // Close before done() to avoid pgx "conn busy" on commit.
 	if err != nil {
-		done(err)
-		h.logger.Error("rpc scan error", "error", err, "function", fn.Name)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		h.writeRPCDatabaseError(w, err, fn.Name, done, "rpc scan error")
 		return
 	}
-	done(nil)
+	if !writeRPCDone(w, done) {
+		return
+	}
+	h.publishRPCNotifyRecord(notify, record)
 
+	writeRPCRecord(w, record)
+}
+
+func (h *Handler) publishRPCNotifyRecord(notify rpcNotifyContract, record map[string]any) {
+	if !notify.enabled || record == nil {
+		return
+	}
+	h.publishEvent(notify.action, notify.table, record, nil)
+}
+
+// writeRPCDatabaseError keeps scan-time and query-time PostgreSQL failures on
+// the same mapping path so the HTTP contract depends on SQLSTATE, not timing.
+func (h *Handler) writeRPCDatabaseError(w http.ResponseWriter, err error, function string, done func(error) error, logMessage string) {
+	done(err)
+	if mapPGError(w, err) {
+		return
+	}
+	h.logger.Error(logMessage, "error", err, "function", function)
+	writeError(w, http.StatusInternalServerError, "internal error")
+}
+
+func writeRPCDone(w http.ResponseWriter, done func(error) error) bool {
+	if err := done(nil); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	return true
+}
+
+func writeRPCRecord(w http.ResponseWriter, record map[string]any) {
 	if record == nil {
 		writeJSON(w, http.StatusOK, nil)
 		return
 	}
-
 	// If the result has a single column named after the function, unwrap it.
 	if len(record) == 1 {
 		for _, v := range record {
@@ -155,7 +229,7 @@ func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, erro
 		}
 	}
 
-	funcRef := quoteIdent(fn.Schema) + "." + quoteIdent(fn.Name)
+	funcRef := sqlutil.QuoteQualifiedName(fn.Schema, fn.Name)
 	argList := strings.Join(placeholders, ", ")
 
 	var query string
@@ -260,11 +334,7 @@ func coerceArray(arr []any, elemType string) any {
 // coerceNumber converts a JSON float64 to the appropriate Go type for the given PG type.
 func coerceNumber(f float64, pgType string) any {
 	switch pgType {
-	case "integer", "int4", "smallint", "int2":
-		if f == math.Trunc(f) {
-			return int64(f)
-		}
-	case "bigint", "int8":
+	case "integer", "int4", "smallint", "int2", "bigint", "int8":
 		if f == math.Trunc(f) {
 			return int64(f)
 		}

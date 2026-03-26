@@ -1,8 +1,14 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { StorageBrowser } from "../StorageBrowser";
-import { listStorageFiles, deleteStorageFile, uploadStorageFile } from "../../api";
+import {
+  listStorageFiles,
+  deleteStorageFile,
+  uploadStorageFile,
+  getSignedURL,
+} from "../../api";
 import type { StorageObject } from "../../types";
 
 vi.mock("../../api", () => ({
@@ -33,6 +39,7 @@ vi.mock("../Toast", () => ({
 const mockListFiles = vi.mocked(listStorageFiles);
 const mockDeleteFile = vi.mocked(deleteStorageFile);
 const mockUploadFile = vi.mocked(uploadStorageFile);
+const mockGetSignedURL = vi.mocked(getSignedURL);
 
 function makeFile(overrides: Partial<StorageObject> = {}): StorageObject {
   return {
@@ -50,17 +57,23 @@ describe("StorageBrowser", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn(),
+      },
+    });
   });
 
   it("shows loading state", () => {
     mockListFiles.mockReturnValue(new Promise(() => {}));
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     expect(screen.getByText("Loading files...")).toBeInTheDocument();
   });
 
   it("shows empty state when no files", async () => {
     mockListFiles.mockResolvedValueOnce({ items: [], totalItems: 0 });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText(/No files in/)).toBeInTheDocument();
     });
@@ -75,7 +88,7 @@ describe("StorageBrowser", () => {
       ],
       totalItems: 2,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("image.png")).toBeInTheDocument();
       expect(screen.getByText("doc.pdf")).toBeInTheDocument();
@@ -89,7 +102,7 @@ describe("StorageBrowser", () => {
       items: [makeFile()],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("1 file")).toBeInTheDocument();
     });
@@ -103,7 +116,7 @@ describe("StorageBrowser", () => {
       ],
       totalItems: 2,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("2 files")).toBeInTheDocument();
     });
@@ -118,7 +131,7 @@ describe("StorageBrowser", () => {
       ],
       totalItems: 3,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("500 B")).toBeInTheDocument();
       expect(screen.getByText("2.0 KB")).toBeInTheDocument();
@@ -128,7 +141,7 @@ describe("StorageBrowser", () => {
 
   it("has upload button", async () => {
     mockListFiles.mockResolvedValueOnce({ items: [], totalItems: 0 });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("Upload")).toBeInTheDocument();
     });
@@ -136,16 +149,37 @@ describe("StorageBrowser", () => {
 
   it("has bucket name input", async () => {
     mockListFiles.mockResolvedValueOnce({ items: [], totalItems: 0 });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByDisplayValue("default")).toBeInTheDocument();
     });
   });
 
+  it("restores initial bucket from localStorage", async () => {
+    localStorage.setItem("ayb_storage_bucket", "project-assets");
+    mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
+    renderWithProviders(<StorageBrowser />);
+
+    await waitFor(() => {
+      expect(mockListFiles).toHaveBeenCalledWith("project-assets");
+    });
+    expect(screen.getByDisplayValue("project-assets")).toBeInTheDocument();
+  });
+
+  it("falls back to default bucket when localStorage is empty", async () => {
+    mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
+    renderWithProviders(<StorageBrowser />);
+
+    await waitFor(() => {
+      expect(mockListFiles).toHaveBeenCalledWith("default");
+    });
+    expect(screen.getByDisplayValue("default")).toBeInTheDocument();
+  });
+
   it("refetches files when bucket changes", async () => {
     const user = userEvent.setup();
     mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(mockListFiles).toHaveBeenCalled();
     });
@@ -165,7 +199,7 @@ describe("StorageBrowser", () => {
       items: [makeFile({ name: "delete-me.jpg" })],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("delete-me.jpg")).toBeInTheDocument();
     });
@@ -178,11 +212,11 @@ describe("StorageBrowser", () => {
   it("deletes a file on confirm", async () => {
     const user = userEvent.setup();
     mockListFiles.mockResolvedValue({
-      items: [makeFile()],
+      items: [makeFile({ bucket: "images" })],
       totalItems: 1,
     });
     mockDeleteFile.mockResolvedValueOnce();
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("photo.jpg")).toBeInTheDocument();
     });
@@ -198,7 +232,7 @@ describe("StorageBrowser", () => {
     await user.click(confirmDeleteBtn!);
 
     await waitFor(() => {
-      expect(mockDeleteFile).toHaveBeenCalledWith("default", "photo.jpg");
+      expect(mockDeleteFile).toHaveBeenCalledWith("images", "photo.jpg");
     });
   });
 
@@ -208,7 +242,7 @@ describe("StorageBrowser", () => {
       items: [makeFile()],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("photo.jpg")).toBeInTheDocument();
     });
@@ -223,10 +257,10 @@ describe("StorageBrowser", () => {
 
   it("has download links", async () => {
     mockListFiles.mockResolvedValueOnce({
-      items: [makeFile({ name: "dl-me.jpg" })],
+      items: [makeFile({ bucket: "images", name: "dl-me.jpg" })],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("dl-me.jpg")).toBeInTheDocument();
     });
@@ -234,13 +268,13 @@ describe("StorageBrowser", () => {
     const downloadLinks = screen.getAllByTitle("Download");
     expect(downloadLinks[0]).toHaveAttribute(
       "href",
-      "/api/storage/default/dl-me.jpg",
+      "/api/storage/images/dl-me.jpg",
     );
   });
 
   it("displays error on fetch failure", async () => {
     mockListFiles.mockRejectedValueOnce(new Error("network error"));
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("network error")).toBeInTheDocument();
     });
@@ -251,7 +285,7 @@ describe("StorageBrowser", () => {
       items: [makeFile({ contentType: "image/png", name: "pic.png" })],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByTitle("Preview")).toBeInTheDocument();
     });
@@ -262,7 +296,7 @@ describe("StorageBrowser", () => {
       items: [makeFile({ contentType: "application/pdf", name: "doc.pdf" })],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("doc.pdf")).toBeInTheDocument();
     });
@@ -274,7 +308,7 @@ describe("StorageBrowser", () => {
       items: [makeFile()],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByTitle("Copy signed URL")).toBeInTheDocument();
       expect(screen.getByTitle("Copy download URL")).toBeInTheDocument();
@@ -283,7 +317,7 @@ describe("StorageBrowser", () => {
 
   it("persists bucket to localStorage", async () => {
     mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     const user = userEvent.setup();
 
     const input = screen.getByPlaceholderText("bucket name");
@@ -297,18 +331,41 @@ describe("StorageBrowser", () => {
     const user = userEvent.setup();
     mockListFiles.mockResolvedValue({ items: [], totalItems: 0 });
     mockUploadFile.mockResolvedValueOnce(makeFile({ name: "new.jpg" }));
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText("Upload")).toBeInTheDocument();
     });
 
     const file = new File(["hello"], "new.jpg", { type: "image/jpeg" });
+    const bucketInput = screen.getByPlaceholderText("bucket name");
+    await user.clear(bucketInput);
+    await user.type(bucketInput, "uploads");
+
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(fileInput).not.toBeNull();
     await user.upload(fileInput, file);
 
     await waitFor(() => {
-      expect(mockUploadFile).toHaveBeenCalledWith("default", file);
+      expect(mockUploadFile).toHaveBeenCalledWith("uploads", file);
+    });
+  });
+
+  it("requests signed URL using file bucket", async () => {
+    const user = userEvent.setup();
+    mockListFiles.mockResolvedValueOnce({
+      items: [makeFile({ bucket: "docs", name: "signed.txt", contentType: "text/plain" })],
+      totalItems: 1,
+    });
+    mockGetSignedURL.mockResolvedValueOnce({ url: "https://example.test/signed" });
+
+    renderWithProviders(<StorageBrowser />);
+    await waitFor(() => {
+      expect(screen.getByText("signed.txt")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTitle("Copy signed URL"));
+    await waitFor(() => {
+      expect(mockGetSignedURL).toHaveBeenCalledWith("docs", "signed.txt", 3600);
     });
   });
 
@@ -316,7 +373,7 @@ describe("StorageBrowser", () => {
     const err = new Error("Not Found");
     Object.assign(err, { status: 404 });
     mockListFiles.mockRejectedValueOnce(err);
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByText(/No files in/)).toBeInTheDocument();
     });
@@ -327,10 +384,10 @@ describe("StorageBrowser", () => {
   it("opens preview modal for image files", async () => {
     const user = userEvent.setup();
     mockListFiles.mockResolvedValueOnce({
-      items: [makeFile({ contentType: "image/png", name: "preview.png" })],
+      items: [makeFile({ bucket: "assets", contentType: "image/png", name: "preview.png" })],
       totalItems: 1,
     });
-    render(<StorageBrowser />);
+    renderWithProviders(<StorageBrowser />);
     await waitFor(() => {
       expect(screen.getByTitle("Preview")).toBeInTheDocument();
     });
@@ -339,7 +396,7 @@ describe("StorageBrowser", () => {
     // The img element should appear with the correct src.
     const img = document.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.getAttribute("src")).toBe("/api/storage/default/preview.png");
+    expect(img!.getAttribute("src")).toBe("/api/storage/assets/preview.png");
     expect(img!.getAttribute("alt")).toBe("preview.png");
   });
 });

@@ -57,8 +57,8 @@ func (s *Server) handleAdminSMSHealth(w http.ResponseWriter, r *http.Request) {
 	month := smsWindowStats{Sent: monthSent, Confirmed: monthConfirmed, Failed: monthFailed, ConversionRate: conversionRate(monthSent, monthConfirmed)}
 
 	resp := map[string]any{
-		"today":   today,
-		"last_7d": week,
+		"today":    today,
+		"last_7d":  week,
 		"last_30d": month,
 	}
 

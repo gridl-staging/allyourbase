@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { keymap, EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
-import { keymap, EditorView } from "@codemirror/view";
 import { executeSQL, ApiError } from "../api";
 import type { SqlResult } from "../types";
 import {
@@ -12,6 +11,7 @@ import {
   FileJson,
   FileSpreadsheet,
 } from "lucide-react";
+import { useCodeMirrorTheme } from "./codeMirrorTheme";
 
 function classifyQuery(q: string): "select" | "dml" | "ddl" | "other" {
   const first = q.trim().split(/\s+/)[0]?.toUpperCase();
@@ -52,7 +52,7 @@ export function resultToJSON(result: SqlResult): string {
 }
 
 interface SqlEditorProps {
-  onSchemaChange?: () => void;
+  onSchemaChange?: () => void | Promise<void>;
 }
 
 export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
@@ -64,6 +64,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
   const [loading, setLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState<string>("");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const codeMirrorTheme = useCodeMirrorTheme();
 
   const execute = useCallback(async () => {
     const trimmed = query.trim();
@@ -80,7 +81,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
       localStorage.setItem("ayb_sql_query", trimmed);
       // Auto-refresh schema after DDL (CREATE, ALTER, DROP, etc.)
       if (classifyQuery(trimmed) === "ddl" && onSchemaChange) {
-        onSchemaChange();
+        await onSchemaChange();
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -171,6 +172,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
             value={query}
             onChange={setQuery}
             extensions={extensions}
+            theme={codeMirrorTheme}
             height="160px"
             minHeight="80px"
             maxHeight="400px"
@@ -193,11 +195,11 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
             <Play className="w-3.5 h-3.5" />
             {loading ? "Running..." : "Execute"}
           </button>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-400 dark:text-gray-500">
             {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter to run
           </span>
           {feedbackMessage && feedbackMessage.icon === "clock" && (
-            <span className="ml-auto text-xs text-gray-500 flex items-center gap-1">
+            <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {feedbackMessage.text}
             </span>
@@ -226,14 +228,14 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
               <button
                 onClick={() => copyToClipboard("csv")}
                 title="Copy as CSV"
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
                 <FileSpreadsheet className="w-4 h-4" />
               </button>
               <button
                 onClick={() => copyToClipboard("json")}
                 title="Copy as JSON"
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
                 <FileJson className="w-4 h-4" />
               </button>
@@ -241,11 +243,11 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-gray-50">
+                  <tr className="border-b bg-gray-50 dark:bg-gray-800">
                     {result.columns.map((col) => (
                       <th
                         key={col}
-                        className="px-4 py-2 text-left font-medium text-gray-600 whitespace-nowrap"
+                        className="px-4 py-2 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
                       >
                         {col}
                       </th>
@@ -254,14 +256,14 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
                 </thead>
                 <tbody>
                   {result.rows.map((row, i) => (
-                    <tr key={i} className="border-b hover:bg-gray-50">
+                    <tr key={i} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
                       {row.map((cell, j) => (
                         <td
                           key={j}
                           className="px-4 py-2 whitespace-nowrap font-mono text-xs"
                         >
                           {cell === null ? (
-                            <span className="text-gray-300 italic">null</span>
+                            <span className="text-gray-300 dark:text-gray-500 italic">null</span>
                           ) : typeof cell === "object" ? (
                             JSON.stringify(cell)
                           ) : (
@@ -285,7 +287,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
         )}
 
         {!result && !error && (
-          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm h-48">
+          <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm h-48">
             Run a query to see results
           </div>
         )}

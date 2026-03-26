@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ func TestRelkindToString(t *testing.T) {
 		{"v", "view"},
 		{"m", "materialized_view"},
 		{"p", "partitioned_table"},
+		{"f", "foreign_table"},
 		{"x", "table"}, // unknown defaults to table
 		{"", "table"},
 	}
@@ -121,6 +123,127 @@ func TestColumnByName(t *testing.T) {
 	})
 }
 
+func TestTableHasGeometry(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns false when no geometry columns exist", func(t *testing.T) {
+		t.Parallel()
+		tbl := &Table{
+			Columns: []*Column{
+				{Name: "id"},
+				{Name: "name"},
+			},
+		}
+		testutil.False(t, tbl.HasGeometry(), "expected HasGeometry to be false")
+	})
+
+	t.Run("returns true when at least one geometry column exists", func(t *testing.T) {
+		t.Parallel()
+		tbl := &Table{
+			Columns: []*Column{
+				{Name: "id"},
+				{Name: "location", IsGeometry: true},
+			},
+		}
+		testutil.True(t, tbl.HasGeometry(), "expected HasGeometry to be true")
+	})
+}
+
+func TestTableHasVectorAndVectorColumns(t *testing.T) {
+	t.Parallel()
+
+	tbl := &Table{
+		Columns: []*Column{
+			{Name: "id"},
+			{Name: "embedding", IsVector: true, VectorDim: 1536},
+			{Name: "description"},
+		},
+	}
+
+	testutil.True(t, tbl.HasVector(), "expected HasVector to be true")
+	vecCols := tbl.VectorColumns()
+	testutil.SliceLen(t, vecCols, 1)
+	testutil.Equal(t, "embedding", vecCols[0].Name)
+	testutil.Equal(t, 1536, vecCols[0].VectorDim)
+}
+
+func TestTableSpatialColumnsWithoutIndex(t *testing.T) {
+	t.Parallel()
+
+	location := &Column{Name: "location", IsGeometry: true}
+	boundary := &Column{Name: "boundary", IsGeometry: true}
+	name := &Column{Name: "name"}
+
+	tbl := &Table{
+		Columns: []*Column{location, boundary, name},
+		Indexes: []*Index{
+			{
+				Name:    "idx_places_location",
+				Method:  "gist",
+				Columns: []string{"location"},
+			},
+			{
+				Name:    "idx_places_name",
+				Method:  "btree",
+				Columns: []string{"name"},
+			},
+		},
+	}
+
+	missing := tbl.SpatialColumnsWithoutIndex()
+	testutil.SliceLen(t, missing, 1)
+	testutil.Equal(t, "boundary", missing[0].Name)
+}
+
+func TestIsVectorTypeName(t *testing.T) {
+	t.Parallel()
+
+	testutil.True(t, isVectorTypeName("vector"), "vector should match")
+	testutil.True(t, isVectorTypeName("vector(1536)"), "vector(1536) should match")
+	testutil.True(t, isVectorTypeName(" VECTOR(3) "), "case/whitespace should match")
+	testutil.False(t, isVectorTypeName("text"), "text should not match")
+	testutil.False(t, isVectorTypeName("jsonb"), "jsonb should not match")
+}
+
+func TestParseVectorDim(t *testing.T) {
+	t.Parallel()
+
+	testutil.Equal(t, 0, parseVectorDim("vector"))
+	testutil.Equal(t, 3, parseVectorDim("vector(3)"))
+	testutil.Equal(t, 1536, parseVectorDim(" VECTOR(1536) "))
+	testutil.Equal(t, 0, parseVectorDim("vector(1536) trailing"))
+	testutil.Equal(t, 0, parseVectorDim("vector()"))
+	testutil.Equal(t, 0, parseVectorDim("vector(x)"))
+	testutil.Equal(t, 0, parseVectorDim("text"))
+}
+
+func TestColumnJSONIncludesUnconstrainedSpatialMetadata(t *testing.T) {
+	t.Parallel()
+
+	col := Column{
+		Name:         "location",
+		IsGeometry:   true,
+		SRID:         0,
+		GeometryType: "",
+		JSONType:     "object",
+	}
+
+	raw, err := json.Marshal(col)
+	testutil.NoError(t, err)
+
+	var got map[string]any
+	err = json.Unmarshal(raw, &got)
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, true, got["isGeometry"])
+	_, hasSRID := got["srid"]
+	testutil.True(t, hasSRID, "expected srid key to be present for unconstrained geometry")
+	testutil.Equal(t, 0.0, got["srid"])
+	_, hasGeometryType := got["geometryType"]
+	testutil.True(t, hasGeometryType, "expected geometryType key to be present for unconstrained geometry")
+	testutil.Equal(t, "", got["geometryType"])
+}
+
 func TestTableList(t *testing.T) {
 	t.Parallel()
 	sc := &SchemaCache{
@@ -222,9 +345,42 @@ func TestBuildRelationships(t *testing.T) {
 	testutil.Equal(t, "posts", users.Relationships[0].FieldName)
 }
 
+func TestNormalizeGeometryType(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"GEOMETRY", ""},
+		{"GEOGRAPHY", ""},
+		{"Geometry", ""},
+		{"geography", ""},
+		{"POINT", "Point"},
+		{"Point", "Point"},
+		{"point", "Point"},
+		{"LINESTRING", "LineString"},
+		{"LineString", "LineString"},
+		{"POLYGON", "Polygon"},
+		{"MULTIPOINT", "MultiPoint"},
+		{"MULTILINESTRING", "MultiLineString"},
+		{"MULTIPOLYGON", "MultiPolygon"},
+		{"GEOMETRYCOLLECTION", "GeometryCollection"},
+		{"  POINT  ", "Point"},
+		{"SomeOtherType", "SomeOtherType"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got := normalizeGeometryType(tt.input)
+			testutil.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestSchemaFilter(t *testing.T) {
 	t.Parallel()
-	clause, args := schemaFilter("n", 1)
+	clause, args := schemaFilter("n.nspname", 1)
 
 	// Should exclude information_schema, pg_catalog, pg_toast, and pg_% pattern.
 	testutil.Contains(t, clause, "n.nspname != $1")
@@ -246,13 +402,34 @@ func TestSchemaFilter(t *testing.T) {
 
 func TestSchemaFilterParamOffset(t *testing.T) {
 	t.Parallel()
-	clause, args := schemaFilter("s", 5)
+	clause, args := schemaFilter("s.nspname", 5)
 
 	testutil.Contains(t, clause, "s.nspname != $5")
 	testutil.Contains(t, clause, "s.nspname != $6")
 	testutil.Contains(t, clause, "s.nspname != $7")
 	testutil.Contains(t, clause, "s.nspname NOT LIKE $8")
 	testutil.Equal(t, 4, len(args))
+}
+
+// TestSetForTestingZeroValue verifies that a zero-value CacheHolder (created
+// without NewCacheHolder) does not panic on SetForTesting. This protects
+// against close(nil) on the uninitialised ready channel.
+func TestSetForTestingZeroValue(t *testing.T) {
+	t.Parallel()
+	h := &CacheHolder{} // zero value — no constructor
+
+	sc := &SchemaCache{}
+	h.SetForTesting(sc) // must not panic
+
+	testutil.Equal(t, sc, h.Get())
+
+	// Ready channel should be usable.
+	select {
+	case <-h.Ready():
+		// expected — SetForTesting should have initialised and closed it
+	case <-time.After(time.Second):
+		t.Fatal("ready channel not closed after SetForTesting on zero-value CacheHolder")
+	}
 }
 
 // TestSetForTestingSignalsReady verifies that SetForTesting closes the ready

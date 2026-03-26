@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockApiError } from "../../test-utils";
@@ -145,8 +145,11 @@ describe("TableBrowser", () => {
     render(<TableBrowser table={makeTable()} />);
 
     await waitFor(() => {
-      expect(screen.getByText("No rows found")).toBeInTheDocument();
+      expect(screen.getByText("No rows in this table yet")).toBeInTheDocument();
     });
+    expect(
+      screen.getByText("Insert data using the SQL editor, REST API, or SDK."),
+    ).toBeInTheDocument();
   });
 
   it("shows error on fetch failure", async () => {
@@ -168,6 +171,61 @@ describe("TableBrowser", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to load data")).toBeInTheDocument();
     });
+  });
+
+  it("retries once after a transient 429 and then renders rows", async () => {
+    const { ApiError } = await import("../../api");
+    mockGetRows
+      .mockRejectedValueOnce(new ApiError(429, "too many requests"))
+      .mockResolvedValueOnce(oneRowResponse);
+
+    render(<TableBrowser table={makeTable()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    }, { timeout: 5000 });
+    expect(mockGetRows).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("too many requests")).not.toBeInTheDocument();
+  });
+
+  it("retries through repeated 429 responses before rendering rows", async () => {
+    const { ApiError } = await import("../../api");
+    mockGetRows
+      .mockRejectedValueOnce(new ApiError(429, "too many requests"))
+      .mockRejectedValueOnce(new ApiError(429, "too many requests"))
+      .mockRejectedValueOnce(new ApiError(429, "too many requests"))
+      .mockResolvedValueOnce(oneRowResponse);
+
+    render(<TableBrowser table={makeTable()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    }, { timeout: 5000 });
+    expect(mockGetRows).toHaveBeenCalledTimes(4);
+    expect(screen.queryByText("too many requests")).not.toBeInTheDocument();
+  });
+
+  it("caps Retry-After waits to the table retry budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ApiError } = await import("../../api");
+      mockGetRows
+        .mockRejectedValueOnce(new ApiError(429, "too many requests", 120))
+        .mockResolvedValueOnce(oneRowResponse);
+
+      render(<TableBrowser table={makeTable()} />);
+
+      expect(mockGetRows).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+      expect(mockGetRows).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows PK badge on primary key columns", async () => {
@@ -399,7 +457,7 @@ describe("TableBrowser", () => {
     render(<TableBrowser table={makeTable({ kind: "view" })} />);
 
     await waitFor(() => {
-      expect(screen.getByText("No rows found")).toBeInTheDocument();
+      expect(screen.getByText("No rows in this table yet")).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /New/ })).not.toBeInTheDocument();
   });
@@ -630,7 +688,7 @@ describe("TableBrowser", () => {
     render(<TableBrowser table={makeTable()} />);
 
     await waitFor(() => {
-      expect(screen.getByText("No rows found")).toBeInTheDocument();
+      expect(screen.getByText("No rows in this table yet")).toBeInTheDocument();
     });
 
     expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
@@ -1014,5 +1072,32 @@ describe("TableBrowser", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
+  });
+
+  it("applies dark mode classes to key table and drawer surfaces", async () => {
+    mockGetRows.mockResolvedValueOnce(oneRowResponse);
+    render(<TableBrowser table={makeTable()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByRole("textbox", { name: "Full-text search" });
+    const toolbar = searchInput.closest("div.border-b") as HTMLElement;
+    expect(toolbar).toHaveClass("dark:bg-gray-900");
+
+    const tableHeader = screen.getByText("id").closest("thead") as HTMLElement;
+    expect(tableHeader).toHaveClass("dark:bg-gray-900");
+
+    const paginationBar = screen.getByText("1 row").closest("div.border-t") as HTMLElement;
+    expect(paginationBar).toHaveClass("dark:border-gray-700");
+    expect(paginationBar).toHaveClass("dark:bg-gray-900");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Hello").closest("tr") as HTMLElement);
+
+    const rowDetailHeader = screen.getByText("Row Detail").closest("div.border-b") as HTMLElement;
+    expect(rowDetailHeader).toHaveClass("dark:border-gray-700");
+    expect(rowDetailHeader).toHaveClass("dark:bg-gray-900");
   });
 });

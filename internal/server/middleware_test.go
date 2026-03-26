@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +17,17 @@ import (
 	"github.com/allyourbase/ayb/internal/server"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
+
+var adminScriptSrcPattern = regexp.MustCompile(`<script[^>]+src="([^"]+)"`)
+
+func mustScriptAssetPath(t *testing.T, html string) string {
+	t.Helper()
+	match := adminScriptSrcPattern.FindStringSubmatch(html)
+	if len(match) != 2 {
+		t.Fatalf("expected index html to include a script src, got: %q", html)
+	}
+	return match[1]
+}
 
 // --- CORS tests ---
 
@@ -232,6 +245,9 @@ func TestAdminPathServesHTML(t *testing.T) {
 
 	testutil.Equal(t, http.StatusOK, w.Code)
 	testutil.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	scriptPath := mustScriptAssetPath(t, w.Body.String())
+	testutil.True(t, strings.HasPrefix(scriptPath, "/admin/assets/"))
+	testutil.True(t, strings.HasSuffix(scriptPath, ".js"))
 }
 
 func TestAdminSPAFallback(t *testing.T) {
@@ -265,6 +281,68 @@ func TestAdminStaticAssetCacheHeaders(t *testing.T) {
 
 	testutil.Equal(t, http.StatusOK, w.Code)
 	testutil.Equal(t, "", w.Header().Get("Cache-Control"))
+}
+
+func TestAdminPlaceholderAssetServedUnderDefaultPath(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.Admin.Enabled = true
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ch := schema.NewCacheHolder(nil, logger)
+	srv := server.New(cfg, logger, ch, nil, nil, nil)
+
+	htmlReq := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	htmlW := httptest.NewRecorder()
+	srv.Router().ServeHTTP(htmlW, htmlReq)
+
+	testutil.Equal(t, http.StatusOK, htmlW.Code)
+	scriptPath := mustScriptAssetPath(t, htmlW.Body.String())
+	testutil.True(t, strings.HasPrefix(scriptPath, "/admin/assets/"))
+
+	req := httptest.NewRequest(http.MethodGet, scriptPath, nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Contains(t, w.Header().Get("Content-Type"), "javascript")
+	testutil.Equal(t, "public, max-age=1209600", w.Header().Get("Cache-Control"))
+	testutil.True(t, w.Body.Len() > 0)
+}
+
+func TestAdminPlaceholderAssetServedUnderCustomPath(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.Admin.Enabled = true
+	cfg.Admin.Path = "/console"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ch := schema.NewCacheHolder(nil, logger)
+	srv := server.New(cfg, logger, ch, nil, nil, nil)
+
+	htmlReq := httptest.NewRequest(http.MethodGet, "/console/", nil)
+	htmlW := httptest.NewRecorder()
+	srv.Router().ServeHTTP(htmlW, htmlReq)
+
+	testutil.Equal(t, http.StatusOK, htmlW.Code)
+	htmlScriptPath := mustScriptAssetPath(t, htmlW.Body.String())
+	testutil.True(t, strings.HasPrefix(htmlScriptPath, "/console/assets/"))
+
+	indexReq := httptest.NewRequest(http.MethodGet, "/console/index.html", nil)
+	indexW := httptest.NewRecorder()
+	srv.Router().ServeHTTP(indexW, indexReq)
+
+	testutil.Equal(t, http.StatusOK, indexW.Code)
+	testutil.Contains(t, indexW.Header().Get("Content-Type"), "text/html")
+	indexScriptPath := mustScriptAssetPath(t, indexW.Body.String())
+	testutil.True(t, strings.HasPrefix(indexScriptPath, "/console/assets/"))
+
+	req := httptest.NewRequest(http.MethodGet, htmlScriptPath, nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.Contains(t, w.Header().Get("Content-Type"), "javascript")
+	testutil.Equal(t, "public, max-age=1209600", w.Header().Get("Cache-Control"))
+	testutil.True(t, w.Body.Len() > 0)
 }
 
 func TestAdminDisabled(t *testing.T) {
@@ -312,4 +390,20 @@ func TestStartWithReadySignalsReady(t *testing.T) {
 	case err := <-errCh:
 		t.Fatalf("server failed to start: %v", err)
 	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ch := schema.NewCacheHolder(nil, logger)
+	srv := server.New(cfg, logger, ch, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+	testutil.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
+	testutil.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
 }

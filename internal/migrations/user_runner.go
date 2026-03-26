@@ -1,8 +1,11 @@
+// Package migrations provides a UserRunner for executing and tracking user-managed SQL migration files loaded from disk.
 package migrations
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,31 +13,44 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // UserRunner handles user-managed SQL migrations from a directory on disk.
 // Separate from the system Runner which uses embedded migrations.
 type UserRunner struct {
-	pool   *pgxpool.Pool
-	dir    string
-	logger *slog.Logger
+	pool       *pgxpool.Pool
+	dir        string
+	logger     *slog.Logger
+	schemaName string
 }
+
+var errUserRunnerPoolRequired = errors.New("user runner pool is required for database operations")
 
 // NewUserRunner creates a runner for user migrations in the given directory.
 func NewUserRunner(pool *pgxpool.Pool, dir string, logger *slog.Logger) *UserRunner {
-	return &UserRunner{pool: pool, dir: dir, logger: logger}
+	return &UserRunner{pool: pool, dir: dir, logger: normalizeRunnerLogger(logger)}
+}
+
+// NewUserRunnerWithSchema creates a runner scoped to a specific tenant schema.
+func NewUserRunnerWithSchema(pool *pgxpool.Pool, dir, schemaName string, logger *slog.Logger) *UserRunner {
+	return &UserRunner{pool: pool, dir: dir, logger: normalizeRunnerLogger(logger), schemaName: schemaName}
 }
 
 // Bootstrap creates the _ayb_user_migrations tracking table if it doesn't exist.
 func (r *UserRunner) Bootstrap(ctx context.Context) error {
-	_, err := r.pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS _ayb_user_migrations (
+	if err := r.requirePool(); err != nil {
+		return err
+	}
+
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
 			id          SERIAL PRIMARY KEY,
 			name        TEXT NOT NULL UNIQUE,
 			applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
-	`)
+	`, r.trackingTableExpr()))
 	if err != nil {
 		return fmt.Errorf("creating _ayb_user_migrations table: %w", err)
 	}
@@ -44,6 +60,10 @@ func (r *UserRunner) Bootstrap(ctx context.Context) error {
 // Up applies all pending user migrations in filename order.
 // Returns the number of migrations applied.
 func (r *UserRunner) Up(ctx context.Context) (int, error) {
+	if err := r.requirePool(); err != nil {
+		return 0, err
+	}
+
 	files, err := r.listFiles()
 	if err != nil {
 		return 0, err
@@ -55,8 +75,10 @@ func (r *UserRunner) Up(ctx context.Context) (int, error) {
 	applied := 0
 	for _, name := range files {
 		var exists bool
-		err := r.pool.QueryRow(ctx,
-			"SELECT EXISTS(SELECT 1 FROM _ayb_user_migrations WHERE name = $1)", name,
+		err := r.pool.QueryRow(ctx, fmt.Sprintf(
+			"SELECT EXISTS(SELECT 1 FROM %s WHERE name = $1)",
+			r.trackingTableExpr(),
+		), name,
 		).Scan(&exists)
 		if err != nil {
 			return applied, fmt.Errorf("checking migration %s: %w", name, err)
@@ -70,27 +92,9 @@ func (r *UserRunner) Up(ctx context.Context) (int, error) {
 			return applied, fmt.Errorf("reading migration %s: %w", name, err)
 		}
 
-		tx, err := r.pool.Begin(ctx)
-		if err != nil {
-			return applied, fmt.Errorf("starting transaction for %s: %w", name, err)
+		if err := r.applyMigration(ctx, name, sql); err != nil {
+			return applied, err
 		}
-		defer tx.Rollback(ctx) // no-op after commit; safety net for panics
-
-		if _, err := tx.Exec(ctx, string(sql)); err != nil {
-			return applied, fmt.Errorf("executing migration %s: %w", name, err)
-		}
-
-		if _, err := tx.Exec(ctx,
-			"INSERT INTO _ayb_user_migrations (name) VALUES ($1)", name,
-		); err != nil {
-			return applied, fmt.Errorf("recording migration %s: %w", name, err)
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			return applied, fmt.Errorf("committing migration %s: %w", name, err)
-		}
-
-		r.logger.Info("applied user migration", "name", name)
 		applied++
 	}
 
@@ -105,6 +109,10 @@ type MigrationStatus struct {
 
 // Status returns all migration files with their applied/pending state.
 func (r *UserRunner) Status(ctx context.Context) ([]MigrationStatus, error) {
+	if err := r.requirePool(); err != nil {
+		return nil, err
+	}
+
 	files, err := r.listFiles()
 	if err != nil {
 		return nil, err
@@ -169,8 +177,10 @@ func (r *UserRunner) listFiles() ([]string, error) {
 
 // getApplied returns a map of migration name → applied_at for all applied migrations.
 func (r *UserRunner) getApplied(ctx context.Context) (map[string]time.Time, error) {
-	rows, err := r.pool.Query(ctx,
-		"SELECT name, applied_at FROM _ayb_user_migrations ORDER BY id")
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(
+		"SELECT name, applied_at FROM %s ORDER BY id",
+		r.trackingTableExpr(),
+	))
 	if err != nil {
 		return nil, fmt.Errorf("querying applied user migrations: %w", err)
 	}
@@ -186,6 +196,65 @@ func (r *UserRunner) getApplied(ctx context.Context) (map[string]time.Time, erro
 		applied[name] = t
 	}
 	return applied, rows.Err()
+}
+
+func (r *UserRunner) trackingTableExpr() string {
+	if r.schemaName == "" {
+		return "_ayb_user_migrations"
+	}
+	return fmt.Sprintf(`%s._ayb_user_migrations`, pgx.Identifier{r.schemaName}.Sanitize())
+}
+
+func (r *UserRunner) searchPathSQL() string {
+	return fmt.Sprintf(`SET search_path TO %s, public`, pgx.Identifier{r.schemaName}.Sanitize())
+}
+
+// applyMigration executes a migration SQL script in a transaction, optionally setting search_path for schema-scoped execution, and records the migration in the tracking table.
+func (r *UserRunner) applyMigration(ctx context.Context, name string, sql []byte) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("starting transaction for %s: %w", name, err)
+	}
+	defer tx.Rollback(ctx) // no-op after commit; safety net for panics
+
+	if r.schemaName != "" {
+		if _, err := tx.Exec(ctx, r.searchPathSQL()); err != nil {
+			return fmt.Errorf("setting search_path for %s: %w", name, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, string(sql)); err != nil {
+		return fmt.Errorf("executing migration %s: %w", name, err)
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s (name) VALUES ($1)",
+		r.trackingTableExpr(),
+	), name,
+	); err != nil {
+		return fmt.Errorf("recording migration %s: %w", name, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing migration %s: %w", name, err)
+	}
+
+	r.logger.Info("applied user migration", "name", name)
+	return nil
+}
+
+func (r *UserRunner) requirePool() error {
+	if r == nil || r.pool == nil {
+		return errUserRunnerPoolRequired
+	}
+	return nil
+}
+
+func normalizeRunnerLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // sanitizeName replaces non-alphanumeric characters with underscores for filenames.
