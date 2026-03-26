@@ -3,25 +3,30 @@
 // This lets integration tests run without Docker or a local Postgres install.
 //
 // Usage: go run ./internal/testutil/cmd/testpg -- go test -tags=integration -count=1 ./...
+// Package main testpg starts AYB's managed Postgres on a free port and runs a given command with TEST_DATABASE_URL set, allowing integration tests to run without Docker or a local Postgres install.
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
-	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
+	"github.com/allyourbase/ayb/internal/pgmanager"
 )
 
 func main() {
 	os.Exit(run())
 }
 
+// run starts AYB's managed Postgres on a free port, sets TEST_DATABASE_URL, executes the given command with that environment, and gracefully stops Postgres on command completion or signal. It returns the command's exit code, or a non-zero code if startup fails.
 func run() int {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "--" {
@@ -38,35 +43,14 @@ func run() int {
 		return 1
 	}
 
-	// Reuse AYB's binary cache so we don't re-download on every run.
-	home, err := os.UserHomeDir()
+	tempRoot, err := createTempRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: home dir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "testpg: create temp postgres root: %v\n", err)
 		return 1
 	}
-	cacheDir := filepath.Join(home, ".ayb", "pg")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: mkdir cache: %v\n", err)
-		return 1
-	}
+	defer os.RemoveAll(tempRoot)
 
-	// Use a temp data dir — test data is throwaway.
-	dataDir, err := os.MkdirTemp("", "ayb-test-pg-data-*")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: mkdir data: %v\n", err)
-		return 1
-	}
-	defer os.RemoveAll(dataDir)
-
-	runtimeDir, err := os.MkdirTemp("", "ayb-test-pg-run-*")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "testpg: mkdir runtime: %v\n", err)
-		return 1
-	}
-	defer os.RemoveAll(runtimeDir)
-
-	// Redirect PG logs to a temp file so they don't pollute test output.
-	pgLogFile, err := os.CreateTemp("", "ayb-test-pg-log-*.log")
+	pgLogFile, logWriter, err := openPostgresLog()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: create log file: %v\n", err)
 		return 1
@@ -74,32 +58,27 @@ func run() int {
 	defer os.Remove(pgLogFile.Name())
 	defer pgLogFile.Close()
 
-	var pgLogger io.Writer = pgLogFile
-	if os.Getenv("TESTPG_VERBOSE") != "" {
-		// In verbose mode, tee PG logs to both file and stderr.
-		pgLogger = io.MultiWriter(pgLogFile, os.Stderr)
-	}
+	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	db := embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
-		Port(uint32(port)).
-		DataPath(dataDir).
-		RuntimePath(runtimeDir).
-		CachePath(cacheDir).
-		Logger(pgLogger).
-		Version(embeddedpostgres.V16).
-		Username("test").
-		Password("test").
-		Database("postgres"))
+	mgr := pgmanager.New(newTestPGConfig(tempRoot, port, logger))
+
+	ctx := context.Background()
 
 	fmt.Fprintf(os.Stderr, "testpg: starting managed postgres on port %d (logs: %s)\n", port, pgLogFile.Name())
-	if err := db.Start(); err != nil {
+	connURL, err := mgr.Start(ctx)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: start postgres: %v\n", err)
+		return 1
+	}
+	testDBURL, err := replaceDatabaseInConnURL(connURL, "postgres")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "testpg: build TEST_DATABASE_URL: %v\n", err)
 		return 1
 	}
 
 	cleanup := func() {
 		fmt.Fprintln(os.Stderr, "testpg: stopping managed postgres")
-		_ = db.Stop()
+		_ = mgr.Stop()
 	}
 	defer cleanup()
 
@@ -109,18 +88,9 @@ func run() int {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	url := fmt.Sprintf("postgresql://test:test@127.0.0.1:%d/postgres?sslmode=disable", port)
-	fmt.Fprintf(os.Stderr, "testpg: TEST_DATABASE_URL=%s\n", url)
+	fmt.Fprintf(os.Stderr, "testpg: TEST_DATABASE_URL=%s\n", testDBURL)
 
-	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "TEST_DATABASE_URL="+url)
-
-	// Run the child in its own process group so we can forward signals cleanly.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
+	cmd := newChildCommand(args, testDBURL)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "testpg: %v\n", err)
 		return 1
@@ -168,4 +138,50 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func createTempRoot() (string, error) {
+	return os.MkdirTemp("", "ayb-testpg-*")
+}
+
+func openPostgresLog() (*os.File, io.Writer, error) {
+	pgLogFile, err := os.CreateTemp("", "ayb-test-pg-log-*.log")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	logWriter := io.Writer(pgLogFile)
+	if os.Getenv("TESTPG_VERBOSE") != "" {
+		logWriter = io.MultiWriter(pgLogFile, os.Stderr)
+	}
+	return pgLogFile, logWriter, nil
+}
+
+func newChildCommand(args []string, connURL string) *exec.Cmd {
+	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "TEST_DATABASE_URL="+connURL)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
+
+func newTestPGConfig(root string, port int, logger *slog.Logger) pgmanager.Config {
+	return pgmanager.Config{
+		Port:       uint32(port),
+		DataDir:    filepath.Join(root, "data"),
+		RuntimeDir: filepath.Join(root, "run"),
+		PIDFile:    filepath.Join(root, "pg.pid"),
+		Logger:     logger,
+	}
+}
+
+func replaceDatabaseInConnURL(connURL, databaseName string) (string, error) {
+	parsedURL, err := url.Parse(connURL)
+	if err != nil {
+		return "", err
+	}
+	parsedURL.Path = "/" + databaseName
+	return parsedURL.String(), nil
 }
