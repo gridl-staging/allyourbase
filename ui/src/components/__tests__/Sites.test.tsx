@@ -108,7 +108,7 @@ async function openMarketingDetail() {
   fireEvent.click(screen.getByRole("button", { name: /view marketing/i }));
 
   await waitFor(() => {
-    expect(screen.getByRole("heading", { name: /site settings/i })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Marketing")).toBeInTheDocument();
   });
 }
 
@@ -226,6 +226,7 @@ describe("Sites", () => {
     await renderSites();
     await openMarketingDetail();
 
+    expect(screen.getByRole("heading", { name: /site settings/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Marketing")).toBeInTheDocument();
     expect(screen.getByDisplayValue("marketing")).toBeInTheDocument();
     expect(screen.getByText("Deploy History")).toBeInTheDocument();
@@ -360,6 +361,29 @@ describe("Sites", () => {
     });
 
     expect(await screen.findByText("uploading")).toBeInTheDocument();
+  });
+
+  it("keeps showing detail loading state until site settings hydrate", async () => {
+    let resolveSite: ((site: typeof mockSite) => void) | undefined;
+    const pendingSite = new Promise<typeof mockSite>((resolve) => {
+      resolveSite = resolve;
+    });
+    (api.getSite as ReturnType<typeof vi.fn>).mockReturnValueOnce(pendingSite);
+
+    await renderSites();
+
+    fireEvent.click(screen.getByRole("button", { name: /view marketing/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Loading site...")).toBeInTheDocument();
+    });
+    expect(screen.queryByDisplayValue("Marketing")).not.toBeInTheDocument();
+
+    resolveSite?.(mockSite);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Marketing")).toBeInTheDocument();
+    });
   });
 
   it("save settings calls updateSite with name and spaMode", async () => {

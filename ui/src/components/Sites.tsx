@@ -179,9 +179,14 @@ function SiteDetailView({ siteId, onBack, onSiteSaved }: SiteDetailViewProps) {
   const [siteName, setSiteName] = useState("");
   const [siteSlug, setSiteSlug] = useState("");
   const [spaMode, setSpaMode] = useState(false);
+  const [siteDraftLoaded, setSiteDraftLoaded] = useState(false);
   const trimmedSiteName = siteName.trim();
 
   useRefreshOnPageChange(deployPage, deploysResource.refresh);
+
+  useEffect(() => {
+    setSiteDraftLoaded(false);
+  }, [siteId]);
 
   useEffect(() => {
     if (!siteResource.data) {
@@ -190,6 +195,7 @@ function SiteDetailView({ siteId, onBack, onSiteSaved }: SiteDetailViewProps) {
     setSiteName(siteResource.data.name);
     setSiteSlug(siteResource.data.slug);
     setSpaMode(siteResource.data.spaMode);
+    setSiteDraftLoaded(true);
   }, [siteResource.data]);
 
   const handlePromoteDeploy = (deployId: string) =>
@@ -258,7 +264,7 @@ function SiteDetailView({ siteId, onBack, onSiteSaved }: SiteDetailViewProps) {
                 Save Settings
               </button>
             </div>
-            {siteResource.loading && !siteResource.data ? (
+            {siteResource.loading || !siteDraftLoaded ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">Loading site...</p>
             ) : (
               <div className="grid gap-3 max-w-xl">
