@@ -3,6 +3,8 @@
  */
 import type { Page } from "@playwright/test";
 
+const REALTIME_WS_PATH = "/api/realtime/ws";
+
 export interface SSECaptureHandle {
   getEvents: () => Promise<Array<Record<string, unknown>>>;
   close: () => Promise<void>;
@@ -180,6 +182,134 @@ export async function startSSECapture(
       await streamTask;
     },
   };
+}
+
+function buildRealtimeWsUrl(currentPageUrl: string, token: string): string {
+  const currentURL = new URL(currentPageUrl);
+  const wsProtocol = currentURL.protocol === "https:" ? "wss:" : "ws:";
+  const wsURL = new URL(REALTIME_WS_PATH, `${wsProtocol}//${currentURL.host}`);
+  wsURL.searchParams.set("token", token);
+  return wsURL.toString();
+}
+
+async function openRealtimeWsSubscription(
+  page: Page,
+  currentPageUrl: string,
+  token: string,
+  table: string,
+): Promise<string> {
+  const handle = `__aybRealtimeSmokeWs${Date.now()}${Math.random().toString(36).slice(2)}`;
+  const wsURL = buildRealtimeWsUrl(currentPageUrl, token);
+  await page.evaluate(
+    async ({ wsURL: evaluateWsUrl, table: evaluateTable, handle: evaluateHandle }) => {
+      const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(evaluateWsUrl);
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("Timed out waiting for WebSocket to open"));
+        }, 5000);
+        const onOpen = () => {
+          try {
+            ws.send(
+              JSON.stringify({ type: "subscribe", ref: "inspect-users", tables: [evaluateTable] }),
+            );
+            registry[evaluateHandle] = ws;
+            cleanup();
+            resolve();
+          } catch (error) {
+            cleanup();
+            reject(error);
+          }
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error("WebSocket failed to open"));
+        };
+        const onClose = () => {
+          cleanup();
+          reject(new Error("WebSocket closed before opening"));
+        };
+        const cleanup = () => {
+          clearTimeout(timeout);
+          ws.removeEventListener("open", onOpen);
+          ws.removeEventListener("error", onError);
+          ws.removeEventListener("close", onClose);
+        };
+        ws.addEventListener("open", onOpen);
+        ws.addEventListener("error", onError);
+        ws.addEventListener("close", onClose);
+      });
+    },
+    { wsURL, table, handle },
+  );
+  return handle;
+}
+
+async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<void> {
+  await page.evaluate(async (evaluateHandle) => {
+    const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
+    const ws = registry[evaluateHandle];
+    if (!ws || ws.readyState === ws.CLOSED) {
+      delete registry[evaluateHandle];
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out waiting for WebSocket to close"));
+      }, 5000);
+      const onClose = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("WebSocket failed while closing"));
+      };
+      const cleanup = () => {
+        clearTimeout(timeout);
+        ws.removeEventListener("close", onClose);
+        ws.removeEventListener("error", onError);
+        delete registry[evaluateHandle];
+      };
+      ws.addEventListener("close", onClose);
+      ws.addEventListener("error", onError);
+      if (ws.readyState !== ws.CLOSING) {
+        ws.close();
+      }
+      if (ws.readyState === ws.CLOSED) {
+        cleanup();
+        resolve();
+      }
+    });
+  }, handle);
+}
+
+export async function withRealtimeWsSubscription<T>(
+  page: Page,
+  currentPageUrl: string,
+  token: string,
+  table: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const wsHandle = await openRealtimeWsSubscription(page, currentPageUrl, token, table);
+  let runSucceeded = false;
+  try {
+    const result = await run();
+    runSucceeded = true;
+    return result;
+  } finally {
+    if (runSucceeded) {
+      // Run body passed — await cleanup so a cleanup-only failure surfaces clearly.
+      await closeRealtimeWsSubscription(page, wsHandle);
+    } else {
+      // Run body already failed — close fire-and-forget so the primary error
+      // propagates immediately without risking a cleanup timeout that masks it.
+      closeRealtimeWsSubscription(page, wsHandle).catch(() => {});
+    }
+  }
 }
 
 // Fixture helper: create an API key for a user via the admin API.

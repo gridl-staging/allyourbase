@@ -6,11 +6,11 @@ import {
   cleanupUserByEmail,
   cleanupApiKeyByName,
   createApiKeyForUser,
+  withRealtimeWsSubscription,
 } from "../fixtures";
 import type { Page, Response } from "@playwright/test";
 
 const REALTIME_STATS_PATH = "/api/admin/realtime/stats";
-const REALTIME_WS_PATH = "/api/realtime/ws";
 const POLL_TIMEOUT_MS = 8000;
 
 interface InspectorMetrics {
@@ -103,7 +103,7 @@ test.describe("Smoke: Realtime Inspector", () => {
 
     const baseline = await readInspectorMetrics(page);
     try {
-      await withRealtimeWsSubscription(page.url(), wsKeyBody.key, "users", async () => {
+      await withRealtimeWsSubscription(page, page.url(), wsKeyBody.key, "users", async () => {
         const withActivity = await waitForInspectorMetrics(
           page,
           "WebSocket activity to appear in inspector metrics",
@@ -221,124 +221,4 @@ async function waitForInspectorMetrics(
     )
     .toBe(true);
   return latestSnapshot;
-}
-
-async function openRealtimeWsSubscription(
-  currentPageUrl: string,
-  token: string,
-  table: string,
-): Promise<WebSocket> {
-  const wsURL = buildRealtimeWsUrl(currentPageUrl, token);
-  const ws = new WebSocket(wsURL);
-  await waitForWebSocketOpen(ws);
-  ws.send(JSON.stringify({ type: "subscribe", ref: "inspect-users", tables: [table] }));
-  return ws;
-}
-
-async function withRealtimeWsSubscription<T>(
-  currentPageUrl: string,
-  token: string,
-  table: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  const ws = await openRealtimeWsSubscription(currentPageUrl, token, table);
-  let runSucceeded = false;
-  try {
-    const result = await run();
-    runSucceeded = true;
-    return result;
-  } finally {
-    if (runSucceeded) {
-      // Run body passed — await cleanup so a cleanup-only failure surfaces clearly.
-      await closeRealtimeWsSubscription(ws);
-    } else {
-      // Run body already failed — close fire-and-forget so the primary error
-      // propagates immediately without risking a cleanup timeout that masks it.
-      closeRealtimeWsSubscription(ws).catch(() => {});
-    }
-  }
-}
-
-function buildRealtimeWsUrl(currentPageUrl: string, token: string): string {
-  const currentURL = new URL(currentPageUrl);
-  const wsProtocol = currentURL.protocol === "https:" ? "wss:" : "ws:";
-  const wsURL = new URL(REALTIME_WS_PATH, `${wsProtocol}//${currentURL.host}`);
-  wsURL.searchParams.set("token", token);
-  return wsURL.toString();
-}
-
-async function waitForWebSocketOpen(ws: WebSocket): Promise<void> {
-  if (ws.readyState === ws.OPEN) {
-    return;
-  }
-  if (ws.readyState === ws.CLOSING || ws.readyState === ws.CLOSED) {
-    throw new Error("WebSocket is not openable");
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("Timed out waiting for WebSocket to open"));
-    }, 5000);
-    const onOpen = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error("WebSocket failed to open"));
-    };
-    const onClose = () => {
-      cleanup();
-      reject(new Error("WebSocket closed before opening"));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      ws.removeEventListener("open", onOpen);
-      ws.removeEventListener("error", onError);
-      ws.removeEventListener("close", onClose);
-    };
-    ws.addEventListener("open", onOpen);
-    ws.addEventListener("error", onError);
-    ws.addEventListener("close", onClose);
-    if (ws.readyState === ws.OPEN) {
-      cleanup();
-      resolve();
-    }
-  });
-}
-
-async function closeRealtimeWsSubscription(ws: WebSocket): Promise<void> {
-  if (ws.readyState === ws.CLOSED) {
-    return;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("Timed out waiting for WebSocket to close"));
-    }, 5000);
-    const onClose = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error("WebSocket failed while closing"));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      ws.removeEventListener("close", onClose);
-      ws.removeEventListener("error", onError);
-    };
-    ws.addEventListener("close", onClose);
-    ws.addEventListener("error", onError);
-    if (ws.readyState !== ws.CLOSING) {
-      ws.close();
-    }
-    if (ws.readyState === ws.CLOSED) {
-      cleanup();
-      resolve();
-    }
-  });
 }

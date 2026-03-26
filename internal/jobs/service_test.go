@@ -957,13 +957,13 @@ func TestRegisterProviderTokenRefreshSchedule(t *testing.T) {
 }
 
 type fakeProviderTokenRefreshServiceForSchedule struct {
-	calls  int32
-	window time.Duration
+	calls       int32
+	windowNanos int64
 }
 
 func (f *fakeProviderTokenRefreshServiceForSchedule) RefreshExpiringProviderTokens(_ context.Context, window time.Duration) error {
 	atomic.AddInt32(&f.calls, 1)
-	f.window = window
+	atomic.StoreInt64(&f.windowNanos, int64(window))
 	return nil
 }
 
@@ -1002,5 +1002,5 @@ func TestProviderTokenRefreshScheduleRunsHandler(t *testing.T) {
 	}
 
 	testutil.Equal(t, int32(1), atomic.LoadInt32(&fake.calls))
-	testutil.Equal(t, 90*time.Second, fake.window)
+	testutil.Equal(t, 90*time.Second, time.Duration(atomic.LoadInt64(&fake.windowNanos)))
 }

@@ -188,7 +188,7 @@ jobs:
       - name: Integration tests
         env:
           TEST_DATABASE_URL: "postgresql://ayb_test:ayb_test@localhost:5432/ayb_test?sslmode=disable"
-        run: go test -race -count=1 -tags=integration ./...
+        run: go test -p 1 -race -count=1 -tags=integration ./...
 
       - name: Supabase schema drift gate
         env:
