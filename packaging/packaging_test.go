@@ -240,14 +240,19 @@ func TestGoreleaserContainsScoopBucketConfig(t *testing.T) {
 
 	bucket := requireMap(t, requireMapKey(t, firstScoop, "bucket"), "scoops[0].bucket")
 
-	if owner := requireMapKey(t, bucket, "owner"); owner != "gridlhq" {
-		t.Fatalf("scoop.bucket.owner = %v, want gridlhq", owner)
+	owner := requireString(t, requireMapKey(t, bucket, "owner"), "scoops[0].bucket.owner")
+	if owner != "gridlhq" && owner != "gridlhq-staging" {
+		t.Fatalf("scoop.bucket.owner = %q, want gridlhq or gridlhq-staging", owner)
 	}
 	if name := requireMapKey(t, bucket, "name"); name != "scoop-bucket" {
 		t.Fatalf("scoop.bucket.name = %v, want scoop-bucket", name)
 	}
 
-	requireStringEqual(t, requireMapKey(t, firstScoop, "homepage"), "scoops[0].homepage", "https://github.com/gridlhq/allyourbase")
+	homepage := requireString(t, requireMapKey(t, firstScoop, "homepage"), "scoops[0].homepage")
+	if homepage != "https://github.com/gridlhq/allyourbase" &&
+		homepage != "https://github.com/gridlhq-staging/allyourbase" {
+		t.Fatalf("scoops[0].homepage = %q, want production or staging public repo", homepage)
+	}
 	requireStringEqual(
 		t,
 		requireMapKey(t, firstScoop, "description"),

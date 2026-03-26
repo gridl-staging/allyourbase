@@ -9,6 +9,7 @@ import (
 
 func TestGridlNodeBootstrapFilesExist(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	requireRepoFilesExist(t,
 		"deploy/gridl-node/host-prepare.sh",
@@ -21,6 +22,7 @@ func TestGridlNodeBootstrapFilesExist(t *testing.T) {
 
 func TestGridlNodeBootstrapScriptsDoNotRegenerateRuntimeConfig(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	for _, scriptName := range []string{"host-prepare.sh", "start-gridl-node.sh"} {
 		content := readGridlNodeFile(t, scriptName)
@@ -38,6 +40,7 @@ func TestGridlNodeBootstrapScriptsDoNotRegenerateRuntimeConfig(t *testing.T) {
 
 func TestGridlNodeStartScriptUsesOperatorEnvNames(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	content := readGridlNodeFile(t, "start-gridl-node.sh")
 
@@ -53,6 +56,7 @@ func TestGridlNodeStartScriptUsesOperatorEnvNames(t *testing.T) {
 
 func TestGridlNodeStartScriptFailsOnMissingSecrets(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	content := readGridlNodeFile(t, "start-gridl-node.sh")
 
@@ -84,6 +88,7 @@ func TestGridlNodeStartScriptFailsOnMissingSecrets(t *testing.T) {
 
 func TestGridlNodeSystemdUnitManagesComposeStack(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	content := readGridlNodeFile(t, "ayb.service")
 
@@ -105,6 +110,7 @@ func TestGridlNodeSystemdUnitManagesComposeStack(t *testing.T) {
 
 func TestGridlNodeReadmeReferencesContractDoc(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	content := readGridlNodeFile(t, "README.md")
 
@@ -128,6 +134,7 @@ func TestGridlNodeReadmeReferencesContractDoc(t *testing.T) {
 
 func TestGridlNodeOperatorEnvExampleDocumentsRequiredSecrets(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	content := readGridlNodeFile(t, "operator.env.example")
 
@@ -145,12 +152,14 @@ func TestGridlNodeOperatorEnvExampleDocumentsRequiredSecrets(t *testing.T) {
 
 func TestGridlNodeContractDocExists(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	requireRepoFilesExist(t, "docs/gridl-integration-contract.md")
 }
 
 func TestGridlNodeContractDocMatchesServerBehavior(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	repoRoot := findRepoRoot(t)
 	contractPath := filepath.Join(repoRoot, "docs", "gridl-integration-contract.md")

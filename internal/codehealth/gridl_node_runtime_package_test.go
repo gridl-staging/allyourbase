@@ -14,6 +14,7 @@ const gridlNodePackageDir = "deploy/gridl-node"
 
 func TestGridlNodePackageFilesExist(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	requireRepoFilesExist(t,
 		"deploy/gridl-node/ayb.toml",
@@ -24,6 +25,8 @@ func TestGridlNodePackageFilesExist(t *testing.T) {
 }
 
 func TestGridlNodeAybTomlLoadsSharedNodeDefaults(t *testing.T) {
+	skipIfGridlNodePackageAbsent(t)
+
 	repoRoot := findRepoRoot(t)
 	configPath := filepath.Join(repoRoot, "deploy", "gridl-node", "ayb.toml")
 	t.Setenv("AYB_AUTH_JWT_SECRET", "this-secret-is-at-least-thirty-two-characters-long")
@@ -61,6 +64,7 @@ func TestGridlNodeAybTomlLoadsSharedNodeDefaults(t *testing.T) {
 
 func TestGridlNodeComposeUsesSupportedRuntimeContract(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	composeContent := readGridlNodeFile(t, "docker-compose.yml")
 
@@ -89,6 +93,7 @@ func TestGridlNodeComposeUsesSupportedRuntimeContract(t *testing.T) {
 
 func TestGridlNodeDockerfileUsesStartConfigEntrypoint(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	dockerfileContent := readGridlNodeFile(t, "Dockerfile")
 
@@ -104,6 +109,7 @@ func TestGridlNodeDockerfileUsesStartConfigEntrypoint(t *testing.T) {
 
 func TestGridlNodeCaddyfileReverseProxiesToHostAybListener(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	caddyfileContent := readGridlNodeFile(t, "Caddyfile")
 	requireContainsAll(t, caddyfileContent, []string{"reverse_proxy localhost:8090"})
@@ -112,6 +118,7 @@ func TestGridlNodeCaddyfileReverseProxiesToHostAybListener(t *testing.T) {
 
 func TestGridlNodePackageExcludesShareboroughPatterns(t *testing.T) {
 	t.Parallel()
+	skipIfGridlNodePackageAbsent(t)
 
 	repoRoot := findRepoRoot(t)
 	for _, relativePath := range []string{
@@ -122,6 +129,24 @@ func TestGridlNodePackageExcludesShareboroughPatterns(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(repoRoot, relativePath)); err == nil {
 			t.Fatalf("did not expect shareborough-pattern asset %s", relativePath)
+		}
+	}
+}
+
+func skipIfGridlNodePackageAbsent(t *testing.T) {
+	t.Helper()
+
+	repoRoot := findRepoRoot(t)
+	requiredPaths := []string{
+		filepath.Join(repoRoot, "deploy", "gridl-node", "ayb.toml"),
+		filepath.Join(repoRoot, "docs", "gridl-integration-contract.md"),
+	}
+	for _, path := range requiredPaths {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				t.Skip("gridl-node runtime package is intentionally excluded from public mirrors")
+			}
+			t.Fatalf("stat %s failed: %v", path, err)
 		}
 	}
 }

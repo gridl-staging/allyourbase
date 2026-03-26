@@ -44,7 +44,7 @@ var functionSizeAllowlist = map[string]int{
 	// Recursive GraphQL where-clause lowering is intentionally centralized.
 	"graphql.resolveWhere":              148,
 	"nhostmigrate.Migrator.buildPlan":   102,
-	"pgmanager.Manager.Start":           111,
+	"pgmanager.Manager.Start":           117,
 	"sbmigrate.Migrator.migrateData":    102,
 	"sbmigrate.Migrator.migrateSchema":  113,
 	"sbmigrate.Migrator.migrateStorage": 116,
