@@ -54,9 +54,7 @@ test.describe("Vector Indexes Lifecycle (Full E2E)", () => {
 
     // Create a new vector index via UI
     await page.getByRole("button", { name: /Create Index/i }).click();
-    const createPanel = page.locator("div").filter({
-      has: page.getByRole("heading", { name: /New Vector Index/i }),
-    }).first();
+    const createPanel = page.getByRole("region", { name: /New Vector Index/i });
     await expect(createPanel.getByRole("heading", { name: /New Vector Index/i })).toBeVisible({
       timeout: 5000,
     });

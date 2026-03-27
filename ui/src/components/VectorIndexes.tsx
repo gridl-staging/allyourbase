@@ -74,8 +74,13 @@ export function VectorIndexes() {
       </div>
 
       {showCreate && (
-        <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+        <div
+          role="region"
+          aria-labelledby="vector-index-create-heading"
+          data-testid="vector-index-create-panel"
+          className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
+        >
+          <h3 id="vector-index-create-heading" className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
             New Vector Index
           </h3>
           <div className="flex flex-col gap-2 max-w-md">
