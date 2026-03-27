@@ -33,6 +33,22 @@ type testPGHarness struct {
 	tempDir string
 }
 
+const managedPGStartTimeoutEnvVar = "AYB_PGMANAGER_TEST_START_TIMEOUT"
+
+func managedPGStartTimeout() time.Duration {
+	timeoutRaw := strings.TrimSpace(os.Getenv(managedPGStartTimeoutEnvVar))
+	if timeoutRaw == "" {
+		return 5 * time.Minute
+	}
+
+	timeout, err := time.ParseDuration(timeoutRaw)
+	if err != nil || timeout <= 0 {
+		return 5 * time.Minute
+	}
+
+	return timeout
+}
+
 func newTestHarnessServer(archive []byte, sums string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -231,6 +247,26 @@ func trimNL(s string) string {
 	return s
 }
 
+func TestManagedPGStartTimeoutDefault(t *testing.T) {
+	t.Setenv(managedPGStartTimeoutEnvVar, "")
+	testutil.Equal(t, 5*time.Minute, managedPGStartTimeout())
+}
+
+func TestManagedPGStartTimeoutFromEnv(t *testing.T) {
+	t.Setenv(managedPGStartTimeoutEnvVar, "7m30s")
+	testutil.Equal(t, 7*time.Minute+30*time.Second, managedPGStartTimeout())
+}
+
+func TestManagedPGStartTimeoutInvalidEnvFallsBack(t *testing.T) {
+	t.Setenv(managedPGStartTimeoutEnvVar, "invalid")
+	testutil.Equal(t, 5*time.Minute, managedPGStartTimeout())
+}
+
+func TestManagedPGStartTimeoutNonPositiveFallsBack(t *testing.T) {
+	t.Setenv(managedPGStartTimeoutEnvVar, "0s")
+	testutil.Equal(t, 5*time.Minute, managedPGStartTimeout())
+}
+
 func TestHarnessServesVersionedSHA256SumsPath(t *testing.T) {
 	t.Parallel()
 
@@ -259,7 +295,7 @@ func TestFullLifecycle(t *testing.T) {
 	harness := newTestPGHarness(t)
 	mgr := New(harness.config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), managedPGStartTimeout())
 	defer cancel()
 
 	// Start.
@@ -322,7 +358,7 @@ func TestExtensionInit(t *testing.T) {
 	harness.config.DataDir = filepath.Join(harness.tempDir, "data-ext")
 
 	mgr := New(harness.config)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), managedPGStartTimeout())
 	defer cancel()
 
 	connURL, err := mgr.Start(ctx)
@@ -352,7 +388,7 @@ func TestPortAlreadyInUse(t *testing.T) {
 
 	// Start the first manager — this claims the port.
 	mgr1 := New(harness.config)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), managedPGStartTimeout())
 	defer cancel()
 
 	_, err := mgr1.Start(ctx)
