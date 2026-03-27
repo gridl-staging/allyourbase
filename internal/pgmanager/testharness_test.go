@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,17 @@ type testPGHarness struct {
 	server  *httptest.Server
 	config  Config
 	tempDir string
+}
+
+func newTestHarnessServer(archive []byte, sums string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS"):
+			w.Write([]byte(sums))
+		default:
+			w.Write(archive)
+		}
+	}))
 }
 
 // newTestPGHarness packages the system's PG binaries into a test fixture tarball,
@@ -76,14 +88,7 @@ func newTestPGHarness(t *testing.T) *testPGHarness {
 
 	sums := fmt.Sprintf("%s  %s\n", hash, archiveName)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/SHA256SUMS":
-			w.Write([]byte(sums))
-		default:
-			w.Write(archive)
-		}
-	}))
+	srv := newTestHarnessServer(archive, sums)
 
 	tempDir := t.TempDir()
 
@@ -224,6 +229,24 @@ func trimNL(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+func TestHarnessServesVersionedSHA256SumsPath(t *testing.T) {
+	t.Parallel()
+
+	archive := []byte("fake-archive-bytes")
+	sums := "abc123  ayb-postgres-16-darwin-arm64.tar.xz\n"
+	srv := newTestHarnessServer(archive, sums)
+	t.Cleanup(srv.Close)
+
+	url := sha256SumsURL(srv.URL+"/{version}/{platform}.tar.xz", "16")
+	resp, err := http.Get(url) //nolint:noctx
+	testutil.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	testutil.NoError(t, err)
+	testutil.Equal(t, sums, string(body))
 }
 
 // --- Integration Tests ---
