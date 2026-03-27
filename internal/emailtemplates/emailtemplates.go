@@ -87,8 +87,7 @@ type BuiltinTemplate struct {
 // mailer templates and their default subjects. Used by start.go to wire
 // the email template service.
 func DefaultBuiltins() map[string]BuiltinTemplate {
-	systemVars := []string{"AppName", "ActionURL"}
-	mfaVars := []string{"AppName", "Code"}
+	systemVars, mfaVars := []string{"AppName", "ActionURL"}, []string{"AppName", "Code"}
 	builtins := make(map[string]BuiltinTemplate, 5)
 
 	keys := []struct {
@@ -109,11 +108,7 @@ func DefaultBuiltins() map[string]BuiltinTemplate {
 			// Embedded templates must always be available; panic on missing.
 			panic(fmt.Sprintf("missing built-in email template %q: %v", k.file, err))
 		}
-		builtins[k.key] = BuiltinTemplate{
-			SubjectTemplate: k.subject,
-			HTMLTemplate:    html,
-			Variables:       k.vars,
-		}
+		builtins[k.key] = BuiltinTemplate{SubjectTemplate: k.subject, HTMLTemplate: html, Variables: k.vars}
 	}
 	return builtins
 }

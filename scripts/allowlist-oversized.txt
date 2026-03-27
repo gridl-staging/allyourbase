@@ -3,7 +3,7 @@
 internal/server/auth_providers_handler.go:593
 # Deferred split: provider-specific flow extraction is still pending.
 internal/auth/oauth_clients.go:593
-internal/emailtemplates/emailtemplates.go:584
+internal/emailtemplates/emailtemplates.go:583
 internal/fbmigrate/migrator.go:583
 internal/cli/deploy_fly.go:580
 internal/jobs/handlers.go:576
