@@ -27,9 +27,15 @@ fi
 package_dir="$(go list -f '{{.Dir}}' "$package_path")"
 
 integration_files=()
-while IFS= read -r file; do
-  integration_files+=("$file")
-done < <(rg -l '^//go:build integration$' "$package_dir"/*_test.go 2>/dev/null || true)
+if command -v rg >/dev/null 2>&1; then
+  while IFS= read -r file; do
+    integration_files+=("$file")
+  done < <(rg -l '^//go:build integration$' "$package_dir"/*_test.go 2>/dev/null || true)
+else
+  while IFS= read -r file; do
+    integration_files+=("$file")
+  done < <(grep -l '^//go:build integration$' "$package_dir"/*_test.go 2>/dev/null || true)
+fi
 
 if ((${#integration_files[@]} == 0)); then
   echo "no integration-tagged test files found for $package_path" >&2
