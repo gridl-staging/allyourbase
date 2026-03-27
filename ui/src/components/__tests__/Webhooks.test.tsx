@@ -500,10 +500,16 @@ describe("Webhooks", () => {
       expect(screen.getByText("500")).toBeInTheDocument();
     });
 
+    const detailToggle = screen.getByRole("button", { name: /500/ });
+    expect(detailToggle).toHaveAttribute("aria-expanded", "false");
+    expect(detailToggle).toHaveAttribute("aria-controls", "webhook-delivery-detail-del_1");
+
     // Click to expand the delivery row
-    await user.click(screen.getByText("500"));
+    await user.click(detailToggle);
 
     await waitFor(() => {
+      expect(detailToggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("webhook-delivery-detail-del_1")).toBeInTheDocument();
       expect(screen.getByText("connection timeout")).toBeInTheDocument();
       expect(
         screen.getByText('{"action":"create","table":"posts"}'),

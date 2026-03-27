@@ -68,8 +68,7 @@ async function collectDeliveryHistorySummary(params: {
 
   await page.getByText("Loading deliveries...").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
 
-  const modalCandidate = historyHeading.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
-  const modal = await modalCandidate.count().then((count) => (count > 0 ? modalCandidate : page.locator("main")));
+  const modal = page.getByRole("dialog", { name: /Delivery History/i });
   const deliveryRows = modal
     .getByRole("button")
     .filter({ hasText: tableName });
@@ -84,7 +83,12 @@ async function collectDeliveryHistorySummary(params: {
   for (let index = 0; index < expectedAttemptCount; index++) {
     const row = deliveryRows.nth(index);
     await row.click();
-    const detail = row.locator("xpath=following-sibling::*[1]");
+    const detailId = await row.getAttribute("aria-controls");
+    if (!detailId) {
+      detailChecksPassed = false;
+      continue;
+    }
+    const detail = modal.getByTestId(detailId);
     const detailVisible = await detail
       .waitFor({ state: "visible", timeout: 5000 })
       .then(() => true)
@@ -130,25 +134,31 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
 
     await page.setContent(`
       <main>
-        <h2>Delivery History</h2>
-        <button type="button" aria-label="Close">Close</button>
-        <div>
-          <button type="button" id="delivery-row-1">404 create ${syntheticTableName}</button>
-          <section id="details-1" hidden>
-            <p>Attempt: 2</p>
-            <p>Status: 404</p>
-            <h3>Request Body</h3>
-            <h3>Response Body</h3>
-          </section>
-        </div>
-        <div>
-          <button type="button" id="delivery-row-2">404 create ${syntheticTableName}</button>
-          <section id="details-2" hidden>
-            <p>Attempt: 1</p>
-            <p>Status: 404</p>
-            <h3>Request Body</h3>
-            <h3>Response Body</h3>
-          </section>
+        <div role="dialog" aria-modal="true" aria-labelledby="delivery-history-title">
+          <h2 id="delivery-history-title">Delivery History</h2>
+          <button type="button" aria-label="Close">Close</button>
+          <div>
+            <button type="button" id="delivery-row-1" aria-controls="details-1">
+              404 create ${syntheticTableName} attempt 2
+            </button>
+            <section id="details-1" data-testid="details-1" role="region" aria-labelledby="delivery-row-1" hidden>
+              <p>Attempt: 2</p>
+              <p>Status: 404</p>
+              <h3>Request Body</h3>
+              <h3>Response Body</h3>
+            </section>
+          </div>
+          <div>
+            <button type="button" id="delivery-row-2" aria-controls="details-2">
+              404 create ${syntheticTableName} attempt 1
+            </button>
+            <section id="details-2" data-testid="details-2" role="region" aria-labelledby="delivery-row-2" hidden>
+              <p>Attempt: 1</p>
+              <p>Status: 404</p>
+              <h3>Request Body</h3>
+              <h3>Response Body</h3>
+            </section>
+          </div>
         </div>
       </main>
       <script>
@@ -253,7 +263,7 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
     await expect(historyHeading).toBeVisible({ timeout: 5000 });
     await page.getByText("Loading deliveries...").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
 
-    const modal = historyHeading.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
+    const modal = page.getByRole("dialog", { name: /Delivery History/i });
     const deliveryRows = modal.getByRole("button").filter({ hasText: tableName });
     await expect(deliveryRows).toHaveCount(expectedAttempts.length, { timeout: 5000 });
     await expect(modal.getByRole("button", { name: "Next" })).toBeHidden();
@@ -265,7 +275,9 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
       expect(text).toContain(tableName);
       expect(text).toContain("404");
       await row.click();
-      const detail = row.locator("xpath=following-sibling::div[1]");
+      await expect(row).toHaveAttribute("aria-controls", /.+/);
+      const detailId = await row.getAttribute("aria-controls");
+      const detail = modal.getByTestId(detailId ?? "");
       await expect(detail).toBeVisible({ timeout: 5000 });
       if (index === 0) {
         await expect(detail).toContainText("Attempt:");
