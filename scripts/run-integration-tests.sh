@@ -25,6 +25,7 @@ SPECIAL_ARGS=(
 SPECIAL_PACKAGES=(
   "github.com/allyourbase/ayb/internal/api"
   "github.com/allyourbase/ayb/internal/server"
+  "github.com/allyourbase/ayb/internal/storage"
 )
 
 all_packages=()
@@ -48,8 +49,9 @@ done
 
 if ((${#regular_packages[@]} > 0)); then
   # Package-level serialization is enough for the broad integration sweep.
-  # Leaving test-level parallelism enabled avoids timing out packages with lots
-  # of t.Parallel() unit coverage, such as internal/storage.
+  # Packages listed in SPECIAL_PACKAGES run through the integration-only path
+  # below so large unit suites do not contend with their slower integration
+  # cases in the same process.
   go run ./internal/testutil/cmd/testpg -- "${REGULAR_ARGS[@]}" "${regular_packages[@]}"
 fi
 
