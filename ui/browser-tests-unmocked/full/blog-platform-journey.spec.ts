@@ -242,7 +242,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================
@@ -259,7 +259,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================
@@ -274,7 +274,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================
@@ -298,7 +298,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
         ('Jane Doe', 'jane@example.com', 'Tech writer and blogger'),
         ('John Smith', 'john@example.com', 'Software engineer');
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/2 rows? affected/i)).toBeVisible({ timeout: 10000 });
 
     await sqlInput.fill(`
@@ -307,7 +307,7 @@ test.describe("Blog Platform Journey (Full E2E)", () => {
         (2, 'Advanced PostgreSQL Tips', 'Here are some advanced tips for PostgreSQL optimization.', 'draft'),
         (1, 'Why I Love PostgreSQL', 'PostgreSQL has been my database of choice for years.', 'draft');
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/3 rows? affected/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================

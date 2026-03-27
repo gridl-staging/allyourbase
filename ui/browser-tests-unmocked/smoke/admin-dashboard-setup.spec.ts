@@ -76,7 +76,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await sqlInput.fill(createTableSQL);
 
     // Step 5: Execute CREATE TABLE
-    let runButton = page.getByRole("button", { name: /run|execute/i });
+    let runButton = page.getByRole("button", { name: /^Execute$/i });
     await expect(runButton).toBeVisible();
     await runButton.click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
@@ -91,7 +91,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await sqlInput.clear();
     await sqlInput.fill(insertSQL);
 
-    runButton = page.getByRole("button", { name: /run|execute/i });
+    runButton = page.getByRole("button", { name: /^Execute$/i });
     await runButton.click();
     await expect(page.getByText(/rows? affected/i).first()).toBeVisible({ timeout: 10000 });
 
@@ -129,7 +129,7 @@ test.describe("Smoke: Admin Dashboard Setup", () => {
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
     await sqlInput.fill(`SELECT * FROM ${tableName};`);
 
-    const runButton = page.getByRole("button", { name: /run|execute/i });
+    const runButton = page.getByRole("button", { name: /^Execute$/i });
     await runButton.click();
 
     // Assert: Results should appear

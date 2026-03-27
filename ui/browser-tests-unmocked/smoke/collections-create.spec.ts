@@ -76,7 +76,7 @@ test.describe("Smoke: Collections Create", () => {
 );`;
 
     await sqlInput.fill(createTableSQL);
-    const runButton = page.getByRole("button", { name: /run|execute/i });
+    const runButton = page.getByRole("button", { name: /^Execute$/i });
     await runButton.click();
 
     // Wait for DDL to complete — sidebar auto-refreshes after CREATE TABLE

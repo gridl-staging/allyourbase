@@ -79,7 +79,7 @@ test.describe("Collections CRUD (Full E2E)", () => {
     `;
 
     await sqlInput.fill(createTableSQL);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================

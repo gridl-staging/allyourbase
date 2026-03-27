@@ -23,7 +23,7 @@ test.describe("Smoke: Admin SQL Query", () => {
     await sqlInput.fill("SELECT 1 AS test_column;");
 
     // Step 5: Click Execute button
-    const runButton = page.getByRole("button", { name: /run|execute/i });
+    const runButton = page.getByRole("button", { name: /^Execute$/i });
     await expect(runButton).toBeVisible();
     await runButton.click();
 

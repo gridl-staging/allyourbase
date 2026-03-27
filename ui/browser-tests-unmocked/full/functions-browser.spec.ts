@@ -99,7 +99,7 @@ test.describe("Functions Browser (Full E2E)", () => {
     await sqlInput.fill(
       `CREATE OR REPLACE FUNCTION ${funcName}(a integer, b integer) RETURNS integer AS $$ SELECT a + b; $$ LANGUAGE SQL;`,
     );
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(
       page.getByText(/statement executed successfully/i),
     ).toBeVisible({ timeout: 10000 });

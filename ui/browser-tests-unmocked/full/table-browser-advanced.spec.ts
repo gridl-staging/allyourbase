@@ -88,7 +88,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // Insert 5 records (separate SQL execution)
@@ -100,7 +100,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
         ('Delta Widget', 'active', 88),
         ('Epsilon Device', 'inactive', 15);
     `);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/rows? affected/i)).toBeVisible({ timeout: 10000 });
 
     // Reload to see new table
@@ -183,7 +183,7 @@ test.describe("Table Browser Advanced (Full E2E)", () => {
     const cleanupSql = page.getByLabel("SQL query");
     await expect(cleanupSql).toBeVisible({ timeout: 5000 });
     await cleanupSql.fill(`DROP TABLE IF EXISTS ${tableName};`);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
 
   });
 });

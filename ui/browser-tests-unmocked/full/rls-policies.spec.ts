@@ -87,7 +87,7 @@ test.describe("RLS Policies (Full E2E)", () => {
       name TEXT NOT NULL,
       user_id UUID
     );`);
-    await page.getByRole("button", { name: /run|execute/i }).click();
+    await page.getByRole("button", { name: /^Execute$/i }).click();
     await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // Reload to see new table
