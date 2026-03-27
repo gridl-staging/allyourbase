@@ -54,15 +54,19 @@ test.describe("Vector Indexes Lifecycle (Full E2E)", () => {
 
     // Create a new vector index via UI
     await page.getByRole("button", { name: /Create Index/i }).click();
-    await expect(page.getByRole("heading", { name: /New Vector Index/i })).toBeVisible({ timeout: 5000 });
+    const createPanel = page.locator("div").filter({
+      has: page.getByRole("heading", { name: /New Vector Index/i }),
+    }).first();
+    await expect(createPanel.getByRole("heading", { name: /New Vector Index/i })).toBeVisible({
+      timeout: 5000,
+    });
 
-    await page.getByLabel("Schema").clear();
-    await page.getByLabel("Schema").fill("public");
-    await page.getByLabel("Table", { exact: true }).fill(tableName);
-    await page.getByLabel("Column").fill("embedding");
-    await page.getByLabel("Method").selectOption("hnsw");
-    await page.getByPlaceholder("cosine").fill("cosine");
-    await page.getByRole("button", { name: /^Create$/i }).click();
+    await createPanel.getByRole("textbox", { name: "Schema", exact: true }).fill("public");
+    await createPanel.getByRole("textbox", { name: "Table", exact: true }).fill(tableName);
+    await createPanel.getByRole("textbox", { name: "Column", exact: true }).fill("embedding");
+    await createPanel.getByRole("combobox", { name: "Method", exact: true }).selectOption("hnsw");
+    await createPanel.getByRole("textbox", { name: /Metric/i }).fill("cosine");
+    await createPanel.getByRole("button", { name: /^Create$/i }).click();
 
     // Verify the index appears in the list
     const indexRow = page.getByRole("row", { name: new RegExp(tableName) }).first();

@@ -85,7 +85,7 @@ func startInitDatabaseManagedPostgres(
 		BinaryURL:              cfg.ManagedPG.BinaryURL,
 		PGVersion:              cfg.ManagedPG.PGVersion,
 		Extensions:             cfg.ManagedPG.EffectiveExtensions(),
-		SharedPreloadLibraries: cfg.ManagedPG.SharedPreloadLibraries,
+		SharedPreloadLibraries: cfg.ManagedPG.EffectiveSharedPreloadLibraries(),
 		Logger:                 logger,
 	})
 	var pgMgr *pgmanager.Manager

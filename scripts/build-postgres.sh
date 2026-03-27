@@ -41,10 +41,86 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+mkdir -p "${OUTPUT_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd -P)"
+
 PLATFORM="${TARGET_OS}-${TARGET_ARCH}"
 ARCHIVE_NAME="ayb-postgres-${PG_VERSION}-${PLATFORM}.tar.xz"
 INSTALL_DIR="${OUTPUT_DIR}/ayb-postgres-${PG_VERSION}"
 BUILD_DIR="${OUTPUT_DIR}/build"
+UUID_PROVIDER="e2fs"
+
+if [ "${TARGET_OS}" = "darwin" ]; then
+  OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || brew --prefix openssl)"
+  LIBXML2_PREFIX="$(brew --prefix libxml2)"
+  # macOS ships uuid/uuid.h with the e2fs-style uuid_generate API, so we do
+  # not need Homebrew ossp-uuid here. Keeping this on the native SDK path avoids
+  # brittle header/layout differences between Homebrew bottles and GitHub runners.
+  export PKG_CONFIG_PATH="${OPENSSL_PREFIX}/lib/pkgconfig:${LIBXML2_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+  export CPPFLAGS="-I${OPENSSL_PREFIX}/include -I${LIBXML2_PREFIX}/include/libxml2 ${CPPFLAGS:-}"
+  export LDFLAGS="-L${OPENSSL_PREFIX}/lib -L${LIBXML2_PREFIX}/lib ${LDFLAGS:-}"
+  export LIBS="-lssl -lcrypto ${LIBS:-}"
+fi
+
+bundle_darwin_runtime_libs() {
+  local install_dir="$1"
+  local lib_dir="$install_dir/lib"
+  local bin_dir="$install_dir/bin"
+  local bundled=(
+    "${OPENSSL_PREFIX}/lib/libssl.3.dylib"
+    "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib"
+    "${LIBXML2_PREFIX}/lib/libxml2.16.dylib"
+  )
+
+  echo "Bundling relocatable macOS runtime libraries..."
+  for lib in "${bundled[@]}"; do
+    cp -f "$lib" "${lib_dir}/"
+  done
+
+  # PostgreSQL's default install names on macOS point back to the build prefix
+  # (and Homebrew keg paths for OpenSSL/libxml2). Rewrite everything to
+  # @loader_path-based references so the extracted archive is runnable anywhere.
+  while IFS= read -r lib; do
+    chmod u+w "$lib"
+    install_name_tool -id "@loader_path/$(basename "$lib")" "$lib"
+  done < <(find "$lib_dir" -type f -name '*.dylib' | sort)
+
+  while IFS= read -r file; do
+    chmod u+w "$file"
+    while IFS= read -r dep; do
+      case "$dep" in
+        ""|/usr/lib/*|/System/*) continue ;;
+      esac
+      local base
+      base="$(basename "$dep")"
+      if [ ! -f "${lib_dir}/${base}" ]; then
+        continue
+      fi
+      local replacement
+      if [[ "$file" == "${bin_dir}/"* ]]; then
+        replacement="@loader_path/../lib/${base}"
+      else
+        replacement="@loader_path/${base}"
+      fi
+      install_name_tool -change "$dep" "$replacement" "$file"
+    done < <(otool -L "$file" | tail -n +2 | awk '{print $1}')
+  done < <(find "$bin_dir" "$lib_dir" -type f \( -perm -111 -o -name '*.dylib' \) | sort)
+}
+
+codesign_darwin_runtime_libs() {
+  local install_dir="$1"
+  local lib_dir="$install_dir/lib"
+  local bin_dir="$install_dir/bin"
+
+  echo "Ad-hoc signing macOS runtime artifacts..."
+  while IFS= read -r file; do
+    codesign --force --sign - "$file" >/dev/null
+  done < <(find "$lib_dir" -type f -name '*.dylib' | sort)
+
+  while IFS= read -r file; do
+    codesign --force --sign - "$file" >/dev/null
+  done < <(find "$bin_dir" -type f -perm -111 | sort)
+}
 
 echo "Building ayb-postgres ${PG_VERSION} for ${PLATFORM}"
 echo "Output: ${OUTPUT_DIR}/${ARCHIVE_NAME}"
@@ -78,7 +154,7 @@ if [ ! -f "${PG_BUILD}/src/backend/postgres" ]; then
     --prefix="${INSTALL_DIR}" \
     --with-openssl \
     --with-libxml \
-    --with-uuid=e2fs \
+    --with-uuid="${UUID_PROVIDER}" \
     --without-readline \
     --without-zlib \
     --without-icu \
@@ -142,10 +218,22 @@ if [ ! -f "${INSTALL_DIR}/lib/pg_stat_statements.so" ]; then
   cd - > /dev/null
 fi
 
+if [ "${TARGET_OS}" = "darwin" ]; then
+  bundle_darwin_runtime_libs "${INSTALL_DIR}"
+fi
+
 # ---- Strip binaries (reduce size) ----
 echo "Stripping binaries..."
-find "${INSTALL_DIR}/bin" -type f -exec strip {} \; 2>/dev/null || true
-find "${INSTALL_DIR}/lib" -name "*.so" -exec strip {} \; 2>/dev/null || true
+if [ "${TARGET_OS}" = "darwin" ]; then
+  echo "Skipping strip on darwin to preserve symbols required by PostgreSQL loadable modules."
+else
+  find "${INSTALL_DIR}/bin" -type f -exec strip {} \; 2>/dev/null || true
+  find "${INSTALL_DIR}/lib" \( -name "*.so" -o -name "*.dylib" \) -exec strip {} \; 2>/dev/null || true
+fi
+
+if [ "${TARGET_OS}" = "darwin" ]; then
+  codesign_darwin_runtime_libs "${INSTALL_DIR}"
+fi
 
 # ---- Package ----
 echo "Creating ${ARCHIVE_NAME}..."

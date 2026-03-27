@@ -187,6 +187,14 @@ func TestInitExtensionsEmptyList(t *testing.T) {
 	testutil.NoError(t, err)
 }
 
+func TestManagedExtensionName(t *testing.T) {
+	t.Parallel()
+
+	testutil.Equal(t, "vector", managedExtensionName("pgvector"))
+	testutil.Equal(t, "vector", managedExtensionName(" vector "))
+	testutil.Equal(t, "pg_cron", managedExtensionName("pg_cron"))
+}
+
 func TestStartPostgresDoesNotHangWhenPgCtlChildKeepsLogFDOpen(t *testing.T) {
 	const helperEnv = "AYB_PGMANAGER_START_HELPER"
 	if os.Getenv(helperEnv) == "1" {

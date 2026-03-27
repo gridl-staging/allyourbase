@@ -178,7 +178,7 @@ AYB can run with PostGIS in either mode:
 - External PostgreSQL: use a PostGIS-enabled server/image and run `CREATE EXTENSION postgis;`
 - Managed PostgreSQL: enable PostGIS in config via `[managed_pg] postgis = true` (or include `"postgis"` in `managed_pg.extensions`)
 
-Managed PostgreSQL extension availability depends on the PostgreSQL build behind that runtime. If your environment cannot install/load the extension you need, use an external PostgreSQL service with that extension already installed.
+Managed PostgreSQL extension availability depends on the PostgreSQL build behind that runtime. If you need an extension outside the managed build's default set, use an external PostgreSQL service with that extension already installed.
 
 ## Health check
 

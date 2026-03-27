@@ -36,6 +36,28 @@ func (c *ManagedPGConfig) EffectiveExtensions() []string {
 	return effective
 }
 
+// EffectiveSharedPreloadLibraries returns the configured preload list plus any
+// managed-runtime libraries required by the selected extension set.
+func (c *ManagedPGConfig) EffectiveSharedPreloadLibraries() []string {
+	effective := append([]string(nil), c.SharedPreloadLibraries...)
+	if !managedPGContainsValue(c.EffectiveExtensions(), "pg_cron") {
+		return effective
+	}
+	if managedPGContainsValue(effective, "pg_cron") {
+		return effective
+	}
+	return append(effective, "pg_cron")
+}
+
+func managedPGContainsValue(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
+}
+
 // RateLimitConfig configures global API rate limiting.
 type RateLimitConfig struct {
 	API          string `toml:"api"`           // e.g. "100/min" — per-user (authenticated) or per-IP (anonymous)

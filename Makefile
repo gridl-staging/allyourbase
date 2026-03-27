@@ -116,7 +116,7 @@ test-ui: ## Run UI component tests (vitest + jsdom, no browser)
 	cd ui && pnpm test
 
 test-integration: ## Run integration tests (uses AYB's managed Postgres — no Docker needed)
-	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -p 1 ./...
+	bash scripts/run-integration-tests.sh
 
 test-demo-smoke: ## Run demo smoke tests only — schema apply, tables, RLS, CRUD (needs managed Postgres)
 	go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -run TestDemoSmoke ./internal/e2e/
@@ -219,7 +219,7 @@ test-everything: build ## Run absolutely everything: unit + integration + SDK + 
 		fi; \
 	}; \
 	run_step "Go unit tests"      "go tool gotestsum --format testdox -- -count=1 ./..."; \
-	run_step "Integration tests"  "go run ./internal/testutil/cmd/testpg -- go tool gotestsum --format testdox -- -tags=integration -count=1 -p 1 ./..."; \
+	run_step "Integration tests"  "bash scripts/run-integration-tests.sh"; \
 	run_step "SDK tests"          "cd sdk && npm test"; \
 	run_step "UI component tests" "cd ui && pnpm test"; \
 	run_step "Playwright e2e"     "bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser'"; \

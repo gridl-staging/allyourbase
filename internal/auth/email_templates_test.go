@@ -31,7 +31,13 @@ func TestRenderAuthEmail_UnknownKeyLegacy(t *testing.T) {
 func TestRenderAuthEmail_TemplateServiceUsed_AllKeys(t *testing.T) {
 	t.Parallel()
 
-	keys := []string{"auth.password_reset", "auth.email_verification", "auth.magic_link"}
+	keys := []string{
+		"auth.password_reset",
+		"auth.email_verification",
+		"auth.magic_link",
+		"auth.mfa_email_enroll",
+		"auth.mfa_email_challenge",
+	}
 	for _, key := range keys {
 		key := key
 		t.Run(key, func(t *testing.T) {
@@ -73,7 +79,11 @@ func TestRenderAuthEmail_GracefulDegradation(t *testing.T) {
 	}
 
 	svc := &Service{appName: "TestApp", emailTplSvc: mock}
-	vars := map[string]string{"AppName": "TestApp", "ActionURL": "https://example.com"}
+	vars := map[string]string{
+		"AppName":   "TestApp",
+		"ActionURL": "https://example.com",
+		"Code":      "123456",
+	}
 
 	_, _, _, err := svc.renderAuthEmail(context.Background(), "auth.password_reset", vars)
 	testutil.True(t, err != nil, "should propagate template service error")
@@ -84,9 +94,13 @@ func TestRenderAuthEmail_GracefulDegradation(t *testing.T) {
 func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 	t.Parallel()
 
-	// Verify all three system keys render correctly through the legacy path.
+	// Verify all built-in auth email keys render correctly through the legacy path.
 	svc := &Service{appName: "TestApp"}
-	vars := map[string]string{"AppName": "TestApp", "ActionURL": "https://example.com/action"}
+	vars := map[string]string{
+		"AppName":   "TestApp",
+		"ActionURL": "https://example.com/action",
+		"Code":      "123456",
+	}
 
 	tests := []struct {
 		key     string
@@ -95,6 +109,8 @@ func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 		{"auth.password_reset", mailer.DefaultPasswordResetSubject},
 		{"auth.email_verification", mailer.DefaultVerificationSubject},
 		{"auth.magic_link", mailer.DefaultMagicLinkSubject},
+		{"auth.mfa_email_enroll", mailer.DefaultMFAEmailEnrollSubject},
+		{"auth.mfa_email_challenge", mailer.DefaultMFAEmailChallengeSubject},
 	}
 
 	for _, tc := range tests {
@@ -104,7 +120,11 @@ func TestRenderAuthEmail_AllKeysLegacyPath(t *testing.T) {
 			testutil.NoError(t, err)
 			testutil.Equal(t, tc.subject, subject)
 			testutil.True(t, strings.Contains(html, "TestApp"), "HTML for %s should contain AppName", tc.key)
-			testutil.True(t, strings.Contains(html, "https://example.com/action"), "HTML for %s should contain ActionURL", tc.key)
+			if strings.Contains(tc.key, "mfa_email") {
+				testutil.True(t, strings.Contains(html, "123456"), "HTML for %s should contain Code", tc.key)
+			} else {
+				testutil.True(t, strings.Contains(html, "https://example.com/action"), "HTML for %s should contain ActionURL", tc.key)
+			}
 			testutil.True(t, len(text) > 0, "plaintext for %s should not be empty", tc.key)
 		})
 	}

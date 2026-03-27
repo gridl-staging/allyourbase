@@ -2,7 +2,6 @@ package server_test
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -233,33 +232,8 @@ func TestAdminAuthProvidersPut_UpdatesOIDCProvider(t *testing.T) {
 	t.Cleanup(func() {
 		auth.UnregisterOIDCProvider(providerName)
 	})
-
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != "https://idp.example.com/.well-known/openid-configuration" {
-			return &http.Response{
-				StatusCode: http.StatusNotFound,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{}`)),
-			}, nil
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header: http.Header{
-				"Content-Type": []string{"application/json"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{
-				"issuer":"https://idp.example.com",
-				"authorization_endpoint":"https://idp.example.com/authorize",
-				"token_endpoint":"https://idp.example.com/token",
-				"userinfo_endpoint":"https://idp.example.com/userinfo",
-				"jwks_uri":"https://idp.example.com/jwks"
-			}`)),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	discoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := discoveryServer.URL
 
 	srv, token := authProvidersServerWithAuth(t, nil)
 
@@ -267,7 +241,7 @@ func TestAdminAuthProvidersPut_UpdatesOIDCProvider(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/auth/providers/"+providerName,
 		strings.NewReader(`{
 			"enabled":true,
-			"issuer_url":"https://idp.example.com",
+			"issuer_url":"`+issuerURL+`",
 			"client_id":"oidc-client-id",
 			"client_secret":"oidc-client-secret",
 			"scopes":["openid","profile","email"],
@@ -290,7 +264,7 @@ func TestAdminAuthProvidersPut_UpdatesOIDCProvider(t *testing.T) {
 	req.Host = "localhost:8090"
 	srv.Router().ServeHTTP(w, req)
 	testutil.Equal(t, http.StatusTemporaryRedirect, w.Code)
-	testutil.Contains(t, w.Header().Get("Location"), "https://idp.example.com/authorize")
+	testutil.Contains(t, w.Header().Get("Location"), issuerURL+"/authorize")
 }
 
 func TestAdminAuthProvidersPut_MicrosoftTenantAffectsRedirectURL(t *testing.T) {
@@ -369,14 +343,15 @@ func TestAdminAuthProvidersDelete_RemovesOIDCProvider(t *testing.T) {
 	t.Cleanup(func() {
 		auth.UnregisterOIDCProvider(providerName)
 	})
-	mockOIDCDiscovery(t, "https://idp.example.com")
+	discoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := discoveryServer.URL
 
 	srv, token := authProvidersServerWithAuth(t, nil)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/auth/providers/"+providerName,
 		strings.NewReader(`{
 			"enabled":true,
-			"issuer_url":"https://idp.example.com",
+			"issuer_url":"`+issuerURL+`",
 			"client_id":"oidc-client-id",
 			"client_secret":"oidc-client-secret"
 		}`))
@@ -419,35 +394,27 @@ func TestAdminAuthProvidersDelete_UnknownOIDCProviderReturnsNotFound(t *testing.
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func mockOIDCDiscovery(t *testing.T, issuerURL string) {
+func newMockOIDCDiscoveryServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	wellKnownURL := strings.TrimSuffix(issuerURL, "/") + "/.well-known/openid-configuration"
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != wellKnownURL {
-			return &http.Response{
-				StatusCode: http.StatusNotFound,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{}`)),
-			}, nil
+	var issuerURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-configuration" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{}`)
+			return
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header: http.Header{
-				"Content-Type": []string{"application/json"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{
-				"issuer":"` + issuerURL + `",
-				"authorization_endpoint":"` + issuerURL + `/authorize",
-				"token_endpoint":"` + issuerURL + `/token",
-				"userinfo_endpoint":"` + issuerURL + `/userinfo",
-				"jwks_uri":"` + issuerURL + `/jwks"
-			}`)),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"issuer":"`+issuerURL+`",
+			"authorization_endpoint":"`+issuerURL+`/authorize",
+			"token_endpoint":"`+issuerURL+`/token",
+			"userinfo_endpoint":"`+issuerURL+`/userinfo",
+			"jwks_uri":"`+issuerURL+`/jwks"
+		}`)
+	}))
+	issuerURL = server.URL
+	t.Cleanup(server.Close)
+	return server
 }
 
 // --- Test Connection Endpoint Tests ---
@@ -480,27 +447,18 @@ func TestAdminAuthProvidersTest_UnconfiguredProviderFails(t *testing.T) {
 }
 
 func TestAdminAuthProvidersTest_BuiltInProviderReachable(t *testing.T) {
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != "https://provider.test/authorize" {
-			return nil, errors.New("unexpected outbound URL: " + r.URL.String())
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("ok")),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, "/authorize", r.URL.Path)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer providerServer.Close()
 
 	// Override the provider URLs before constructing the server so the
 	// handler captures these URLs in its per-instance provider map.
 	auth.SetProviderURLs("google", auth.OAuthProviderConfig{
-		AuthURL:     "https://provider.test/authorize",
-		TokenURL:    "https://provider.test/token",
-		UserInfoURL: "https://provider.test/userinfo",
+		AuthURL:     providerServer.URL + "/authorize",
+		TokenURL:    providerServer.URL + "/token",
+		UserInfoURL: providerServer.URL + "/userinfo",
 		Scopes:      []string{"openid", "email"},
 	})
 	t.Cleanup(func() { auth.ResetProviderURLs("google") })
@@ -548,25 +506,16 @@ func TestAdminAuthProvidersTest_BuiltInProviderUnreachable(t *testing.T) {
 }
 
 func TestAdminAuthProvidersTest_BuiltInProviderHTTP404Fails(t *testing.T) {
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != "https://provider.test/authorize" {
-			return nil, errors.New("unexpected outbound URL: " + r.URL.String())
-		}
-		return &http.Response{
-			StatusCode: http.StatusNotFound,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("not found")),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, "/authorize", r.URL.Path)
+		http.NotFound(w, r)
+	}))
+	defer providerServer.Close()
 
 	auth.SetProviderURLs("google", auth.OAuthProviderConfig{
-		AuthURL:     "https://provider.test/authorize",
-		TokenURL:    "https://provider.test/token",
-		UserInfoURL: "https://provider.test/userinfo",
+		AuthURL:     providerServer.URL + "/authorize",
+		TokenURL:    providerServer.URL + "/token",
+		UserInfoURL: providerServer.URL + "/userinfo",
 		Scopes:      []string{"openid", "email"},
 	})
 	t.Cleanup(func() { auth.ResetProviderURLs("google") })
@@ -588,31 +537,17 @@ func TestAdminAuthProvidersTest_BuiltInProviderHTTP404Fails(t *testing.T) {
 }
 
 func TestAdminAuthProvidersTest_BuiltInProviderRedirectWithoutFollowSucceeds(t *testing.T) {
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		switch r.URL.String() {
-		case "https://provider.test/authorize":
-			return &http.Response{
-				StatusCode: http.StatusFound,
-				Header: http.Header{
-					"Location": []string{"http://127.0.0.1:1/will-never-connect"},
-				},
-				Body: io.NopCloser(strings.NewReader("")),
-			}, nil
-		case "http://127.0.0.1:1/will-never-connect":
-			return nil, errors.New("redirect follow attempted")
-		default:
-			return nil, errors.New("unexpected outbound URL: " + r.URL.String())
-		}
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, "/authorize", r.URL.Path)
+		w.Header().Set("Location", "http://127.0.0.1:1/will-never-connect")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer providerServer.Close()
 
 	auth.SetProviderURLs("google", auth.OAuthProviderConfig{
-		AuthURL:     "https://provider.test/authorize",
-		TokenURL:    "https://provider.test/token",
-		UserInfoURL: "https://provider.test/userinfo",
+		AuthURL:     providerServer.URL + "/authorize",
+		TokenURL:    providerServer.URL + "/token",
+		UserInfoURL: providerServer.URL + "/userinfo",
 		Scopes:      []string{"openid", "email"},
 	})
 	t.Cleanup(func() { auth.ResetProviderURLs("google") })
@@ -634,23 +569,18 @@ func TestAdminAuthProvidersTest_BuiltInProviderRedirectWithoutFollowSucceeds(t *
 
 func TestAdminAuthProvidersTest_BuiltInProviderUsesHandlerTenantURL(t *testing.T) {
 	var requestedURL string
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		requestedURL = r.URL.String()
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("ok")),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	var providerURL string
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedURL = providerURL + r.URL.Path
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer providerServer.Close()
+	providerURL = providerServer.URL
 
 	auth.SetProviderURLs("microsoft", auth.OAuthProviderConfig{
-		AuthURL:     "https://provider.test/{tenant}/authorize",
-		TokenURL:    "https://provider.test/{tenant}/token",
-		UserInfoURL: "https://provider.test/userinfo",
+		AuthURL:     providerURL + "/{tenant}/authorize",
+		TokenURL:    providerURL + "/{tenant}/token",
+		UserInfoURL: providerURL + "/userinfo",
 		Scopes:      []string{"openid", "profile", "email", "User.Read"},
 		TenantID:    "common",
 	})
@@ -674,14 +604,15 @@ func TestAdminAuthProvidersTest_BuiltInProviderUsesHandlerTenantURL(t *testing.T
 	var resp testProviderResponse
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	testutil.True(t, resp.Success)
-	testutil.Equal(t, "https://provider.test/contoso-tenant/authorize", requestedURL)
+	testutil.Equal(t, providerURL+"/contoso-tenant/authorize", requestedURL)
 }
 
 func TestAdminAuthProvidersTest_OIDCProviderDiscoverySucceeds(t *testing.T) {
 	providerName := "oidc_admin_test_connectivity"
 	auth.UnregisterOIDCProvider(providerName)
 	t.Cleanup(func() { auth.UnregisterOIDCProvider(providerName) })
-	mockOIDCDiscovery(t, "https://idp.test.example.com")
+	discoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := discoveryServer.URL
 
 	srv, token := authProvidersServerWithAuth(t, nil)
 
@@ -690,7 +621,7 @@ func TestAdminAuthProvidersTest_OIDCProviderDiscoverySucceeds(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/auth/providers/"+providerName,
 		strings.NewReader(`{
 			"enabled":true,
-			"issuer_url":"https://idp.test.example.com",
+			"issuer_url":"`+issuerURL+`",
 			"client_id":"oidc-test-id",
 			"client_secret":"oidc-test-secret"
 		}`))
@@ -716,9 +647,8 @@ func TestAdminAuthProvidersTest_OIDCProviderDiscoveryFailureIncludesError(t *tes
 	providerName := "oidc_admin_test_connectivity_fail"
 	auth.UnregisterOIDCProvider(providerName)
 	t.Cleanup(func() { auth.UnregisterOIDCProvider(providerName) })
-	issuerURL := "https://idp.fail.example.com"
-	wellKnownURL := issuerURL + "/.well-known/openid-configuration"
-	mockOIDCDiscovery(t, issuerURL)
+	discoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := discoveryServer.URL
 
 	srv, token := authProvidersServerWithAuth(t, nil)
 
@@ -737,20 +667,7 @@ func TestAdminAuthProvidersTest_OIDCProviderDiscoveryFailureIncludesError(t *tes
 	testutil.Equal(t, http.StatusOK, w.Code)
 
 	// Now force discovery failure during provider test.
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() == wellKnownURL {
-			return nil, errors.New("discovery timeout")
-		}
-		return &http.Response{
-			StatusCode: http.StatusNotFound,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{}`)),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	discoveryServer.Close()
 
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/admin/auth/providers/"+providerName+"/test", nil)
@@ -763,13 +680,11 @@ func TestAdminAuthProvidersTest_OIDCProviderDiscoveryFailureIncludesError(t *tes
 	testutil.False(t, resp.Success, "OIDC provider with failed discovery should fail")
 	testutil.Equal(t, providerName, resp.Provider)
 	testutil.Contains(t, resp.Error, "OIDC discovery failed")
-	testutil.Contains(t, resp.Error, "discovery timeout")
+	testutil.Contains(t, resp.Error, "connect")
 }
 
 func TestRegisterAuthRoutes_OIDCRegistrationFailureClearsStaleProviderState(t *testing.T) {
 	providerName := "oidc_startup_register_failure"
-	issuerURL := "https://idp.startup-fail.example.com"
-	wellKnownURL := issuerURL + "/.well-known/openid-configuration"
 
 	auth.UnregisterOIDCProvider(providerName)
 	t.Cleanup(func() { auth.UnregisterOIDCProvider(providerName) })
@@ -782,21 +697,9 @@ func TestRegisterAuthRoutes_OIDCRegistrationFailureClearsStaleProviderState(t *t
 		UserInfoURL: "https://stale.example.com/userinfo",
 		Scopes:      []string{"openid", "email"},
 	})
-
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() == wellKnownURL {
-			return nil, errors.New("discovery timeout")
-		}
-		return &http.Response{
-			StatusCode: http.StatusNotFound,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{}`)),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	failedDiscoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := failedDiscoveryServer.URL
+	failedDiscoveryServer.Close()
 
 	cfg := config.Default()
 	cfg.Admin.Password = "admin-pass"

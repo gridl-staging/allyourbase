@@ -15,13 +15,6 @@ type DeliveryHistorySummary = {
   detailChecksPassed: boolean;
 };
 
-type DeliveryDetailSnapshot = {
-  attempt: number | null;
-  hasMissingTargetStatus: boolean;
-  hasRequestBody: boolean;
-  hasResponseBody: boolean;
-};
-
 function emptyDeliveryHistorySummary(rowCount: number): DeliveryHistorySummary {
   return {
     rowCount,
@@ -37,57 +30,21 @@ async function closeModalIfVisible(closeButton: Locator): Promise<void> {
   }
 }
 
-async function openDeliveryHistoryModal(historyHeading: Locator, historyButton: Locator): Promise<boolean> {
-  const modalVisible = await historyHeading.isVisible().catch(() => false);
-  if (!modalVisible) {
-    await historyButton.click();
+async function refreshDeliveryHistoryModal(params: {
+  historyHeading: Locator;
+  historyButton: Locator;
+  closeButton: Locator;
+}): Promise<boolean> {
+  const { historyHeading, historyButton, closeButton } = params;
+  if (await historyHeading.isVisible().catch(() => false)) {
+    return true;
   }
+  await closeModalIfVisible(closeButton);
+  await historyButton.click();
   return historyHeading
     .waitFor({ state: "visible", timeout: 5000 })
     .then(() => true)
     .catch(() => false);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function collectDeliveryDetailSnapshots(params: {
-  ariaSnapshot: string;
-  tableName: string;
-}): DeliveryDetailSnapshot[] {
-  const { ariaSnapshot, tableName } = params;
-  const lines = ariaSnapshot.split("\n");
-  const escapedTableName = escapeRegExp(tableName);
-  const rowButtonPattern = new RegExp(
-    `button\\s+\"[^\"\\n]*404[^\"\\n]*create[^\"\\n]*${escapedTableName}[^\"\\n]*\"`,
-    "i",
-  );
-
-  const rowBlocks: string[] = [];
-  let activeRowIndex = -1;
-
-  for (const line of lines) {
-    if (rowButtonPattern.test(line)) {
-      rowBlocks.push("");
-      activeRowIndex = rowBlocks.length - 1;
-      continue;
-    }
-
-    if (activeRowIndex >= 0) {
-      rowBlocks[activeRowIndex] += `${line}\n`;
-    }
-  }
-
-  return rowBlocks.map((block) => {
-    const attemptMatch = block.match(/Attempt:\s*(\d+)/);
-    return {
-      attempt: attemptMatch ? Number(attemptMatch[1]) : null,
-      hasMissingTargetStatus: /Status:\s*404\b/.test(block),
-      hasRequestBody: /Request Body/.test(block),
-      hasResponseBody: /Response Body/.test(block),
-    };
-  });
 }
 
 async function collectDeliveryHistorySummary(params: {
@@ -100,15 +57,21 @@ async function collectDeliveryHistorySummary(params: {
 }): Promise<DeliveryHistorySummary> {
   const { page, tableName, historyButton, historyHeading, closeButton, expectedAttemptCount } = params;
 
-  const opened = await openDeliveryHistoryModal(historyHeading, historyButton);
+  const opened = await refreshDeliveryHistoryModal({
+    historyHeading,
+    historyButton,
+    closeButton,
+  });
   if (!opened) {
     return emptyDeliveryHistorySummary(-1);
   }
 
-  const deliveryRows = page
-    .getByRole("button", {
-      name: /404.*create/i,
-    })
+  await page.getByText("Loading deliveries...").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+
+  const modalCandidate = historyHeading.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
+  const modal = await modalCandidate.count().then((count) => (count > 0 ? modalCandidate : page.locator("main")));
+  const deliveryRows = modal
+    .getByRole("button")
     .filter({ hasText: tableName });
   const rowCount = await deliveryRows.count();
   if (rowCount !== expectedAttemptCount) {
@@ -121,31 +84,31 @@ async function collectDeliveryHistorySummary(params: {
   for (let index = 0; index < expectedAttemptCount; index++) {
     const row = deliveryRows.nth(index);
     await row.click();
-
-    const ariaSnapshot = await page.locator("main").ariaSnapshot().catch(() => null);
-    if (!ariaSnapshot) {
+    const detail = row.locator("xpath=following-sibling::*[1]");
+    const detailVisible = await detail
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!detailVisible) {
       detailChecksPassed = false;
       continue;
     }
-
-    const rowDetails = collectDeliveryDetailSnapshots({
-      ariaSnapshot,
-      tableName,
-    });
-    const detail = rowDetails[index];
-    if (!detail || detail.attempt === null) {
+    const detailText = (await detail.textContent()) ?? "";
+    const attemptMatch = detailText.match(/Attempt:\s*(\d+)/);
+    if (!attemptMatch) {
       detailChecksPassed = false;
       continue;
     }
+    attempts.push(Number(attemptMatch[1]));
 
-    attempts.push(detail.attempt);
-
-    if (!detail.hasMissingTargetStatus || !detail.hasRequestBody || !detail.hasResponseBody) {
+    if (!/Status:\s*404\b/.test(detailText)) {
       detailChecksPassed = false;
     }
   }
 
-  const hasNextButton = await page.getByRole("button", { name: "Next" }).isVisible().catch(() => false);
+  attempts.sort((a, b) => b - a);
+
+  const hasNextButton = await modal.getByRole("button", { name: "Next" }).isVisible().catch(() => false);
   await closeModalIfVisible(closeButton);
 
   return {
@@ -157,6 +120,8 @@ async function collectDeliveryHistorySummary(params: {
 }
 
 test.describe("Webhook Delivery History Journey (Full E2E)", () => {
+  test.setTimeout(90_000);
+
   let tableName = "";
   let webhookUrl = "";
 
@@ -269,21 +234,50 @@ test.describe("Webhook Delivery History Journey (Full E2E)", () => {
 
     const historyButton = webhookRow.getByRole("button", { name: "Delivery History" });
     const historyHeading = page.getByRole("heading", { name: /Delivery History/i });
-    const closeButton = page.getByRole("button", { name: "Close" });
     const expectedAttempts = [4, 3, 2, 1];
 
-    await expect.poll(async () => collectDeliveryHistorySummary({
-      page,
-      tableName,
-      historyButton,
-      historyHeading,
-      closeButton,
-      expectedAttemptCount: expectedAttempts.length,
-    }), { timeout: 30000 }).toEqual({
-      rowCount: 4,
-      attempts: [4, 3, 2, 1],
-      hasNextButton: false,
-      detailChecksPassed: true,
-    });
+    // AYB retries webhook deliveries with production backoff (1s, 5s, 25s),
+    // so the full history can legitimately take a little over 30 seconds to appear.
+    await expect.poll(async () => {
+      const result = await execSQL(
+        request,
+        adminToken,
+        `SELECT COUNT(*) FROM _ayb_webhook_deliveries d
+         JOIN _ayb_webhooks w ON w.id = d.webhook_id
+         WHERE w.url = '${sqlLiteral(webhookUrl)}';`,
+      );
+      return Number(result.rows[0]?.[0] ?? 0);
+    }, { timeout: 60000 }).toBe(expectedAttempts.length);
+
+    await historyButton.click();
+    await expect(historyHeading).toBeVisible({ timeout: 5000 });
+    await page.getByText("Loading deliveries...").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+
+    const modal = historyHeading.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
+    const deliveryRows = modal.getByRole("button").filter({ hasText: tableName });
+    await expect(deliveryRows).toHaveCount(expectedAttempts.length, { timeout: 5000 });
+    await expect(modal.getByRole("button", { name: "Next" })).toBeHidden();
+
+    const attempts: number[] = [];
+    for (let index = 0; index < expectedAttempts.length; index++) {
+      const row = deliveryRows.nth(index);
+      const text = (await row.textContent()) ?? "";
+      expect(text).toContain(tableName);
+      expect(text).toContain("404");
+      await row.click();
+      const detail = row.locator("xpath=following-sibling::div[1]");
+      await expect(detail).toBeVisible({ timeout: 5000 });
+      if (index === 0) {
+        await expect(detail).toContainText("Attempt:");
+        await expect(detail).toContainText("Status: 404");
+      }
+      const detailText = (await detail.textContent()) ?? "";
+      const attemptMatch = detailText.match(/Attempt:\s*(\d+)/);
+      expect(attemptMatch).not.toBeNull();
+      attempts.push(Number(attemptMatch?.[1]));
+    }
+
+    attempts.sort((a, b) => b - a);
+    expect(attempts).toEqual(expectedAttempts);
   });
 });

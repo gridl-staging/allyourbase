@@ -138,7 +138,10 @@ test.describe("Auth MFA Lifecycle (Full E2E)", () => {
     // ── Step 6: Email MFA enrollment ──
     await test.step("MFA Management: enroll email MFA", async () => {
       await page.getByRole("button", { name: /Set Up Email MFA/i }).click();
-      await expect(page.getByText("Verification code sent to your email")).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole("heading", { name: /Confirm Email MFA/i })).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(page.getByTestId("email-mfa-confirm-code")).toBeVisible();
 
       // Override the email challenge code in the database with a known value
       const knownCode = "123456";

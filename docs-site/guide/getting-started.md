@@ -55,7 +55,7 @@ ayb start
 
 The first run may take longer because AYB downloads and prepares a managed PostgreSQL binary.
 
-Managed PostgreSQL is the zero-config path. If you need extension-backed features such as `pgvector`, `pg_cron`, or PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes those extensions.
+Managed PostgreSQL is the zero-config path. If you need extensions beyond the managed build's default set, such as PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes them.
 
 If `admin.password` is not set, startup generates a random admin password and prints:
 

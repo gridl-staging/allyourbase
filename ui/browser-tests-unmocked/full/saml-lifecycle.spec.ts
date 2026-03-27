@@ -57,9 +57,14 @@ test.describe("SAML Provider Lifecycle (Full E2E)", () => {
     // Create new SAML provider via UI
     await page.getByRole("button", { name: /Add Provider/i }).click();
 
+    const createdMetadataXML = `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${createdEntityId}">
+  <IDPSSODescriptor>
+    <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/${createdName}/sso"/>
+  </IDPSSODescriptor>
+</EntityDescriptor>`;
     await page.getByLabel("Name").fill(createdName);
     await page.getByLabel("Entity ID").fill(createdEntityId);
-    await page.getByLabel("Metadata URL").fill(`https://idp.example.com/${createdName}/metadata`);
+    await page.getByLabel("Metadata XML").fill(createdMetadataXML);
     await page.getByRole("button", { name: /^Create$/i }).click();
     providerNames.push(createdName);
 

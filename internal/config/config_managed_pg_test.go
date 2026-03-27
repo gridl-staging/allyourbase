@@ -36,6 +36,11 @@ func assertEffectiveExtensions(t *testing.T, cfg ManagedPGConfig, want ...string
 	assertStringSlice(t, cfg.EffectiveExtensions(), want...)
 }
 
+func assertEffectiveSharedPreloadLibraries(t *testing.T, cfg ManagedPGConfig, want ...string) {
+	t.Helper()
+	assertStringSlice(t, cfg.EffectiveSharedPreloadLibraries(), want...)
+}
+
 func TestManagedPGDefaults(t *testing.T) {
 	t.Parallel()
 	cfg := Default()
@@ -161,4 +166,31 @@ extensions = ["pgvector"]
 	cfg := parseConfigFromTOML(t, toml)
 	testutil.True(t, cfg.ManagedPG.PostGIS, "PostGIS toggle should be true from TOML")
 	assertEffectiveExtensions(t, cfg.ManagedPG, "postgis", "pgvector")
+}
+
+func TestEffectiveSharedPreloadLibrariesAddsPgCron(t *testing.T) {
+	t.Parallel()
+	cfg := ManagedPGConfig{
+		Extensions:             []string{"pgvector", "pg_cron"},
+		SharedPreloadLibraries: []string{"pg_stat_statements"},
+	}
+	assertEffectiveSharedPreloadLibraries(t, cfg, "pg_stat_statements", "pg_cron")
+}
+
+func TestEffectiveSharedPreloadLibrariesDoesNotDuplicatePgCron(t *testing.T) {
+	t.Parallel()
+	cfg := ManagedPGConfig{
+		Extensions:             []string{"pg_cron"},
+		SharedPreloadLibraries: []string{"pg_stat_statements", "pg_cron"},
+	}
+	assertEffectiveSharedPreloadLibraries(t, cfg, "pg_stat_statements", "pg_cron")
+}
+
+func TestEffectiveSharedPreloadLibrariesLeavesDefaultsWhenCronDisabled(t *testing.T) {
+	t.Parallel()
+	cfg := ManagedPGConfig{
+		Extensions:             []string{"pgvector", "pg_trgm"},
+		SharedPreloadLibraries: []string{"pg_stat_statements"},
+	}
+	assertEffectiveSharedPreloadLibraries(t, cfg, "pg_stat_statements")
 }

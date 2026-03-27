@@ -3,6 +3,7 @@ package emailtemplates
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -427,24 +428,50 @@ func TestDefaultBuiltins(t *testing.T) {
 
 	builtins := DefaultBuiltins()
 
-	// Must have all three system template keys.
-	expectedKeys := []string{"auth.password_reset", "auth.email_verification", "auth.magic_link"}
-	for _, key := range expectedKeys {
+	expectedBuiltins := map[string]struct {
+		subject       string
+		requiredVars  []string
+		forbiddenVars []string
+	}{
+		"auth.password_reset": {
+			subject:      "Reset your password",
+			requiredVars: []string{"AppName", "ActionURL"},
+		},
+		"auth.email_verification": {
+			subject:      "Verify your email",
+			requiredVars: []string{"AppName", "ActionURL"},
+		},
+		"auth.magic_link": {
+			subject:      "Your login link",
+			requiredVars: []string{"AppName", "ActionURL"},
+		},
+		"auth.mfa_email_enroll": {
+			subject:       "Verify your email MFA enrollment",
+			requiredVars:  []string{"AppName", "Code"},
+			forbiddenVars: []string{"ActionURL"},
+		},
+		"auth.mfa_email_challenge": {
+			subject:       "Your verification code",
+			requiredVars:  []string{"AppName", "Code"},
+			forbiddenVars: []string{"ActionURL"},
+		},
+	}
+	for key, expected := range expectedBuiltins {
 		b, ok := builtins[key]
 		testutil.True(t, ok, "DefaultBuiltins should contain %q", key)
 		testutil.True(t, b.SubjectTemplate != "", "SubjectTemplate for %q should not be empty", key)
 		testutil.True(t, b.HTMLTemplate != "", "HTMLTemplate for %q should not be empty", key)
-		testutil.True(t, len(b.Variables) == 2, "Variables for %q should have 2 items (AppName, ActionURL), got %d", key, len(b.Variables))
-		testutil.True(t, b.Variables[0] == "AppName" || b.Variables[1] == "AppName",
-			"Variables for %q should contain AppName", key)
-		testutil.True(t, b.Variables[0] == "ActionURL" || b.Variables[1] == "ActionURL",
-			"Variables for %q should contain ActionURL", key)
+		testutil.Equal(t, expected.subject, b.SubjectTemplate)
+		testutil.Equal(t, len(expected.requiredVars), len(b.Variables))
+		for _, variable := range expected.requiredVars {
+			testutil.True(t, slices.Contains(b.Variables, variable),
+				"Variables for %q should contain %q", key, variable)
+		}
+		for _, variable := range expected.forbiddenVars {
+			testutil.True(t, !slices.Contains(b.Variables, variable),
+				"Variables for %q should not contain %q", key, variable)
+		}
 	}
-
-	// Verify subjects match mailer defaults.
-	testutil.Equal(t, "Reset your password", builtins["auth.password_reset"].SubjectTemplate)
-	testutil.Equal(t, "Verify your email", builtins["auth.email_verification"].SubjectTemplate)
-	testutil.Equal(t, "Your login link", builtins["auth.magic_link"].SubjectTemplate)
 
 	// Templates should be parseable.
 	for key, b := range builtins {
@@ -456,15 +483,41 @@ func TestDefaultBuiltins(t *testing.T) {
 
 	// Templates should render with system variables.
 	ctx := context.Background()
-	vars := map[string]string{"AppName": "TestApp", "ActionURL": "https://example.com/action"}
+	renderVars := map[string]map[string]string{
+		"auth.password_reset": {
+			"AppName":   "TestApp",
+			"ActionURL": "https://example.com/action",
+		},
+		"auth.email_verification": {
+			"AppName":   "TestApp",
+			"ActionURL": "https://example.com/action",
+		},
+		"auth.magic_link": {
+			"AppName":   "TestApp",
+			"ActionURL": "https://example.com/action",
+		},
+		"auth.mfa_email_enroll": {
+			"AppName": "TestApp",
+			"Code":    "123456",
+		},
+		"auth.mfa_email_challenge": {
+			"AppName": "TestApp",
+			"Code":    "654321",
+		},
+	}
 	for key, b := range builtins {
-		rendered, err := renderTemplates(ctx, key, b.SubjectTemplate, b.HTMLTemplate, vars)
+		rendered, err := renderTemplates(ctx, key, b.SubjectTemplate, b.HTMLTemplate, renderVars[key])
 		testutil.NoError(t, err)
 		testutil.True(t, rendered.Subject != "", "rendered subject for %q should not be empty", key)
 		testutil.True(t, strings.Contains(rendered.HTML, "TestApp"),
 			"rendered HTML for %q should contain AppName", key)
-		testutil.True(t, strings.Contains(rendered.HTML, "https://example.com/action"),
-			"rendered HTML for %q should contain ActionURL", key)
+		if strings.Contains(key, "mfa_email") {
+			testutil.True(t, strings.Contains(rendered.HTML, renderVars[key]["Code"]),
+				"rendered HTML for %q should contain Code", key)
+		} else {
+			testutil.True(t, strings.Contains(rendered.HTML, "https://example.com/action"),
+				"rendered HTML for %q should contain ActionURL", key)
+		}
 	}
 }
 

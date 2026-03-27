@@ -143,7 +143,9 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
     await openTenantsPage(page);
     await page.getByRole("button", { name: new RegExp(tenantSlug, "i") }).click();
     await expect(page.getByRole("heading", { name: tenantName })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole("button", { name: "Suspend" })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Suspend", exact: true })).toBeVisible({
+      timeout: 5000,
+    });
 
     await page.getByLabel("Tenant Name").fill(updatedTenantName);
     await page.getByRole("button", { name: "Save Info" }).click();
@@ -157,13 +159,17 @@ test.describe("Tenants Lifecycle (Full E2E)", () => {
     expect(updatedTenantResult.rows[0]?.[0]).toBe(updatedTenantName);
     expect(updatedTenantResult.rows[0]?.[1]).toBe("active");
 
-    await page.getByRole("button", { name: "Suspend" }).click();
-    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible({ timeout: 5000 });
+    await page.getByRole("button", { name: "Suspend", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible({
+      timeout: 5000,
+    });
 
-    await page.getByRole("button", { name: "Resume" }).click();
-    await expect(page.getByRole("button", { name: "Suspend" })).toBeVisible({ timeout: 5000 });
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Suspend", exact: true })).toBeVisible({
+      timeout: 5000,
+    });
 
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
 
     const deletedTenantResult = await execSQL(
       request,

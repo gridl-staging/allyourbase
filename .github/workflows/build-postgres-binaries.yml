@@ -65,7 +65,7 @@ jobs:
       - name: Install build dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install openssl libxml2 ossp-uuid readline xz
+          brew install openssl libxml2 readline xz
 
       - name: Build Postgres binaries
         run: |
@@ -95,7 +95,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist/pg-binaries
-          merge-multiple: true
 
       - name: Set PG version from tag
         id: version
@@ -104,7 +103,7 @@ jobs:
       - name: Merge SHA256SUMS
         run: |
           cd dist/pg-binaries
-          cat SHA256SUMS* 2>/dev/null | sort -u > SHA256SUMS_merged
+          find . -type f -name SHA256SUMS -print0 | xargs -0 cat | sort -u > SHA256SUMS_merged
           mv SHA256SUMS_merged SHA256SUMS
 
       - name: Create Release
@@ -117,5 +116,5 @@ jobs:
 
             **Platforms:** linux-amd64, linux-arm64, darwin-amd64, darwin-arm64
           files: |
-            dist/pg-binaries/ayb-postgres-*.tar.xz
+            dist/pg-binaries/**/ayb-postgres-*.tar.xz
             dist/pg-binaries/SHA256SUMS

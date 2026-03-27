@@ -88,16 +88,20 @@ type BuiltinTemplate struct {
 // the email template service.
 func DefaultBuiltins() map[string]BuiltinTemplate {
 	systemVars := []string{"AppName", "ActionURL"}
-	builtins := make(map[string]BuiltinTemplate, 3)
+	mfaVars := []string{"AppName", "Code"}
+	builtins := make(map[string]BuiltinTemplate, 5)
 
 	keys := []struct {
 		key     string
 		subject string
 		file    string
+		vars    []string
 	}{
-		{"auth.password_reset", mailer.DefaultPasswordResetSubject, "password_reset.html"},
-		{"auth.email_verification", mailer.DefaultVerificationSubject, "verification.html"},
-		{"auth.magic_link", mailer.DefaultMagicLinkSubject, "magic_link.html"},
+		{"auth.password_reset", mailer.DefaultPasswordResetSubject, "password_reset.html", systemVars},
+		{"auth.email_verification", mailer.DefaultVerificationSubject, "verification.html", systemVars},
+		{"auth.magic_link", mailer.DefaultMagicLinkSubject, "magic_link.html", systemVars},
+		{"auth.mfa_email_enroll", mailer.DefaultMFAEmailEnrollSubject, "mfa_email_enroll.html", mfaVars},
+		{"auth.mfa_email_challenge", mailer.DefaultMFAEmailChallengeSubject, "mfa_email_challenge.html", mfaVars},
 	}
 	for _, k := range keys {
 		html, err := mailer.BuiltinHTMLTemplate(k.file)
@@ -108,7 +112,7 @@ func DefaultBuiltins() map[string]BuiltinTemplate {
 		builtins[k.key] = BuiltinTemplate{
 			SubjectTemplate: k.subject,
 			HTMLTemplate:    html,
-			Variables:       systemVars,
+			Variables:       k.vars,
 		}
 	}
 	return builtins

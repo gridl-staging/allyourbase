@@ -187,10 +187,11 @@ func TestBranchAdminAPI_CreateConflict(t *testing.T) {
 
 	testutil.StatusCode(t, http.StatusConflict, resp2.StatusCode)
 
-	var errBody map[string]any
+	var errBody struct {
+		Message string `json:"message"`
+	}
 	testutil.NoError(t, json.NewDecoder(resp2.Body).Decode(&errBody))
-	errMsg, _ := errBody["error"].(string)
-	testutil.Contains(t, errMsg, "already exists")
+	testutil.Contains(t, errBody.Message, "already exists")
 
 	// Cleanup.
 	req3 := adminRequest(t, http.MethodDelete, ts.URL+"/api/admin/branches/"+name, token, nil)

@@ -27,6 +27,9 @@ func writePostgresConf(dataDir string, port uint32, runtimeDir string, sharedPre
 	if len(sharedPreloadLibraries) > 0 {
 		fmt.Fprintf(&buf, "shared_preload_libraries = '%s'\n", strings.Join(sharedPreloadLibraries, ","))
 	}
+	if managedExtensionNameListContains(sharedPreloadLibraries, "pg_cron") {
+		fmt.Fprintf(&buf, "cron.database_name = '%s'\n", dbName)
+	}
 
 	fmt.Fprintf(&buf, "unix_socket_directories = '%s'\n", runtimeDir)
 	buf.WriteString("logging_collector = off\n")
@@ -173,7 +176,8 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 	}
 
 	for _, ext := range extensions {
-		if !available[ext] {
+		dbExt := managedExtensionName(ext)
+		if !available[dbExt] {
 			logger.Warn("extension not available in this PostgreSQL installation — "+
 				"connect to an external PostgreSQL with the extension installed, "+
 				"or verify the managed PG build includes it",
@@ -181,7 +185,7 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 			continue
 		}
 		// Extension names are from our config, not user input, so safe to interpolate.
-		_, err := db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS "+sqlutil.QuoteIdent(ext))
+		_, err := db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS "+sqlutil.QuoteIdent(dbExt))
 		if err != nil {
 			return fmt.Errorf("creating extension %s: %w", ext, err)
 		}
@@ -189,4 +193,22 @@ func initExtensions(ctx context.Context, connURL string, extensions []string, lo
 	}
 
 	return nil
+}
+
+func managedExtensionName(ext string) string {
+	switch strings.TrimSpace(strings.ToLower(ext)) {
+	case "pgvector", "vector":
+		return "vector"
+	default:
+		return strings.TrimSpace(ext)
+	}
+}
+
+func managedExtensionNameListContains(values []string, want string) bool {
+	for _, value := range values {
+		if managedExtensionName(value) == want {
+			return true
+		}
+	}
+	return false
 }

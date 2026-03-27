@@ -25,7 +25,7 @@ The admin dashboard is at http://localhost:8090/admin — SQL editor, API explor
 
 On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
 
-Managed PostgreSQL is the zero-config path. If you need extension-backed features such as `pgvector`, `pg_cron`, or PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes those extensions.
+Managed PostgreSQL is the zero-config path. If you need extensions beyond the managed build's default set, such as PostGIS, use an external PostgreSQL instance unless your managed PostgreSQL build explicitly includes them.
 
 Two demos ship in [`/examples`](examples/):
 

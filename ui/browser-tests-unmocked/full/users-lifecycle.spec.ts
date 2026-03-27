@@ -49,7 +49,7 @@ test.describe("Users Lifecycle (Full E2E)", () => {
     // Search for the seeded user
     const searchInput = page.getByPlaceholder("Search by email...");
     await searchInput.fill(seededEmail);
-    await page.getByRole("button", { name: /Search/i }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
 
     const seededRow = page.getByRole("row", { name: new RegExp(seededEmail) }).first();
     await expect(seededRow).toBeVisible({ timeout: 5000 });
@@ -57,7 +57,7 @@ test.describe("Users Lifecycle (Full E2E)", () => {
     // Clear search and find the deletable user
     await searchInput.clear();
     await searchInput.fill(deletableEmail);
-    await page.getByRole("button", { name: /Search/i }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
 
     const deletableRow = page.getByRole("row", { name: new RegExp(deletableEmail) }).first();
     await expect(deletableRow).toBeVisible({ timeout: 5000 });

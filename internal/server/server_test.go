@@ -267,33 +267,8 @@ func TestOAuthRedirectUsesConfiguredOIDCProvider(t *testing.T) {
 		auth.UnregisterOIDCProvider(providerName)
 	})
 
-	const issuerURL = "https://idp.example.com"
-	prevTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != issuerURL+"/.well-known/openid-configuration" {
-			return &http.Response{
-				StatusCode: http.StatusNotFound,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{}`)),
-			}, nil
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header: http.Header{
-				"Content-Type": []string{"application/json"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{
-				"issuer":"https://idp.example.com",
-				"authorization_endpoint":"https://idp.example.com/authorize",
-				"token_endpoint":"https://idp.example.com/token",
-				"userinfo_endpoint":"https://idp.example.com/userinfo",
-				"jwks_uri":"https://idp.example.com/jwks"
-			}`)),
-		}, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = prevTransport
-	})
+	discoveryServer := newMockOIDCDiscoveryServer(t)
+	issuerURL := discoveryServer.URL
 
 	cfg := config.Default()
 	cfg.Auth.Enabled = true
