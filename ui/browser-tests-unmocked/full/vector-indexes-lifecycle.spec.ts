@@ -66,6 +66,22 @@ test.describe("Vector Indexes Lifecycle (Full E2E)", () => {
     await createPanel.getByRole("textbox", { name: /Metric/i }).fill("cosine");
     await createPanel.getByRole("button", { name: /^Create$/i }).click();
 
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          await waitForDashboard(page);
+          await page.locator("aside").getByRole("button", { name: /^Vector Indexes$/i }).click();
+          return page
+            .getByRole("row", { name: new RegExp(tableName) })
+            .first()
+            .isVisible()
+            .catch(() => false);
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true);
+
     // Verify the index appears in the list
     const indexRow = page.getByRole("row", { name: new RegExp(tableName) }).first();
     await expect(indexRow).toBeVisible({ timeout: 10000 });

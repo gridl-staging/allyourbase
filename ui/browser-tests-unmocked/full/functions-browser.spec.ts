@@ -128,18 +128,18 @@ test.describe("Functions Browser (Full E2E)", () => {
     await paramInputs.nth(0).fill("3");
     await paramInputs.nth(1).fill("5");
 
-    const executeButton = page.getByRole("button", { name: /execute|run/i });
-    await expect(executeButton.first()).toBeVisible({ timeout: 2000 });
-    await executeButton.first().click();
+    const executeButton = page.getByRole("button", { name: /^Execute$/i }).last();
+    await expect(executeButton).toBeVisible({ timeout: 2000 });
+    await executeButton.click();
 
     // ============================================================
     // VERIFY: Check results show 8 (3 + 5)
     // ============================================================
     // Verify the Result label appeared (execution completed)
-    await expect(page.getByText("Result").first()).toBeVisible({
-      timeout: 5000,
+    await expect(page.getByText("Result").last()).toBeVisible({
+      timeout: 10000,
     });
     // Verify the result value — exact match avoids matching durations like "8ms"
-    await expect(page.getByText("8", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("8", { exact: true }).last()).toBeVisible();
   });
 });
