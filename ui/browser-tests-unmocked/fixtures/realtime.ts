@@ -1,5 +1,5 @@
 /**
- * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_6_test_verification_and_lint/allyourbase_dev/ui/browser-tests-unmocked/fixtures/realtime.ts.
+ * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar26_pm_1_managed_pg_release_and_staging_promotion/allyourbase_dev/ui/browser-tests-unmocked/fixtures/realtime.ts.
  */
 import type { Page } from "@playwright/test";
 
@@ -192,6 +192,9 @@ function buildRealtimeWsUrl(currentPageUrl: string, token: string): string {
   return wsURL.toString();
 }
 
+/**
+ * TODO: Document openRealtimeWsSubscription.
+ */
 async function openRealtimeWsSubscription(
   page: Page,
   currentPageUrl: string,
@@ -246,6 +249,9 @@ async function openRealtimeWsSubscription(
   return handle;
 }
 
+/**
+ * TODO: Document closeRealtimeWsSubscription.
+ */
 async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<void> {
   await page.evaluate(async (evaluateHandle) => {
     const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
@@ -287,6 +293,9 @@ async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<
   }, handle);
 }
 
+/**
+ * TODO: Document withRealtimeWsSubscription.
+ */
 export async function withRealtimeWsSubscription<T>(
   page: Page,
   currentPageUrl: string,

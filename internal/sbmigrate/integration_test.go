@@ -890,7 +890,6 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
 	defer targetDB.Close()
 
 	_, err = sourceDB.Exec(`
-		CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 		CREATE SCHEMA auth;
 		CREATE TABLE auth.users (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -902,9 +901,17 @@ func TestE2E_SchemaMigrationSkipsIncompatibleFKChain(t *testing.T) {
 			deleted_at TIMESTAMPTZ,
 			is_anonymous BOOLEAN DEFAULT false
 		);
+		CREATE FUNCTION legacy_parent_source_only_uuid()
+		RETURNS UUID
+		LANGUAGE SQL
+		AS $$
+			SELECT gen_random_uuid();
+		$$;
 
+		-- Intentionally uses gen_random_uuid() so this FK-skip fixture avoids optional uuid-ossp setup.
 		CREATE TABLE legacy_parent (
-			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			source_only_marker UUID NOT NULL DEFAULT legacy_parent_source_only_uuid(),
 			name TEXT NOT NULL
 		);
 		CREATE TABLE legacy_child (

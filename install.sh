@@ -122,6 +122,36 @@ download() {
   fi
 }
 
+# Returns recent release JSON for the configured repo.
+fetch_releases_json() {
+  api_url="https://api.github.com/repos/${REPO}/releases?per_page=20"
+
+  if [ "$downloader" = "curl" ]; then
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+      curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api_url"
+    else
+      curl -fsSL "$api_url"
+    fi
+  else
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+      wget -qO- --header="Authorization: token ${GITHUB_TOKEN}" "$api_url"
+    else
+      wget -qO- "$api_url"
+    fi
+  fi
+}
+
+# Returns the latest AYB app-release tag. Auxiliary repo releases such as
+# managed-Postgres `pg-*` tags must not be treated as installer targets.
+latest_app_release_tag() {
+  releases_json=$(fetch_releases_json)
+  printf '%s\n' "$releases_json" \
+    | grep '"tag_name"' \
+    | sed 's/.*"tag_name": *"//;s/".*//' \
+    | grep '^v[0-9]' \
+    | head -1
+}
+
 # ── Version Resolution ───────────────────────────────────────────────────────
 
 # TODO: Document get_version.
@@ -137,25 +167,11 @@ get_version() {
     return
   fi
 
-  info "Fetching latest release version..."
-  api_url="https://api.github.com/repos/${REPO}/releases/latest"
-
-  if [ "$downloader" = "curl" ]; then
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-      version=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-    else
-      version=$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-    fi
-  else
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-      version=$(wget -qO- --header="Authorization: token ${GITHUB_TOKEN}" "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-    else
-      version=$(wget -qO- "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-    fi
-  fi
+  info "Fetching latest AYB release version..."
+  version=$(latest_app_release_tag)
 
   if [ -z "$version" ]; then
-    error "Could not determine latest version. Check https://github.com/${REPO}/releases"
+    error "Could not determine latest AYB release version. Check https://github.com/${REPO}/releases"
     error "You can also specify a version: curl ... | sh -s -- v0.1.0"
     exit 1
   fi

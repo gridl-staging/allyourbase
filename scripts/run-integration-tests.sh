@@ -54,7 +54,9 @@ if ((${#regular_packages[@]} > 0)); then
 fi
 
 for pkg in "${SPECIAL_PACKAGES[@]}"; do
-  # These packages have historically been more sensitive to shared test state,
-  # so keep their internal subtests serialized too.
-  go run ./internal/testutil/cmd/testpg -- "${SPECIAL_ARGS[@]}" "$pkg"
+  # These packages have large unit-test bodies that already run during make test.
+  # During the integration phase we run only integration-tagged Test* functions
+  # so we do not re-run unrelated unit coverage in the same package process.
+  go run ./internal/testutil/cmd/testpg -- \
+    bash scripts/run-package-integration-tests.sh "$pkg" -- "${SPECIAL_ARGS[@]:2}"
 done

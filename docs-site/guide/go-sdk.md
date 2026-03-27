@@ -5,7 +5,13 @@ Use `sdk_go` for idiomatic Go access to AYB auth, records, storage, and edge fun
 
 ## Install
 
+Public `go get` is not available yet because the canonical public module path is still being finalized. Until that publish path is settled, use a local checkout of the public repo and point your app's module at the checked-out SDK.
+
 ```bash
+git clone https://github.com/gridlhq/allyourbase.git
+
+# inside your app module
+go mod edit -replace=github.com/allyourbase/ayb/sdk_go=/absolute/path/to/allyourbase/sdk_go
 go get github.com/allyourbase/ayb/sdk_go
 ```
 

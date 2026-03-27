@@ -177,7 +177,11 @@ Run `ayb --help` or `ayb <command> --help` for the full command list.
 
 ## Migrate from PocketBase or Supabase
 
-Current support (live-validated): PocketBase, Supabase Cloud, and self-hosted Supabase.
+Current support:
+
+- PocketBase import path is hardened and regression-covered.
+- Supabase local CLI, hosted cloud, and self-hosted import paths have scripted live-validation evidence in-repo.
+- Firebase live-export validation remains deferred and is not part of the public README migration promise.
 
 Fastest path (single CLI command into managed AYB Postgres):
 

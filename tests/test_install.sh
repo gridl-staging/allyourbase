@@ -138,7 +138,7 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
   esac
 else
   # Local: accept either repo (dev has prod default, staging sync rewrites it)
-  if install_script_matches 'REPO=.*gridlhq/allyourbase'; then
+  if install_script_matches 'REPO=.*gridlhq/allyourbase' || install_script_matches 'REPO=.*gridlhq-staging/allyourbase'; then
     pass "Default REPO is set (local environment)"
   else
     fail "Default REPO should be gridlhq/allyourbase or gridlhq-staging/allyourbase"
@@ -209,8 +209,11 @@ else
   fail "CLI argument version pinning not found"
 fi
 
-# Test: GitHub API latest release detection
-assert_install_script_match "GitHub API latest release detection" "GitHub API latest release detection missing" 'api.github.com/repos.*releases/latest'
+# Test: GitHub API release list detection
+assert_install_script_match "GitHub API release list detection" "GitHub API release list detection missing" 'api.github.com/repos.*releases?per_page=20'
+
+# Test: Installer filters for AYB app-release tags
+assert_install_script_match "Latest version selection filters to v-prefixed AYB releases" "Installer does not filter out auxiliary non-app releases" "grep '\\^v\\[0-9\\]'"
 
 # Test: Version number stripped from tag (v prefix handling)
 assert_install_script_match "Version v-prefix stripping (goreleaser compat)" "No v-prefix stripping — goreleaser archives use version without v" "sed 's/^v//'"
@@ -326,37 +329,41 @@ else
   fail "Default REPO must be a safe GitHub owner/repo slug" "$default_repo"
 fi
 
-# Test: GitHub API /releases/latest returns a valid tag_name
+# Test: GitHub API /releases list contains an AYB app release tag
 if allowlisted_github_repo_slug "$default_repo"; then
   if [ -n "${GITHUB_TOKEN:-}" ]; then
-    api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+    api_resp=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${default_repo}/releases?per_page=20" 2>&1) || true
   else
-    api_resp=$(curl -fsSL "https://api.github.com/repos/${default_repo}/releases/latest" 2>&1) || true
+    api_resp=$(curl -fsSL "https://api.github.com/repos/${default_repo}/releases?per_page=20" 2>&1) || true
   fi
 else
   api_resp=''
 fi
 if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"tag_name"'; then
-  latest_tag=$(echo "$api_resp" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-  pass "GitHub API releases/latest returns tag: ${latest_tag}"
+  latest_tag=$(echo "$api_resp" | grep '"tag_name"' | sed 's/.*"tag_name": *"//;s/".*//' | grep '^v[0-9]' | head -1)
+  if [ -n "$latest_tag" ]; then
+    pass "GitHub API releases list includes AYB app release tag: ${latest_tag}"
+  else
+    fail "GitHub API releases list returned no AYB app release tags"
+  fi
 else
   # No release yet is acceptable (staging may not have any)
   if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"message".*"Not Found"'; then
     pass "GitHub API reachable (no releases yet for ${default_repo})"
   elif allowlisted_github_repo_slug "$default_repo"; then
-    fail "GitHub API releases/latest for ${default_repo} failed" \
+    fail "GitHub API releases list for ${default_repo} failed" \
       "Got: $(echo "$api_resp" | head -3)"
   else
-    fail "Skipped GitHub API releases/latest due to unsafe default REPO" "$default_repo"
+    fail "Skipped GitHub API releases list due to unsafe default REPO" "$default_repo"
   fi
 fi
 
-# Test: If releases exist, check for .tar.gz assets
+# Test: If AYB app releases exist, check for .tar.gz assets
 if [ -n "${api_resp:-}" ] && echo "$api_resp" | grep -q '"tag_name"'; then
-  if echo "$api_resp" | grep -q 'ayb_.*\.tar\.gz'; then
-    pass "Release has .tar.gz assets"
+  if [ -n "${latest_tag:-}" ] && echo "$api_resp" | grep -A 20 "\"tag_name\": \"${latest_tag}\"" | grep -q 'ayb_.*\.tar\.gz'; then
+    pass "AYB app release has .tar.gz assets"
   else
-    fail "No .tar.gz assets found in latest release"
+    fail "No .tar.gz assets found in latest AYB app release"
   fi
 fi
 
@@ -376,10 +383,10 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
 elif ! allowlisted_github_repo_slug "$default_repo"; then
   printf "  \033[1;33mSkipped\033[0m (default REPO is not a safe GitHub owner/repo slug)\n"
 else
-  # Resolve a pinned version dynamically (use the latest release tag)
+  # Resolve a pinned version dynamically from the latest AYB app release tag.
   PIN_VERSION=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-    "https://api.github.com/repos/${default_repo}/releases/latest" 2>/dev/null \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+    "https://api.github.com/repos/${default_repo}/releases?per_page=20" 2>/dev/null \
+    | grep '"tag_name"' | sed 's/.*"tag_name": *"//;s/".*//' | grep '^v[0-9]' | head -1)
 
   if [ -z "$PIN_VERSION" ]; then
     printf "  \033[1;33mSkipped\033[0m (no releases found for ${default_repo} — create a release first)\n"

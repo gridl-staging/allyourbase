@@ -63,19 +63,19 @@ sh /tmp/ayb-install.sh
 </div>
 <div class="install-option">
 
-**Homebrew**
+**GitHub Releases**
 
-```bash
-brew install gridlhq/tap/ayb
-```
+[Latest binaries on GitHub](https://github.com/gridlhq-staging/allyourbase/releases)
 
 </div>
 <div class="install-option">
 
-**Docker**
+**From source**
 
 ```bash
-docker run -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
+git clone https://github.com/gridlhq-staging/allyourbase.git
+cd allyourbase
+make build
 ```
 
 </div>

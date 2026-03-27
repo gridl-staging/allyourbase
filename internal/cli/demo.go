@@ -74,6 +74,8 @@ var demoRegistry = map[string]demoInfo{
 	},
 }
 
+const demoDefaultServerPort = "8090"
+
 var demoCmd = &cobra.Command{
 	Use:   "demo <name>",
 	Short: "Run a demo app (one command, batteries included)",
@@ -96,7 +98,7 @@ Examples:
 	RunE:      runDemo,
 }
 
-// runDemo runs a bundled demo application. It starts the AYB server if needed, applies the database schema, seeds demo user accounts, and serves the pre-built frontend with API reverse-proxying.
+// TODO: Document runDemo.
 func runDemo(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	demo, ok := demoRegistry[name]
@@ -190,7 +192,8 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	return serveDemoApp(name, demo.Port, baseURL)
 }
 
-// TODO: Document ensureDemoServer.
+// ensureDemoServer returns the configured server URL and starts an auth-enabled
+// local AYB server when one is not already running.
 func ensureDemoServer() (string, bool, error) {
 	base := serverURL()
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -242,8 +245,42 @@ func resolveDemoJWTSecret() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// requireDemoAuthEnabled ensures the connected server exposes the auth routes
-// that demos rely on for registration and login.
+// TODO: Document demoServerPort.
+func demoServerPort(baseURL string) string {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return demoDefaultServerPort
+	}
+	if port := strings.TrimSpace(parsedURL.Port()); port != "" {
+		return port
+	}
+	switch strings.ToLower(strings.TrimSpace(parsedURL.Scheme)) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return demoDefaultServerPort
+	}
+}
+
+func demoRestartCommand() string {
+	return "ayb stop && ayb demo <name>"
+}
+
+func demoKillCommand() string {
+	return "lsof -ti :8090 | xargs kill && ayb demo <name>"
+}
+
+func demoCustomPortNote(baseURL, command string) string {
+	port := demoServerPort(baseURL)
+	if port == demoDefaultServerPort {
+		return ""
+	}
+	return fmt.Sprintf("\n\n  If the server is using port %s, use instead:\n    %s", port, command)
+}
+
+// TODO: Document requireDemoAuthEnabled.
 func requireDemoAuthEnabled(baseURL string, useColor bool) error {
 	enabled, err := demoAuthEnabled(baseURL)
 	if err != nil {
@@ -252,11 +289,13 @@ func requireDemoAuthEnabled(baseURL string, useColor bool) error {
 	if enabled {
 		return nil
 	}
-	return fmt.Errorf("%s %s\n\n  %s\n    [auth]\n    enabled = true\n\n  %s\n\n    ayb stop && ayb demo <name>\n\n  %s",
+	return fmt.Errorf("%s %s\n\n  %s\n    [auth]\n    enabled = true\n\n  %s\n\n    %s%s\n\n  %s",
 		yellow("⚠", useColor),
 		yellow("The running AYB server has auth disabled. Demos require auth for registration and login.", useColor),
 		dim("Enable auth in ayb.toml:", useColor),
 		dim("Or stop the running server and let the demo start its own auth-enabled server:", useColor),
+		demoRestartCommand(),
+		demoCustomPortNote(baseURL, fmt.Sprintf("ayb stop --port %s && ayb demo <name>", demoServerPort(baseURL))),
 		dim("Then restart your usual server config after the demo if needed.", useColor),
 	)
 }
@@ -270,8 +309,23 @@ func demoAuthEnabled(baseURL string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	resp.Body.Close()
-	return resp.StatusCode != http.StatusNotFound, nil
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusUnauthorized, http.StatusForbidden:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if readErr != nil {
+			return false, fmt.Errorf("auth probe returned %d and the response body could not be read: %w", resp.StatusCode, readErr)
+		}
+		detail := strings.TrimSpace(string(body))
+		if detail == "" {
+			return false, fmt.Errorf("auth probe returned unexpected status %d", resp.StatusCode)
+		}
+		return false, fmt.Errorf("auth probe returned unexpected status %d: %s", resp.StatusCode, detail)
+	}
 }
 
 // applyDemoSchema reads schema.sql from the embedded FS and sends it to the running server.
@@ -337,18 +391,30 @@ func resolveDemoAdminToken(baseURL string) (string, error) {
 	if token := resolveCLIAdminToken("", baseURL); token != "" {
 		return token, nil
 	}
+	if !isLoopbackAdminURL(baseURL) {
+		return "", fmt.Errorf("no admin token found.\n\n"+
+			"  Refusing to use locally saved admin credentials for non-loopback server %q.\n"+
+			"  Set AYB_ADMIN_TOKEN to an admin bearer token for that server.",
+			baseURL,
+		)
+	}
 
 	tokenPath, saved, err := readSavedAdminTokenFile()
 	if err != nil {
 		if tokenPath == "" {
 			return "", fmt.Errorf("no admin token: could not resolve home directory: %w", err)
 		}
-		return "", fmt.Errorf("no admin token found.\n\n" +
-			"  The server is running but wasn't started by the demo command.\n" +
-			"  Stop it and let the demo handle everything:\n\n" +
-			"    ayb stop && ayb demo <name>\n\n" +
-			"  Or, if using lsof to find orphan processes:\n" +
-			"    lsof -ti :8090 | xargs kill && ayb demo <name>")
+		return "", fmt.Errorf("no admin token found.\n\n"+
+			"  The server is running but wasn't started by the demo command.\n"+
+			"  Stop it and let the demo handle everything:\n\n"+
+			"    %s%s\n\n"+
+			"  Or, if using lsof to find orphan processes:\n"+
+			"    %s%s",
+			demoRestartCommand(),
+			demoCustomPortNote(baseURL, fmt.Sprintf("ayb stop --port %s && ayb demo <name>", demoServerPort(baseURL))),
+			demoKillCommand(),
+			demoCustomPortNote(baseURL, fmt.Sprintf("lsof -ti :%s | xargs kill && ayb demo <name>", demoServerPort(baseURL))),
+		)
 	}
 
 	if saved == "" {

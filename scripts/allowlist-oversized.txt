@@ -34,6 +34,11 @@ internal/auth/totp_mfa.go:521
 # Deferred split: shared HTTP middleware chain still co-located intentionally.
 internal/server/middleware.go:518
 internal/cli/deploy.go:511
+# Deferred split: the demo command still keeps server bootstrap, auth checks,
+# schema apply, account seeding, and static-app serving together for a single
+# batteries-included workflow. Keep the count exact until the orchestration is
+# broken into smaller command helpers.
+internal/cli/demo.go:538
 internal/config/config_validate_runtime.go:507
 internal/server/rls_handler.go:540
 internal/jobs/service.go:523

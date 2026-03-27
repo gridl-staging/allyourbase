@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -205,6 +206,67 @@ func TestHandleUpload_TenantWithoutQuotasPassesThrough(t *testing.T) {
 	testutil.NotEqual(t, http.StatusRequestEntityTooLarge, rec.Code)
 	testutil.Equal(t, 1, backend.putCount)
 	testutil.Equal(t, "", rec.Header().Get(headerTenantQuotaWarning))
+}
+
+func TestHandleUpload_UserQuotaExceededSkipsUpload(t *testing.T) {
+	t.Parallel()
+	backend := &countBackend{}
+	svc := NewService(nil, backend, "test-sign-key", testutil.DiscardLogger(), 0)
+	h := NewHandler(svc, testutil.DiscardLogger(), 1024, "")
+
+	claims := &auth.Claims{}
+	claims.Subject = "quota-user"
+	req := newMultipartUploadRequest(t, []byte("small-body"))
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), claims))
+
+	reserveCalls := 0
+	h.mutations.reserveQuota = func(_ context.Context, userID string, bytes int64) error {
+		reserveCalls++
+		testutil.Equal(t, "quota-user", userID)
+		testutil.True(t, bytes > 0, "expected reserved bytes from multipart file header")
+		return ErrQuotaExceeded
+	}
+	h.mutations.upload = func(_ context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
+		t.Fatal("upload mutation should not run when quota reservation is rejected")
+		return nil, nil
+	}
+
+	rec := performUpload(t, h, req)
+	testutil.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	testutil.Equal(t, 1, reserveCalls)
+	testutil.Equal(t, 0, backend.putCount)
+}
+
+func TestHandleUpload_RollsBackReservedQuotaOnUploadFailure(t *testing.T) {
+	t.Parallel()
+	backend := &countBackend{}
+	svc := NewService(nil, backend, "test-sign-key", testutil.DiscardLogger(), 0)
+	h := NewHandler(svc, testutil.DiscardLogger(), 1024, "")
+
+	claims := &auth.Claims{}
+	claims.Subject = "quota-user"
+	req := newMultipartUploadRequest(t, []byte("small-body"))
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), claims))
+
+	var reservedBytes int64
+	var rollbackBytes int64
+	h.mutations.reserveQuota = func(_ context.Context, _ string, bytes int64) error {
+		reservedBytes = bytes
+		return nil
+	}
+	h.mutations.upload = func(_ context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
+		return nil, errors.New("backend unavailable")
+	}
+	h.mutations.decrementUsage = func(_ context.Context, userID string, bytes int64) error {
+		testutil.Equal(t, "quota-user", userID)
+		rollbackBytes = bytes
+		return nil
+	}
+
+	rec := performUpload(t, h, req)
+	testutil.Equal(t, http.StatusInternalServerError, rec.Code)
+	testutil.True(t, reservedBytes > 0, "expected multipart file size to be reserved")
+	testutil.Equal(t, reservedBytes, rollbackBytes)
 }
 
 func ptrInt64(v int64) *int64 {

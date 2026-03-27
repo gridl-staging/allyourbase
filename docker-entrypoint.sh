@@ -36,6 +36,7 @@ ensure_runtime_group() {
   printf '%s\n' "$name"
 }
 
+# TODO: Document ensure_runtime_user.
 ensure_runtime_user() {
   uid="$1"
   gid="$2"
@@ -81,6 +82,7 @@ run_as_runtime() {
   su-exec "$AYB_RUNTIME_USER" "$@"
 }
 
+# TODO: Document ensure_writable_dir.
 ensure_writable_dir() {
   dir="$1"
   if [ -z "$dir" ]; then
@@ -100,21 +102,22 @@ ensure_writable_dir() {
   return 1
 }
 
+ensure_writable_dirs() {
+  for dir in "$@"; do
+    ensure_writable_dir "$dir"
+  done
+}
+
 if [ "$(id -u)" -eq 0 ]; then
   configure_runtime_user_from_pgdata_dir "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}"
-  ensure_writable_dir "$AYB_HOME"
-  ensure_writable_dir "$AYB_HOME/.ayb"
-  ensure_writable_dir "$AYB_HOME/.ayb/data"
-  ensure_writable_dir "$AYB_HOME/.ayb/logs"
-  ensure_writable_dir "$AYB_HOME/.ayb/run"
-
-  if [ -n "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" ]; then
-    ensure_writable_dir "${AYB_DATABASE_EMBEDDED_DATA_DIR}"
-  fi
-
-  if [ -n "${AYB_STORAGE_LOCAL_PATH:-}" ]; then
-    ensure_writable_dir "${AYB_STORAGE_LOCAL_PATH}"
-  fi
+  ensure_writable_dirs \
+    "$AYB_HOME" \
+    "$AYB_HOME/.ayb" \
+    "$AYB_HOME/.ayb/data" \
+    "$AYB_HOME/.ayb/logs" \
+    "$AYB_HOME/.ayb/run" \
+    "${AYB_DATABASE_EMBEDDED_DATA_DIR:-}" \
+    "${AYB_STORAGE_LOCAL_PATH:-}"
 
   export USER="$AYB_RUNTIME_USER"
   exec su-exec "$AYB_RUNTIME_USER" "$@"

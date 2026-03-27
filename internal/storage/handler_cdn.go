@@ -18,6 +18,7 @@ type handlerMutations struct {
 	deleteObject            func(context.Context, string, string) error
 	appendResumableUpload   func(context.Context, string, int64, *string, io.Reader) (*ResumableUpload, bool, error)
 	finalizeResumableUpload func(context.Context, string, *string) (*Object, error)
+	reserveQuota            func(context.Context, string, int64) error
 	incrementUsage          func(context.Context, string, int64) error
 	decrementUsage          func(context.Context, string, int64) error
 }
@@ -41,6 +42,9 @@ func newHandlerMutations(svc *Service) handlerMutations {
 			finalizeResumableUpload: func(_ context.Context, _ string, _ *string) (*Object, error) {
 				return nil, fmt.Errorf("storage service is not configured")
 			},
+			reserveQuota: func(_ context.Context, _ string, _ int64) error {
+				return fmt.Errorf("storage service is not configured")
+			},
 			incrementUsage: func(_ context.Context, _ string, _ int64) error {
 				return fmt.Errorf("storage service is not configured")
 			},
@@ -56,6 +60,7 @@ func newHandlerMutations(svc *Service) handlerMutations {
 		deleteObject:            svc.DeleteObject,
 		appendResumableUpload:   svc.AppendResumableUpload,
 		finalizeResumableUpload: svc.FinalizeResumableUpload,
+		reserveQuota:            svc.ReserveQuota,
 		incrementUsage:          svc.IncrementUsage,
 		decrementUsage:          svc.DecrementUsage,
 	}

@@ -1,21 +1,31 @@
 # Deployment
 <!-- audited 2026-03-20 -->
 
-AYB runs as a single `ayb` binary. In containers, the published image uses:
+AYB runs as a single `ayb` binary. In containers, the Dockerfile builds an image with:
 
 - `ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]`
 - `CMD ["start", "--foreground"]`
 
 The image also sets `AYB_SERVER_HOST=0.0.0.0`, so `-p 8090:8090` works without adding a custom bind host override.
 
+Public container-image pulls are not available right now because the current GitHub Container Registry package is still private. The commands below use a locally built image from the public repository checkout instead.
+
 ## Docker
+
+### Build the image locally
+
+```bash
+git clone https://github.com/gridlhq-staging/allyourbase.git
+cd allyourbase
+DOCKER_BUILDKIT=1 docker build -t ayb-local .
+```
 
 ### Quick start (managed PostgreSQL)
 
 ```bash
 docker run --rm -p 8090:8090 \
   -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
-  ghcr.io/gridlhq-staging/allyourbase
+  ayb-local
 ```
 
 This starts `ayb start` in managed PostgreSQL mode (`AYB_DATABASE_URL` unset).
@@ -38,7 +48,7 @@ docker run --rm -p 8090:8090 \
   -e AYB_STORAGE_LOCAL_PATH=/ayb_storage \
   -v "$PWD/ayb-pgdata:/ayb_pgdata" \
   -v "$PWD/ayb-storage:/ayb_storage" \
-  ghcr.io/gridlhq-staging/allyourbase
+  ayb-local
 ```
 
 This is the recommended shape for Docker smoke validation because it exercises:
@@ -53,7 +63,7 @@ This is the recommended shape for Docker smoke validation because it exercises:
 docker run --rm -p 8090:8090 \
   -e AYB_DATABASE_URL="postgresql://user:pass@host:5432/mydb" \
   -e AYB_ADMIN_PASSWORD="change-me-to-a-strong-random-password" \
-  ghcr.io/gridlhq-staging/allyourbase
+  ayb-local
 ```
 
 ### Dynamic port platforms
@@ -64,7 +74,7 @@ For platforms that inject a runtime port, set `AYB_SERVER_PORT` and expose/map t
 docker run --rm -p 8080:8080 \
   -e AYB_SERVER_PORT=8080 \
   -e AYB_ADMIN_PASSWORD="change-me" \
-  ghcr.io/gridlhq-staging/allyourbase
+  ayb-local
 ```
 
 ### Docker Compose
@@ -72,7 +82,7 @@ docker run --rm -p 8080:8080 \
 ```yaml
 services:
   ayb:
-    image: ghcr.io/gridlhq-staging/allyourbase
+    image: ayb-local
     ports:
       - "8090:8090"
     environment:

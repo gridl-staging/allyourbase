@@ -22,17 +22,55 @@ var stopCmd = &cobra.Command{
 
 var stopPortInUse = portInUse
 
+const defaultStopPort = 8090
+
 func init() {
 	stopCmd.Flags().Int("port", 0, "Server port to check for orphan-process detection (default: 8090)")
 }
 
+func stopPortOrDefault(port int) int {
+	if port != 0 {
+		return port
+	}
+	return defaultStopPort
+}
+
+func writeStopJSON(out io.Writer, fields map[string]any) error {
+	return json.NewEncoder(out).Encode(fields)
+}
+
+func reportStopNotRunning(out io.Writer, jsonOut bool, jsonMessage, textMessage string) error {
+	if jsonOut {
+		return writeStopJSON(out, map[string]any{
+			"status":  "not_running",
+			"message": jsonMessage,
+		})
+	}
+	fmt.Fprintln(out, textMessage)
+	return nil
+}
+
+func reportStopStopped(out io.Writer, jsonOut bool, pid int) error {
+	if jsonOut {
+		return writeStopJSON(out, map[string]any{"status": "stopped", "pid": pid})
+	}
+	fmt.Fprintf(out, "AYB server (PID %d) stopped.\n", pid)
+	return nil
+}
+
+func reportStalePIDFile(out io.Writer, jsonOut bool) error {
+	cleanupServerFiles()
+	return reportStopNotRunning(out, jsonOut, "stale PID file cleaned up", "No AYB server is running (stale PID file cleaned up).")
+}
+
+// TODO: Document reportStopWithoutPID.
 func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) error {
 	// No PID file — check if something is actually listening on the configured
 	// port. This catches orphan processes (e.g. foreground mode killed
 	// ungracefully, leaving embedded postgres alive).
 	if stopPortInUse(orphanCheckPort) {
 		if jsonOut {
-			return json.NewEncoder(out).Encode(map[string]any{
+			return writeStopJSON(out, map[string]any{
 				"status":  "orphan",
 				"message": fmt.Sprintf("no PID file but port %d is in use", orphanCheckPort),
 				"port":    orphanCheckPort,
@@ -45,14 +83,10 @@ func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) erro
 		fmt.Fprintln(out, "    ayb start                     # then start fresh")
 		return nil
 	}
-	if jsonOut {
-		return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "no AYB server is running"})
-	}
-	fmt.Fprintln(out, "No AYB server is running (no PID file found).")
-	return nil
+	return reportStopNotRunning(out, jsonOut, "no AYB server is running", "No AYB server is running (no PID file found).")
 }
 
-// runStop gracefully terminates the AYB server by sending SIGTERM to the process identified in the PID file. If graceful shutdown doesn't complete within 10 seconds, it escalates to SIGKILL. It handles orphan processes, stale PID files, cleans up server files, and returns JSON output when the json flag is set.
+// TODO: Document runStop.
 func runStop(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	portFlag, _ := cmd.Flags().GetInt("port")
@@ -61,11 +95,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	pid, _, err := readAYBPID()
 	if err != nil {
 		if os.IsNotExist(err) {
-			orphanCheckPort := portFlag
-			if orphanCheckPort == 0 {
-				orphanCheckPort = 8090
-			}
-			return reportStopWithoutPID(out, jsonOut, orphanCheckPort)
+			return reportStopWithoutPID(out, jsonOut, stopPortOrDefault(portFlag))
 		}
 		return fmt.Errorf("reading PID file: %w", err)
 	}
@@ -73,22 +103,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 	// Check if process is alive.
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		// Process doesn't exist — clean up stale files.
-		cleanupServerFiles()
-		if jsonOut {
-			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
-		}
-		fmt.Fprintln(out, "No AYB server is running (stale PID file cleaned up).")
-		return nil
+		return reportStalePIDFile(out, jsonOut)
 	}
 
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		cleanupServerFiles()
-		if jsonOut {
-			return json.NewEncoder(out).Encode(map[string]any{"status": "not_running", "message": "stale PID file cleaned up"})
-		}
-		fmt.Fprintln(out, "No AYB server is running (stale PID file cleaned up).")
-		return nil
+		return reportStalePIDFile(out, jsonOut)
 	}
 
 	// Send SIGTERM for graceful shutdown.
@@ -108,11 +127,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
 			cleanupServerFiles()
 			sp.Done()
-			if jsonOut {
-				return json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
-			}
-			fmt.Fprintf(out, "AYB server (PID %d) stopped.\n", pid)
-			return nil
+			return reportStopStopped(out, jsonOut, pid)
 		}
 	}
 
@@ -121,16 +136,12 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err := proc.Signal(syscall.SIGKILL); err != nil {
 		// Process may have just died.
 		cleanupServerFiles()
-		if jsonOut {
-			return json.NewEncoder(out).Encode(map[string]any{"status": "stopped", "pid": pid})
-		}
-		fmt.Fprintf(out, "AYB server (PID %d) stopped.\n", pid)
-		return nil
+		return reportStopStopped(out, jsonOut, pid)
 	}
 	time.Sleep(1 * time.Second)
 	cleanupServerFiles()
 	if jsonOut {
-		return json.NewEncoder(out).Encode(map[string]any{
+		return writeStopJSON(out, map[string]any{
 			"status": "killed", "pid": pid,
 		})
 	}

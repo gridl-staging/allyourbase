@@ -27,21 +27,21 @@ curl -fsSLo /tmp/ayb-install.sh https://staging.allyourbase.io/install.sh
 sh /tmp/ayb-install.sh
 ```
 
-### Homebrew
-
-```bash
-brew install gridlhq/tap/ayb
-```
-
 ### Binary download
 
 Download the latest release from [GitHub Releases](https://github.com/gridlhq-staging/allyourbase/releases) for your OS and architecture.
 
-### Docker
+### From source
 
 ```bash
-docker run --rm -p 8090:8090 ghcr.io/gridlhq-staging/allyourbase
+git clone https://github.com/gridlhq-staging/allyourbase.git
+cd allyourbase
+make build
 ```
+
+### Docker
+
+Public container-image pulls are not available right now because the current GitHub Container Registry package is still private. If you need a container immediately, follow the [Deployment](/guide/deployment) guide to build the image locally from the public repo checkout.
 
 ## Start the server
 

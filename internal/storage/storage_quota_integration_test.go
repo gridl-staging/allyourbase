@@ -410,29 +410,37 @@ func TestStorageQuotaConcurrentUploads(t *testing.T) {
 	testutil.NoError(t, err)
 
 	const numUploads = 10
-	results := make(chan int, numUploads)
+	type concurrentUploadResult struct {
+		status int
+		err    error
+	}
+	results := make(chan concurrentUploadResult, numUploads)
 	data := strings.Repeat("r", 100)
 
 	for i := 0; i < numUploads; i++ {
 		go func(idx int) {
 			name := fmt.Sprintf("race-%d.txt", idx)
-			results <- uploadStatus(t, ts.URL, bucket, name, data, requestHeaders{token: token, tenantID: tenantID})
+			status, uploadErr := uploadStatusWithError(t, ts.URL, bucket, name, data, requestHeaders{token: token, tenantID: tenantID})
+			results <- concurrentUploadResult{status: status, err: uploadErr}
 		}(i)
 	}
 
-	var successes, other int
+	var successes, quotaExceeded, other int
 	for i := 0; i < numUploads; i++ {
-		status := <-results
-		switch status {
+		result := <-results
+		testutil.NoError(t, result.err)
+		switch result.status {
 		case http.StatusCreated:
 			successes++
 		case http.StatusRequestEntityTooLarge:
+			quotaExceeded++
 		default:
 			other++
 		}
 	}
 
 	testutil.True(t, successes >= 1, fmt.Sprintf("expected at least 1 success, got %d", successes))
+	testutil.True(t, quotaExceeded >= 1, fmt.Sprintf("expected concurrent quota rejections, got successes=%d quotaExceeded=%d", successes, quotaExceeded))
 	testutil.Equal(t, 0, other)
 
 	info, err := storageSvc.GetUsage(context.Background(), userID)

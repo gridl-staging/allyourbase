@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -56,7 +57,18 @@ func StartPostgresForTestMain(ctx context.Context) (*PGContainer, func()) {
 		panic(fmt.Sprintf("building temp database URL: %v", err))
 	}
 
-	pool, err := pgxpool.New(ctx, tempURL)
+	poolCfg, err := pgxpool.ParseConfig(tempURL)
+	if err != nil {
+		panic(fmt.Sprintf("parsing temp database config: %v", err))
+	}
+	// Integration suites repeatedly drop and recreate schemas in the same temp
+	// database. Disabling statement / description caches avoids stale prepared
+	// plans surviving those schema shape changes and flaking later queries.
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeDescribeExec
+	poolCfg.ConnConfig.StatementCacheCapacity = 0
+	poolCfg.ConnConfig.DescriptionCacheCapacity = 0
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		panic(fmt.Sprintf("connecting to temp database: %v", err))
 	}

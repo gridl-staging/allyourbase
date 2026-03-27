@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,19 @@ type requestHeaders struct {
 	tenantID string
 }
 
+const uploadRequestTimeout = 30 * time.Second
+
+type cancelOnCloseReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c cancelOnCloseReadCloser) Close() error {
+	closeErr := c.ReadCloser.Close()
+	c.cancel()
+	return closeErr
+}
+
 func (h requestHeaders) apply(req *http.Request) {
 	if req == nil {
 		return
@@ -41,31 +55,58 @@ func (h requestHeaders) apply(req *http.Request) {
 	}
 }
 
-func uploadFile(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) *http.Response {
+func uploadFile(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (*http.Response, error) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	w := multipart.NewWriter(body)
 	fw, err := w.CreateFormFile("file", filename)
-	testutil.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	_, err = fw.Write([]byte(bodyText))
-	testutil.NoError(t, err)
-	testutil.NoError(t, w.Close())
+	if err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/storage/"+bucket, body)
-	testutil.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), uploadRequestTimeout)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/storage/"+bucket, body)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	headers.apply(req)
+	t.Logf("uploadFile start: bucket=%s name=%s size=%d", bucket, filename, len(bodyText))
 
 	resp, err := http.DefaultClient.Do(req)
-	testutil.NoError(t, err)
-	return resp
+	if err != nil {
+		cancel()
+		t.Logf("uploadFile failed: bucket=%s name=%s err=%v", bucket, filename, err)
+		return nil, err
+	}
+	resp.Body = cancelOnCloseReadCloser{ReadCloser: resp.Body, cancel: cancel}
+	t.Logf("uploadFile complete: bucket=%s name=%s status=%d", bucket, filename, resp.StatusCode)
+	return resp, nil
 }
 
 func uploadStatus(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) int {
 	t.Helper()
-	resp := uploadFile(t, baseURL, bucket, filename, bodyText, headers)
+	status, err := uploadStatusWithError(t, baseURL, bucket, filename, bodyText, headers)
+	testutil.NoError(t, err)
+	return status
+}
+
+func uploadStatusWithError(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (int, error) {
+	t.Helper()
+	resp, err := uploadFile(t, baseURL, bucket, filename, bodyText, headers)
+	if err != nil {
+		return 0, err
+	}
 	defer resp.Body.Close()
-	return resp.StatusCode
+	return resp.StatusCode, nil
 }
 
 func uploadWithToken(t *testing.T, baseURL, token, bucket, filename, bodyText string) int {
@@ -75,7 +116,9 @@ func uploadWithToken(t *testing.T, baseURL, token, bucket, filename, bodyText st
 
 func uploadWithTenant(t *testing.T, baseURL, tenantID, bucket, filename, bodyText string) *http.Response {
 	t.Helper()
-	return uploadFile(t, baseURL, bucket, filename, bodyText, requestHeaders{tenantID: tenantID})
+	resp, err := uploadFile(t, baseURL, bucket, filename, bodyText, requestHeaders{tenantID: tenantID})
+	testutil.NoError(t, err)
+	return resp
 }
 
 func clearTenantQuotaData(t *testing.T) {

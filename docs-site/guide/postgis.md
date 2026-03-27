@@ -45,10 +45,12 @@ ayb start --database-url "postgresql://ayb:ayb@localhost:5432/ayb"
 
 ### Docker Compose
 
+Build the AYB image locally first with the steps from [Deployment](/guide/deployment#build-the-image-locally), then use it alongside PostGIS:
+
 ```yaml
 services:
   ayb:
-    image: ghcr.io/gridlhq/allyourbase
+    image: ayb-local
     ports:
       - "8090:8090"
     environment:

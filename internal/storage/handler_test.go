@@ -20,9 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/imaging"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // fakeBackend is a simple in-memory Backend for handler tests.
@@ -176,6 +178,123 @@ func TestHandleUploadReturnsInternalErrorPromptlyWhenUploadContextEnds(t *testin
 	testutil.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
 	testutil.Equal(t, http.StatusInternalServerError, errResp.Code)
 	testutil.Equal(t, "internal error", errResp.Message)
+}
+
+func TestHandleUpload_TimesOutOnSlowBackend(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h.SetUploadTimeout(100 * time.Millisecond)
+
+	uploadStarted := make(chan struct{}, 1)
+	rollbackCalled := make(chan struct{}, 1)
+	h.mutations.reserveQuota = func(_ context.Context, userID string, bytes int64) error {
+		testutil.Equal(t, "user-timeout", userID)
+		testutil.Equal(t, int64(len("image-bytes")), bytes)
+		return nil
+	}
+	h.mutations.upload = func(ctx context.Context, _, _, _ string, _ *string, _ io.Reader) (*Object, error) {
+		uploadStarted <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	h.mutations.decrementUsage = func(ctx context.Context, userID string, bytes int64) error {
+		testutil.Equal(t, "user-timeout", userID)
+		testutil.Equal(t, int64(len("image-bytes")), bytes)
+		testutil.Nil(t, ctx.Err())
+		rollbackCalled <- struct{}{}
+		return nil
+	}
+
+	router := testRouter(h)
+	req := newUploadRequest(t, "/api/storage/images", "cat.jpg", []byte("image-bytes"))
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-timeout"},
+	}))
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	router.ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	select {
+	case <-uploadStarted:
+	default:
+		t.Fatal("expected upload mutation to start")
+	}
+
+	select {
+	case <-rollbackCalled:
+	default:
+		t.Fatal("expected quota rollback after timeout")
+	}
+
+	testutil.Equal(t, http.StatusGatewayTimeout, rec.Code)
+	testutil.True(t, elapsed < time.Second, "timeout path should return promptly")
+
+	var errResp struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	testutil.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	testutil.Equal(t, http.StatusGatewayTimeout, errResp.Code)
+	testutil.Equal(t, "upload timed out", errResp.Message)
+}
+
+func TestHandleUpload_FastUploadNotAffectedByTimeout(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+	h.SetUploadTimeout(5 * time.Second)
+
+	rollbackCalled := false
+	h.mutations.reserveQuota = func(_ context.Context, userID string, bytes int64) error {
+		testutil.Equal(t, "user-fast", userID)
+		testutil.Equal(t, int64(len("fast-image")), bytes)
+		return nil
+	}
+	h.mutations.upload = func(ctx context.Context, bucket, name, contentType string, userID *string, r io.Reader) (*Object, error) {
+		data, err := io.ReadAll(r)
+		testutil.NoError(t, err)
+		deadline, hasDeadline := ctx.Deadline()
+		testutil.True(t, hasDeadline, "expected upload timeout context to add a deadline")
+		testutil.True(t, deadline.After(time.Now()), "expected upload deadline to be in the future")
+		testutil.NotNil(t, userID)
+		testutil.Equal(t, "user-fast", *userID)
+		return &Object{
+			ID:          "obj-fast",
+			Bucket:      bucket,
+			Name:        name,
+			Size:        int64(len(data)),
+			ContentType: contentType,
+			UserID:      userID,
+			CreatedAt:   time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC),
+		}, nil
+	}
+	h.mutations.decrementUsage = func(_ context.Context, _ string, _ int64) error {
+		rollbackCalled = true
+		return nil
+	}
+
+	router := testRouter(h)
+	req := newUploadRequest(t, "/api/storage/images", "cat.jpg", []byte("fast-image"))
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-fast"},
+	}))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	testutil.Equal(t, http.StatusCreated, rec.Code)
+	testutil.False(t, rollbackCalled)
+
+	var resp uploadResponse
+	testutil.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	testutil.Equal(t, "obj-fast", resp.ID)
+	testutil.Equal(t, "images", resp.Bucket)
+	testutil.Equal(t, "cat.jpg", resp.Name)
+	testutil.Equal(t, int64(len("fast-image")), resp.Size)
 }
 
 func TestPublicObjectResponseURLUsesCDN(t *testing.T) {

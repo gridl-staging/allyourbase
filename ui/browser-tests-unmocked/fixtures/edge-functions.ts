@@ -106,11 +106,27 @@ export async function invokePublicEdgeFunctionGET(
   functionName: string,
   bearerToken?: string,
 ): Promise<APIResponse> {
+  return invokePublicEdgeFunctionGETWithQuery(request, functionName, "", bearerToken);
+}
+
+/**
+ * Invokes the shipped public edge-function route using GET with an optional raw query string.
+ */
+export async function invokePublicEdgeFunctionGETWithQuery(
+  request: APIRequestContext,
+  functionName: string,
+  rawQuery: string,
+  bearerToken?: string,
+): Promise<APIResponse> {
   const headers =
     typeof bearerToken === "string" && bearerToken.length > 0
       ? { Authorization: `Bearer ${bearerToken}` }
       : undefined;
-  return request.get(`/functions/v1/${encodeURIComponent(functionName)}`, headers ? { headers } : undefined);
+  const querySuffix = rawQuery ? `?${rawQuery.replace(/^\?/, "")}` : "";
+  return request.get(
+    `/functions/v1/${encodeURIComponent(functionName)}${querySuffix}`,
+    headers ? { headers } : undefined,
+  );
 }
 
 export async function createDBTrigger(

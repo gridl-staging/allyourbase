@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,9 +77,15 @@ func resetAndSeedDB(t *testing.T, ctx context.Context) {
 func setupTestServer(t *testing.T, ctx context.Context) (*server.Server, *testutil.PGContainer) {
 	t.Helper()
 
+	logger := testutil.DiscardLogger()
+	return setupTestServerWithLogger(t, ctx, logger)
+}
+
+func setupTestServerWithLogger(t *testing.T, ctx context.Context, logger *slog.Logger) (*server.Server, *testutil.PGContainer) {
+	t.Helper()
+
 	resetAndSeedDB(t, ctx)
 
-	logger := testutil.DiscardLogger()
 	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
 	if err := ch.Load(ctx); err != nil {
 		t.Fatalf("loading schema cache: %v", err)
@@ -289,7 +296,7 @@ func TestListWithFilterAnd(t *testing.T) {
 	testutil.Equal(t, 1.0, jsonNum(t, items[0]["author_id"]))
 }
 
-func TestListInvalidFilter(t *testing.T) {
+func TestListInvalidFilterIntegration(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupTestServer(t, ctx)
 
@@ -297,7 +304,7 @@ func TestListInvalidFilter(t *testing.T) {
 	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
 }
 
-func TestListCollectionNotFound(t *testing.T) {
+func TestListCollectionNotFoundIntegration(t *testing.T) {
 	ctx := context.Background()
 	srv, _ := setupTestServer(t, ctx)
 
@@ -650,12 +657,16 @@ func TestErrorResponseFormat(t *testing.T) {
 
 func TestSearchBasic(t *testing.T) {
 	ctx := context.Background()
-	srv, _ := setupTestServer(t, ctx)
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
+	srv, _ := setupTestServerWithLogger(t, ctx, logger)
 
 	// Search for "Alice" — only appears in authors, not in posts.
 	// Search for "Bob" — matches "Bob Post" title and "By Bob" body (1 post).
 	w := doRequest(t, srv, "GET", "/api/collections/posts/?search=Bob", nil)
-	testutil.StatusCode(t, http.StatusOK, w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP status: got %d, want %d\nbody: %s\nlogs:\n%s", w.Code, http.StatusOK, w.Body.String(), logBuf.String())
+	}
 
 	body := parseJSON(t, w)
 	items := jsonItems(t, body)

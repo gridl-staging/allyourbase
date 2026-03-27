@@ -50,7 +50,6 @@ var functionSizeAllowlist = map[string]int{
 	"sbmigrate.Migrator.migrateStorage": 116,
 	"schemadiff.FromSchemaCache":        101,
 	"server.handleEdgeFuncInvoke":       112,
-	"storage.Handler.HandleUpload":      114,
 	// Template-heavy schema/client generators are kept contiguous for readability
 	// of emitted output and to avoid fragmented string assembly wrappers.
 	"templates.blogTemplate.Schema":          110,

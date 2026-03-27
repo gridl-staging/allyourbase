@@ -21,6 +21,55 @@ type QuotaInfo struct {
 	QuotaMB    *int  `json:"quota_mb"` // nil = using system default
 }
 
+const reserveQuotaSQL = `
+WITH user_quota AS (
+	SELECT
+		u.id AS user_id,
+		CASE
+			WHEN u.storage_quota_mb IS NULL THEN $3::bigint
+			ELSE (u.storage_quota_mb::bigint * 1024 * 1024)
+		END AS quota_bytes
+	FROM _ayb_users u
+	WHERE u.id = $1
+),
+usage_upsert AS (
+	INSERT INTO _ayb_storage_usage AS su (user_id, bytes_used, updated_at)
+	SELECT uq.user_id, $2, NOW()
+	FROM user_quota uq
+	WHERE uq.quota_bytes <= 0 OR $2 <= uq.quota_bytes
+	ON CONFLICT (user_id) DO UPDATE
+	SET bytes_used = su.bytes_used + EXCLUDED.bytes_used, updated_at = NOW()
+	WHERE
+		(SELECT uq.quota_bytes FROM user_quota uq WHERE uq.user_id = su.user_id) <= 0
+		OR su.bytes_used + EXCLUDED.bytes_used <= (SELECT uq.quota_bytes FROM user_quota uq WHERE uq.user_id = su.user_id)
+	RETURNING 1
+)
+SELECT
+	EXISTS(SELECT 1 FROM user_quota) AS user_exists,
+	EXISTS(SELECT 1 FROM usage_upsert) AS reserved
+`
+
+// ReserveQuota atomically reserves bytes against a user's quota by incrementing
+// usage only when the post-increment total remains within limits.
+func (s *Service) ReserveQuota(ctx context.Context, userID string, bytes int64) error {
+	if s.pool == nil || userID == "" || bytes <= 0 {
+		return nil
+	}
+
+	var userExists bool
+	var reserved bool
+	if err := s.pool.QueryRow(ctx, reserveQuotaSQL, userID, bytes, s.defaultQuotaBytes).Scan(&userExists, &reserved); err != nil {
+		return fmt.Errorf("reserving quota: %w", err)
+	}
+	if !userExists {
+		return nil
+	}
+	if !reserved {
+		return ErrQuotaExceeded
+	}
+	return nil
+}
+
 // CheckQuota verifies that adding additionalBytes would not exceed the user's quota.
 // Returns ErrQuotaExceeded if the upload would push them over.
 func (s *Service) CheckQuota(ctx context.Context, userID string, additionalBytes int64) error {
