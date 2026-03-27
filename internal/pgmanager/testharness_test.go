@@ -386,24 +386,23 @@ func TestPortAlreadyInUse(t *testing.T) {
 
 	harness := newTestPGHarness(t)
 
-	// Start the first manager — this claims the port.
-	mgr1 := New(harness.config)
+	// Occupy the port with a raw TCP listener instead of a second Postgres.
+	// Using a real Postgres to hold the port is unreliable: pg_ctl -w checks
+	// readiness by connecting to the port, and on Linux it can reach the
+	// first Postgres and falsely report the second instance as started.
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", harness.config.Port))
+	testutil.NoError(t, err)
+	defer ln.Close()
+
+	mgr := New(harness.config)
 	ctx, cancel := context.WithTimeout(context.Background(), managedPGStartTimeout())
 	defer cancel()
 
-	_, err := mgr1.Start(ctx)
-	testutil.NoError(t, err)
-	defer mgr1.Stop()
-
-	// Start a second manager on the same port — should fail.
-	cfg2 := harness.config
-	cfg2.DataDir = filepath.Join(harness.tempDir, "data-conflict")
-
-	mgr2 := New(cfg2)
-	_, err = mgr2.Start(ctx)
+	_, err = mgr.Start(ctx)
 	if err == nil {
-		mgr2.Stop()
+		mgr.Stop()
 		t.Fatal("expected error when starting on an already-used port, got nil")
 	}
-	testutil.Contains(t, err.Error(), "pg_ctl start failed")
+	// The error wraps pg_ctl or postgres bind failure.
+	testutil.Contains(t, err.Error(), "managed postgres")
 }
