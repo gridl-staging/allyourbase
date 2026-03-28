@@ -30,7 +30,7 @@ type requestHeaders struct {
 	tenantID string
 }
 
-const defaultUploadRequestTimeout = 30 * time.Second
+const uploadRequestTimeout = 30 * time.Second
 
 type cancelOnCloseReadCloser struct {
 	io.ReadCloser
@@ -55,7 +55,7 @@ func (h requestHeaders) apply(req *http.Request) {
 	}
 }
 
-func uploadFileWithTimeout(t *testing.T, timeout time.Duration, baseURL, bucket, filename, bodyText string, headers requestHeaders) (*http.Response, error) {
+func uploadFile(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (*http.Response, error) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	w := multipart.NewWriter(body)
@@ -71,7 +71,7 @@ func uploadFileWithTimeout(t *testing.T, timeout time.Duration, baseURL, bucket,
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), uploadRequestTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/storage/"+bucket, body)
 	if err != nil {
 		cancel()
@@ -92,11 +92,6 @@ func uploadFileWithTimeout(t *testing.T, timeout time.Duration, baseURL, bucket,
 	return resp, nil
 }
 
-func uploadFile(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (*http.Response, error) {
-	t.Helper()
-	return uploadFileWithTimeout(t, defaultUploadRequestTimeout, baseURL, bucket, filename, bodyText, headers)
-}
-
 func uploadStatus(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) int {
 	t.Helper()
 	status, err := uploadStatusWithError(t, baseURL, bucket, filename, bodyText, headers)
@@ -104,19 +99,14 @@ func uploadStatus(t *testing.T, baseURL, bucket, filename, bodyText string, head
 	return status
 }
 
-func uploadStatusWithErrorAndTimeout(t *testing.T, timeout time.Duration, baseURL, bucket, filename, bodyText string, headers requestHeaders) (int, error) {
+func uploadStatusWithError(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (int, error) {
 	t.Helper()
-	resp, err := uploadFileWithTimeout(t, timeout, baseURL, bucket, filename, bodyText, headers)
+	resp, err := uploadFile(t, baseURL, bucket, filename, bodyText, headers)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode, nil
-}
-
-func uploadStatusWithError(t *testing.T, baseURL, bucket, filename, bodyText string, headers requestHeaders) (int, error) {
-	t.Helper()
-	return uploadStatusWithErrorAndTimeout(t, defaultUploadRequestTimeout, baseURL, bucket, filename, bodyText, headers)
 }
 
 func uploadWithToken(t *testing.T, baseURL, token, bucket, filename, bodyText string) int {
