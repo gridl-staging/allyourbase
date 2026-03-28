@@ -22,6 +22,8 @@ import (
 	"github.com/allyourbase/ayb/internal/testutil"
 )
 
+const concurrentUploadRequestTimeout = 2 * time.Minute
+
 // setupServerWithQuota creates a test server with a small per-user storage quota.
 // It wires the tenant service and creates a default tenant so that storage write
 // routes pass the enforceTenantContext middleware chain. Returns the test server,
@@ -420,7 +422,10 @@ func TestStorageQuotaConcurrentUploads(t *testing.T) {
 	for i := 0; i < numUploads; i++ {
 		go func(idx int) {
 			name := fmt.Sprintf("race-%d.txt", idx)
-			status, uploadErr := uploadStatusWithError(t, ts.URL, bucket, name, data, requestHeaders{token: token, tenantID: tenantID})
+			// This race test drives the full HTTP stack under -race after a long
+			// serialized integration sweep, so CI can exceed the helper's normal
+			// 30s client deadline without indicating a server-side upload timeout.
+			status, uploadErr := uploadStatusWithErrorAndTimeout(t, concurrentUploadRequestTimeout, ts.URL, bucket, name, data, requestHeaders{token: token, tenantID: tenantID})
 			results <- concurrentUploadResult{status: status, err: uploadErr}
 		}(i)
 	}
