@@ -1,4 +1,3 @@
-// Package scaffold Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_4_scaffold_sdk_first_run_fix/allyourbase_dev/internal/scaffold/scaffold_templates.go.
 package scaffold
 
 import (
@@ -147,7 +146,7 @@ const me = await ayb.auth.me();
 `, opts.Name)
 }
 
-// TODO: Document packageJSON.
+// packageJSON returns a package.json string for the given scaffold template (react, next, or plain/express), including the appropriate dependencies and build scripts.
 func packageJSON(opts Options, tmpl string) string {
 	name := strings.ToLower(opts.Name)
 
@@ -204,7 +203,7 @@ func packageJSON(opts Options, tmpl string) string {
 	}
 }
 
-// TODO: Document nodePackageJSON.
+// nodePackageJSON returns a minimal package.json for plain Node.js and Express scaffold templates with tsx for development and tsc for production builds.
 func nodePackageJSON(name string) string {
 	return fmt.Sprintf(`{
   "name": "%s",
@@ -227,7 +226,7 @@ func nodePackageJSON(name string) string {
 `, name)
 }
 
-// TODO: Document aybClient.
+// aybClient returns the TypeScript source for a shared AYB client module that initializes the SDK with the server URL and provides in-memory session token management.
 func aybClient() string {
 	return `import { AYBClient } from "@allyourbase/js";
 
@@ -483,7 +482,7 @@ func expressTSConfig() string {
 `
 }
 
-// TODO: Document nodeMain.
+// nodeMain returns the TypeScript entry point source that checks AYB server health and lists items, injecting the provided body for template-specific item display logic.
 func nodeMain(listItemsBody string) string {
 	return fmt.Sprintf(`import { ayb } from "./lib/ayb";
 

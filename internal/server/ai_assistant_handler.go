@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/ai_assistant_handler.go.
 package server
 
 import (
@@ -29,7 +28,7 @@ type aiAssistantRequest struct {
 	Model    string `json:"model,omitempty"`
 }
 
-// TODO: Document Server.handleAdminAIAssistant.
+// handleAdminAIAssistant handles synchronous AI assistant requests, decoding the query and returning the complete response as JSON.
 func (s *Server) handleAdminAIAssistant(w http.ResponseWriter, r *http.Request) {
 	if s.assistantSvc == nil {
 		httputil.WriteError(w, http.StatusNotFound, ai.ErrAssistantDisabled.Error())
@@ -49,7 +48,7 @@ func (s *Server) handleAdminAIAssistant(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
-// TODO: Document Server.handleAdminAIAssistantStream.
+// handleAdminAIAssistantStream handles streaming AI assistant requests, sending response chunks as Server-Sent Events with start, chunk, done, and error event types.
 func (s *Server) handleAdminAIAssistantStream(w http.ResponseWriter, r *http.Request) {
 	if s.assistantSvc == nil {
 		httputil.WriteError(w, http.StatusNotFound, ai.ErrAssistantDisabled.Error())
@@ -95,7 +94,7 @@ func (s *Server) handleAdminAIAssistantStream(w http.ResponseWriter, r *http.Req
 	_ = writeSSEJSON(w, flusher, "done", resp)
 }
 
-// TODO: Document Server.handleAdminAIAssistantHistory.
+// handleAdminAIAssistantHistory returns paginated AI assistant conversation history, optionally filtered by mode.
 func (s *Server) handleAdminAIAssistantHistory(w http.ResponseWriter, r *http.Request) {
 	if s.assistantSvc == nil {
 		httputil.WriteError(w, http.StatusNotFound, ai.ErrAssistantDisabled.Error())
@@ -125,7 +124,7 @@ func (s *Server) handleAdminAIAssistantHistory(w http.ResponseWriter, r *http.Re
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"history": history, "total": total})
 }
 
-// TODO: Document decodeAssistantRequest.
+// decodeAssistantRequest parses and validates the AI assistant JSON request body, enforcing a non-empty query with a maximum length and a valid mode if specified.
 func decodeAssistantRequest(w http.ResponseWriter, r *http.Request) (ai.AssistantRequest, bool) {
 	var body aiAssistantRequest
 	if !httputil.DecodeJSON(w, r, &body) {

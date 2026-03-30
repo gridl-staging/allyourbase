@@ -1,4 +1,3 @@
-// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/auth.go.
 package pbmigrate
 
 import (
@@ -101,7 +100,7 @@ func (m *Migrator) migrateAuthUsers(ctx context.Context, tx *sql.Tx, collections
 	return nil
 }
 
-// TODO: Document parseAuthUsers.
+// parseAuthUsers converts raw PocketBase records into AuthUser structs, extracting standard auth fields, detecting duplicate emails, and collecting custom schema fields.
 func parseAuthUsers(records []PBRecord, schema []PBField) ([]AuthUser, error) {
 	users := make([]AuthUser, 0, len(records))
 	// Track emails seen so far for duplicate detection (case-insensitive).

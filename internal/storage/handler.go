@@ -20,7 +20,6 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Handler serves storage HTTP endpoints.
 type Handler struct {
 	svc           *Service
 	isAdmin       func(*http.Request) bool
@@ -56,7 +55,6 @@ const (
 	defaultUploadTimeout = 5 * time.Minute
 )
 
-// NewHandler creates a new storage handler.
 func NewHandler(svc *Service, logger *slog.Logger, maxFileSize int64, cdnURL string, isAdmin ...func(*http.Request) bool) *Handler {
 	var isAdminFn func(*http.Request) bool
 	if len(isAdmin) > 0 {
@@ -166,7 +164,6 @@ func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, listResponse{Items: items, TotalItems: total})
 }
 
-// TODO: Document Handler.HandleUpload.
 func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	input, ok := h.parseUploadRequest(w, r)
 	if !ok {
@@ -413,7 +410,6 @@ func (h *Handler) callerUserID(r *http.Request) *string {
 	return nil
 }
 
-// serveFile downloads a file from storage and streams it to the response writer with appropriate cache headers and ETag validation. If the request contains image transform parameters, the image is processed and served in the requested format; otherwise the raw file is served as-is.
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, bucket, name string, isPublic bool) {
 	reader, obj, err := h.svc.Download(r.Context(), bucket, name)
 	if err != nil {
@@ -445,7 +441,7 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, bucket, name
 	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	w.Header().Set("Cache-Control", cacheControlRaw(isPublic))
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, reader)
+	_, _ = io.Copy(w, reader)
 }
 
 // hasTransformParams returns true if the request contains image transform query parameters.

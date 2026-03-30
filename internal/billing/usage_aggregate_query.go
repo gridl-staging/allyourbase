@@ -1,4 +1,3 @@
-// Package billing Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/billing/usage_aggregate_query.go.
 package billing
 
 import (
@@ -16,7 +15,7 @@ type normalizedListUsageOpts struct {
 	Offset     int
 }
 
-// TODO: Document normalizeListUsageOpts.
+// normalizeListUsageOpts validates and normalizes list usage options, resolving the date range from period or explicit bounds and applying default limits.
 func normalizeListUsageOpts(opts ListUsageOpts, now time.Time) (normalizedListUsageOpts, error) {
 	from, to, err := resolveUsageDateRange(opts.Period, opts.From, opts.To, now)
 	if err != nil {
@@ -59,7 +58,7 @@ type normalizedTrendOpts struct {
 	To          time.Time
 }
 
-// TODO: Document normalizeTrendOpts.
+// normalizeTrendOpts validates the metric name and granularity, resolves the date range, and returns normalized trend query options.
 func normalizeTrendOpts(opts TrendOpts, now time.Time) (normalizedTrendOpts, error) {
 	metric := strings.TrimSpace(opts.Metric)
 	if err := ValidateMetric(metric); err != nil {
@@ -95,7 +94,7 @@ type normalizedBreakdownOpts struct {
 	Limit   int
 }
 
-// TODO: Document normalizeBreakdownOpts.
+// normalizeBreakdownOpts validates the metric, group_by dimension, and date range, and applies default limits for breakdown queries.
 func normalizeBreakdownOpts(opts BreakdownOpts, now time.Time) (normalizedBreakdownOpts, error) {
 	metric := strings.TrimSpace(opts.Metric)
 	if err := ValidateMetric(metric); err != nil {
@@ -151,7 +150,7 @@ func ValidateBreakdownMetricGroup(metric, groupBy string) error {
 	return validateBreakdownMetricGroup(metric, groupBy)
 }
 
-// TODO: Document resolveUsageDateRange.
+// resolveUsageDateRange converts a period name or explicit from/to timestamps into a concrete UTC date range suitable for usage queries.
 func resolveUsageDateRange(period string, from, to time.Time, now time.Time) (time.Time, time.Time, error) {
 	period = strings.TrimSpace(period)
 	if period == "" {
@@ -174,7 +173,7 @@ func resolveUsageDateRange(period string, from, to time.Time, now time.Time) (ti
 	return ResolvePeriodRange(period, fromStr, toStr, now)
 }
 
-// TODO: Document buildListTenantUsageQuery.
+// buildListTenantUsageQuery returns a SQL query that aggregates per-tenant usage metrics over a date range with the specified sort order and pagination.
 func buildListTenantUsageQuery(sortColumn, sortDir string) string {
 	return fmt.Sprintf(`SELECT
 		u.tenant_id::text,
@@ -193,7 +192,7 @@ func buildListTenantUsageQuery(sortColumn, sortDir string) string {
 	LIMIT $3 OFFSET $4`, sortColumn, sortDir)
 }
 
-// TODO: Document buildTrendQuery.
+// buildTrendQuery constructs a time-series SQL query that buckets usage data by the requested granularity (hour or day/week/month) for a given metric.
 func buildTrendQuery(opts TrendOpts) (string, []any, error) {
 	if err := ValidateMetric(opts.Metric); err != nil {
 		return "", nil, err

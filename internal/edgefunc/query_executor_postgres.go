@@ -90,7 +90,7 @@ func (e *PostgresQueryExecutor) QueryRaw(ctx context.Context, sql string, args .
 	return e.queryRows(ctx, trimmedSQL, "executing raw query", args...)
 }
 
-// TODO: Document PostgresQueryExecutor.queryRows.
+// queryRows executes a SQL query against the pool and scans all result rows into maps keyed by column name.
 func (e *PostgresQueryExecutor) queryRows(ctx context.Context, sql, queryErrorContext string, args ...any) (QueryResult, error) {
 	if e.pool == nil {
 		return QueryResult{}, fmt.Errorf("postgres query executor requires a pool")

@@ -163,8 +163,6 @@ func staticSPAHandler(adminPath string) http.HandlerFunc {
 	}
 }
 
-// serveEmbeddedFile writes a file from the embedded UI FS to w.
-// Returns false if the file doesn't exist (caller should fall back).
 func serveEmbeddedFile(w http.ResponseWriter, path string, mustExist bool) bool {
 	f, err := ui.DistDirFS.Open(path)
 	if err != nil {
@@ -192,7 +190,7 @@ func serveEmbeddedFile(w http.ResponseWriter, path string, mustExist bool) bool 
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, f)
+	_, _ = io.Copy(w, f)
 	return true
 }
 
@@ -284,6 +282,15 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+
+		// HSTS: only advertise when the request arrived over TLS (direct or
+		// via a trusted reverse proxy that sets X-Forwarded-Proto).
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -498,7 +505,7 @@ func APIRouteRateLimitMiddleware(authenticated, anonymous *auth.RateLimiter, aut
 	}
 }
 
-// TODO: Document handleRateLimitDecision.
+// handleRateLimitDecision sets X-RateLimit response headers and, if the request is not allowed, writes a 429 response with a Retry-After header and returns false.
 func handleRateLimitDecision(w http.ResponseWriter, limit int, allowed bool, remaining int, resetTime time.Time) bool {
 	w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
 	w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))

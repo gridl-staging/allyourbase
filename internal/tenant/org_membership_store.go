@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/org_membership_store.go.
 package tenant
 
 import (
@@ -52,7 +51,7 @@ func scanOrgMembership(row pgx.Row) (*OrgMembership, error) {
 	return &membership, nil
 }
 
-// TODO: Document scanOrgMemberships.
+// scanOrgMemberships collects all rows into a slice, returning an empty (non-nil) slice when no rows exist.
 func scanOrgMemberships(rows pgx.Rows) ([]OrgMembership, error) {
 	var memberships []OrgMembership
 	for rows.Next() {
@@ -71,7 +70,7 @@ func scanOrgMemberships(rows pgx.Rows) ([]OrgMembership, error) {
 	return memberships, nil
 }
 
-// TODO: Document PostgresOrgMembershipStore.AddOrgMembership.
+// AddOrgMembership inserts a new membership within a transaction that locks the org row first to prevent concurrent duplicate inserts.
 func (s *PostgresOrgMembershipStore) AddOrgMembership(ctx context.Context, orgID, userID, role string) (*OrgMembership, error) {
 	if !IsValidRole(role) {
 		return nil, ErrInvalidRole
@@ -115,7 +114,7 @@ func (s *PostgresOrgMembershipStore) AddOrgMembership(ctx context.Context, orgID
 	return membership, nil
 }
 
-// TODO: Document PostgresOrgMembershipStore.GetOrgMembership.
+// GetOrgMembership returns a single membership by org and user ID, or ErrOrgMembershipNotFound if it does not exist.
 func (s *PostgresOrgMembershipStore) GetOrgMembership(ctx context.Context, orgID, userID string) (*OrgMembership, error) {
 	membership, err := scanOrgMembership(s.pool.QueryRow(ctx,
 		`SELECT `+orgMembershipColumns+`
@@ -133,7 +132,7 @@ func (s *PostgresOrgMembershipStore) GetOrgMembership(ctx context.Context, orgID
 	return membership, nil
 }
 
-// TODO: Document PostgresOrgMembershipStore.ListOrgMemberships.
+// ListOrgMemberships returns all memberships for an org, ordered by creation time, within a transaction that verifies the org exists.
 func (s *PostgresOrgMembershipStore) ListOrgMemberships(ctx context.Context, orgID string) ([]OrgMembership, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -183,7 +182,7 @@ func (s *PostgresOrgMembershipStore) ListUserOrgMemberships(ctx context.Context,
 	return scanOrgMemberships(rows)
 }
 
-// TODO: Document PostgresOrgMembershipStore.RemoveOrgMembership.
+// RemoveOrgMembership deletes a membership, refusing to remove the last owner to prevent orphaned orgs.
 func (s *PostgresOrgMembershipStore) RemoveOrgMembership(ctx context.Context, orgID, userID string) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -223,7 +222,7 @@ func (s *PostgresOrgMembershipStore) RemoveOrgMembership(ctx context.Context, or
 	return nil
 }
 
-// TODO: Document PostgresOrgMembershipStore.UpdateOrgMembershipRole.
+// UpdateOrgMembershipRole changes a member's role, refusing to demote the last owner to prevent orphaned orgs.
 func (s *PostgresOrgMembershipStore) UpdateOrgMembershipRole(ctx context.Context, orgID, userID, role string) (*OrgMembership, error) {
 	if !IsValidRole(role) {
 		return nil, ErrInvalidRole
@@ -270,7 +269,7 @@ func (s *PostgresOrgMembershipStore) UpdateOrgMembershipRole(ctx context.Context
 	return updatedMembership, nil
 }
 
-// TODO: Document lockOrgMembershipOrg.
+// lockOrgMembershipOrg acquires a FOR KEY SHARE lock on the org row to ensure it is not deleted mid-transaction, returning ErrOrgNotFound if absent.
 func lockOrgMembershipOrg(ctx context.Context, tx pgx.Tx, orgID string) error {
 	var lockedOrgID string
 	err := tx.QueryRow(ctx,

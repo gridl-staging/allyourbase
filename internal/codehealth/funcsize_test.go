@@ -20,7 +20,6 @@ const maxFunctionLines = 100
 var functionSizeAllowlist = map[string]int{
 	// Batch mutation handlers keep SQL clause assembly and result shaping together
 	// to preserve shared transactional behavior and error semantics.
-	"api.Handler.execBatchOp":  127,
 	"api.Handler.handleBatch":  100,
 	"api.Handler.handleUpdate": 100,
 	"ai.CompactSchemaContext":  109,
@@ -30,26 +29,17 @@ var functionSizeAllowlist = map[string]int{
 	"auth.init":                        111,
 	"cli.flyProvider.Deploy":           111,
 	"cli.runFunctionsDeploy":           114,
-	"cli.runFunctionsInvoke":           119,
 	"cli.runPushListDevices":           100,
-	"cli.runQuery":                     134,
 	"cli.runStartDetached":             113,
 	"cli.runStartForeground":           103,
-	"cli.runUninstall":                 139,
 	"cli.showTableDetail":              104,
 	// Default config wiring is an explicit stage non-goal for extraction.
-	"config.Default":      185,
-	"config.applyAuthEnv": 124,
-	"main.run":            103,
-	// Recursive GraphQL where-clause lowering is intentionally centralized.
-	"graphql.resolveWhere":              148,
-	"nhostmigrate.Migrator.buildPlan":   102,
+	"config.Default":                    185,
+	"main.run":                          103,
 	"pgmanager.Manager.Start":           117,
 	"sbmigrate.Migrator.migrateData":    102,
 	"sbmigrate.Migrator.migrateSchema":  113,
 	"sbmigrate.Migrator.migrateStorage": 116,
-	"schemadiff.FromSchemaCache":        101,
-	"server.handleEdgeFuncInvoke":       112,
 	// Template-heavy schema/client generators are kept contiguous for readability
 	// of emitted output and to avoid fragmented string assembly wrappers.
 	"templates.blogTemplate.Schema":          110,
@@ -66,6 +56,14 @@ type oversizedFunction struct {
 	Key       string
 	LineCount int
 	Path      string
+}
+
+func TestFunctionSizeAllowlistDoesNotIncludeResolveWhere(t *testing.T) {
+	t.Parallel()
+
+	if _, exists := functionSizeAllowlist["graphql.resolveWhere"]; exists {
+		t.Fatal("functionSizeAllowlist must not include graphql.resolveWhere")
+	}
 }
 
 func TestFunctionSizeAllowlist(t *testing.T) {

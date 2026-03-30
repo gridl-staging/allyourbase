@@ -1,4 +1,4 @@
-.PHONY: build dev test test-sdk test-ui test-integration test-demo-smoke test-demo-e2e test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-500 load-http-1000 load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-5000 load-realtime-ws-10000 load-sustained-soak load-sustained-soak-local
+.PHONY: build dev test test-sdk test-sdk-go test-sdk-python test-sdk-dart test-sdk-swift test-sdk-kotlin test-sdk-react test-sdk-ssr test-sdk-all test-ui test-integration test-demo-smoke test-demo-e2e test-e2e test-smoke test-browser-full test-full test-all test-everything test-api-smoke test-api-journey lint check check-sizes check-ui-lint check-browser-tests-lint check-func-sizes check-installer check-sync-pipeline check-sdk-build release-candidate-check clean ui demos release docker docker-runtime-smoke help sync-openapi build-postgres load-admin-status load-admin-status-local load-auth-request-path load-auth-request-path-local load-data-path load-data-path-local load-data-pool-pressure load-data-pool-pressure-local load-http-100 load-http-500 load-http-1000 load-realtime-ws load-realtime-ws-local load-realtime-ws-1000 load-realtime-ws-5000 load-realtime-ws-10000 load-sustained-soak load-sustained-soak-local
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -36,20 +36,30 @@ load_export_env() { \
 	export AYB_RATE_LIMIT_API_ANONYMOUS="$${AYB_RATE_LIMIT_API_ANONYMOUS:-$(LOAD_API_ANON_RATE_LIMIT_DEFAULT)}"; \
 	export AYB_BASE_URL="$${AYB_BASE_URL:-$(LOAD_DEFAULT_BASE_URL)}"; \
 }; \
-load_export_auth_env() { \
-	local resolved_auth_jwt_secret="$${AYB_AUTH_JWT_SECRET:-}"; \
-	if [ -z "$$resolved_auth_jwt_secret" ]; then \
-		resolved_auth_jwt_secret="$$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")"; \
-	fi; \
-	export AYB_AUTH_ENABLED="$${AYB_AUTH_ENABLED:-$(LOAD_AUTH_ENABLED_DEFAULT)}"; \
-	export AYB_AUTH_JWT_SECRET="$$resolved_auth_jwt_secret"; \
-}; \
-load_resolve_admin_token() { \
-	local resolved_admin_token="$${AYB_ADMIN_TOKEN:-}"; \
-	if [ -z "$$resolved_admin_token" ] && [ -f "$${HOME}/.ayb/admin-token" ]; then \
-		local admin_password login_payload login_response; \
-		admin_password="$$(head -n 1 "$${HOME}/.ayb/admin-token" | sed 's/\r$$//')"; \
-		if [ -n "$$admin_password" ]; then \
+	load_export_auth_env() { \
+		local resolved_auth_jwt_secret="$${AYB_AUTH_JWT_SECRET:-}"; \
+		if [ -z "$$resolved_auth_jwt_secret" ]; then \
+			resolved_auth_jwt_secret="$$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")"; \
+		fi; \
+		export AYB_AUTH_ENABLED="$${AYB_AUTH_ENABLED:-$(LOAD_AUTH_ENABLED_DEFAULT)}"; \
+		export AYB_AUTH_JWT_SECRET="$$resolved_auth_jwt_secret"; \
+	}; \
+	load_base_url_is_loopback() { \
+		python3 -c "import ipaddress,sys; from urllib.parse import urlparse; host = (urlparse(sys.argv[1]).hostname or ''); \
+if host == 'localhost': raise SystemExit(0); \
+try: raise SystemExit(0 if ipaddress.ip_address(host).is_loopback else 1); \
+except ValueError: raise SystemExit(1)" "$${AYB_BASE_URL:-$(LOAD_DEFAULT_BASE_URL)}"; \
+	}; \
+	load_resolve_admin_token() { \
+		local resolved_admin_token="$${AYB_ADMIN_TOKEN:-}"; \
+		if [ -z "$$resolved_admin_token" ] && ! load_base_url_is_loopback; then \
+			printf "AYB_ADMIN_TOKEN must be set for non-loopback AYB_BASE_URL; refusing ~/.ayb/admin-token fallback for %s\n" "$$AYB_BASE_URL" >&2; \
+			return 1; \
+		fi; \
+		if [ -z "$$resolved_admin_token" ] && [ -f "$${HOME}/.ayb/admin-token" ]; then \
+			local admin_password login_payload login_response; \
+			admin_password="$$(head -n 1 "$${HOME}/.ayb/admin-token" | sed 's/\r$$//')"; \
+			if [ -n "$$admin_password" ]; then \
 			login_payload="$$(python3 -c "import json,sys; print(json.dumps(dict(password=sys.argv[1])))" "$$admin_password")"; \
 			login_response="$$(curl -fsS -H "Content-Type: application/json" --data "$$login_payload" "$${AYB_BASE_URL%/}/api/admin/auth" 2>/dev/null || true)"; \
 			if [ -n "$$login_response" ]; then \
@@ -111,6 +121,36 @@ test: ## Run Go unit tests (no DB, fast)
 
 test-sdk: ## Run SDK unit tests (vitest, no browser)
 	cd sdk && npm test
+
+test-sdk-go: ## Run Go SDK checks
+	cd sdk_go && go vet ./... && go test -count=1 ./...
+
+test-sdk-python: ## Run Python SDK checks
+	cd sdk_python && python3 -m pip install ".[dev]" -q && python3 -m ruff check src/ --ignore E501 && python3 -m pytest
+
+test-sdk-dart: ## Run Dart SDK checks
+	cd sdk_dart && dart pub get && dart analyze && dart test
+
+test-sdk-swift: ## Run Swift SDK build + tests (macOS)
+	cd sdk_swift && swift build && swift run AllyourbaseTestRunner
+
+test-sdk-kotlin: ## Run Kotlin SDK tests (requires JDK)
+	cd sdk_kotlin && ./gradlew test
+
+test-sdk-react: ## Run React SDK checks (requires JS SDK deps for relative source imports)
+	cd sdk && npm ci && cd ../sdk_react && pnpm install && pnpm test
+
+test-sdk-ssr: ## Run SSR SDK checks (requires JS SDK deps for relative source imports)
+	cd sdk && npm ci && cd ../sdk_ssr && pnpm install && pnpm test
+
+test-sdk-all: ## Run all locally-runnable SDK checks (excludes Kotlin)
+	$(MAKE) test-sdk
+	$(MAKE) test-sdk-go
+	$(MAKE) test-sdk-python
+	$(MAKE) test-sdk-dart
+	$(MAKE) test-sdk-swift
+	$(MAKE) test-sdk-react
+	$(MAKE) test-sdk-ssr
 
 test-ui: ## Run UI component tests (vitest + jsdom, no browser)
 	cd ui && pnpm test
@@ -200,13 +240,11 @@ test-full: test-all test-e2e ## Run every automated test: unit + integration + S
 test-demo-e2e: build ## Run demo app E2E tests — Playwright suites for kanban + live-polls (starts demo, runs tests, stops)
 	@cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh
 
-test-api-smoke: build ## Run API smoke tests against a live server (starts server, runs tests 5-16, stops server)
-	@echo "Starting server for API smoke tests..."
-	@./ayb start; \
-	cd _dev/manual_smoke_tests && ./run_all_tests.sh; \
-	RESULT=$$?; \
-	../../ayb stop 2>/dev/null || true; \
-	exit $$RESULT
+test-api-journey: build ## Run full_journey API smoke lifecycle via run-with-ayb
+	@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && python3 full_journey.test.py'
+
+test-api-smoke: build ## Run API smoke suite via run-with-ayb (starts server, runs run_all_tests.sh, stops server)
+	@AYB_STORAGE_ENABLED=true bash scripts/run-with-ayb.sh 'cd _dev/manual_smoke_tests && ./run_all_tests.sh'
 
 test-everything: build ## Run absolutely everything: unit + integration + SDK + UI + browser + API smoke tests
 	@failed=""; passed=""; \
@@ -221,10 +259,11 @@ test-everything: build ## Run absolutely everything: unit + integration + SDK + 
 	run_step "Go unit tests"      "go tool gotestsum --format testdox -- -count=1 ./..."; \
 	run_step "Integration tests"  "bash scripts/run-integration-tests.sh"; \
 	run_step "SDK tests"          "cd sdk && npm test"; \
+	run_step "All SDK tests"      "$(MAKE) test-sdk-all"; \
 	run_step "UI component tests" "cd ui && pnpm test"; \
-	run_step "Playwright e2e"     "bash scripts/run-with-ayb.sh 'cd ui && npm run test:browser'"; \
+	run_step "Playwright e2e"     "$(MAKE) test-e2e"; \
 	run_step "Demo app E2E"       "cd _dev/manual_smoke_tests && AYB_BIN=$(CURDIR)/ayb bash 18_demo_e2e.test.sh"; \
-	run_step "API smoke tests"    "./ayb start; cd _dev/manual_smoke_tests && ./run_all_tests.sh; R=\$$?; cd ../.. && ./ayb stop 2>/dev/null || true; exit \$$R"; \
+	run_step "API smoke tests"    "$(MAKE) test-api-smoke"; \
 	printf "\n\033[1m━━━━━━━━━━━━━━━━━━━━━━\033[0m\n"; \
 	printf "\033[1m  TEST SUMMARY\033[0m\n"; \
 	printf "\033[1m━━━━━━━━━━━━━━━━━━━━━━\033[0m\n"; \

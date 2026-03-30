@@ -1,4 +1,3 @@
-// Package sms MSG91Provider sends SMS messages via the MSG91 flow API.
 package sms
 
 import (
@@ -8,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const msg91DefaultBaseURL = "https://control.msg91.com"
@@ -30,10 +30,10 @@ func NewMSG91Provider(authKey, templateID, baseURL string) *MSG91Provider {
 		authKey:    authKey,
 		templateID: templateID,
 		baseURL:    baseURL,
+		client:     http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// sends an SMS message via the MSG91 flow API to the specified phone number, returning the message ID and status on success or an error if the request fails.
 func (p *MSG91Provider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/api/v5/flow/"
 
@@ -67,7 +67,7 @@ func (p *MSG91Provider) Send(ctx context.Context, to, body string) (*SendResult,
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("msg91: read response: %w", err)
 	}

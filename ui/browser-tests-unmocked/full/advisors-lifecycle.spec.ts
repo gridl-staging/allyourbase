@@ -1,4 +1,3 @@
-/* eslint-disable playwright/no-skipped-test -- unmocked advisor endpoints and dataset shape vary by environment; skips keep tests deterministic without conditional expects */
 import {
   test,
   expect,

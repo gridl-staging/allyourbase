@@ -8,9 +8,6 @@ export interface SqlEditorMockOptions {
   executeResponder?: (query: string) => MockApiResponse;
 }
 
-/**
- * TODO: Document mockAdminSqlEditorApis.
- */
 export async function mockAdminSqlEditorApis(
   page: Page,
   options: SqlEditorMockOptions = {},

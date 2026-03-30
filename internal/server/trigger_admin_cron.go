@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_3_webhook_and_trigger_proof/allyourbase_dev/internal/server/trigger_admin_cron.go.
 package server
 
 import (
@@ -124,7 +123,7 @@ func handleDisableCronTrigger(svc cronTriggerAdmin) http.HandlerFunc {
 	)
 }
 
-// TODO: Document handleManualRunCronTrigger.
+// handleManualRunCronTrigger returns an HTTP handler that manually invokes the edge function associated with an enabled cron trigger and returns the invocation result.
 func handleManualRunCronTrigger(svc cronTriggerAdmin, invoker edgefunc.FunctionInvoker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		trigger := getOwnedTrigger(w, r, func(ctx context.Context, triggerID string) (*edgefunc.CronTrigger, error) {

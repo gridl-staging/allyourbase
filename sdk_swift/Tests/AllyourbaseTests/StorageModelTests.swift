@@ -7,7 +7,7 @@ struct StorageModelTests {
 
     @Test("StorageObject decodes from canonical shape")
     func storageObjectDecodesFromCanonicalShape() throws {
-        let data = try dataFromJSON(ContractFixtures.storageObject)
+        let data = dataFromJSON(ContractFixtures.storageObject)
         let json = try AYBJSON.expectDictionary(AYBJSON.parse(data), "StorageObject")
 
         let obj = try StorageObject(from: json)
@@ -35,7 +35,7 @@ struct StorageModelTests {
             "updatedAt": NSNull(),
         ]
 
-        let data = try dataFromJSON(payload)
+        let data = dataFromJSON(payload)
         let json = try AYBJSON.expectDictionary(AYBJSON.parse(data), "StorageObject")
 
         let obj = try StorageObject(from: json)
@@ -47,7 +47,7 @@ struct StorageModelTests {
 
     @Test("StorageListResponse decodes items and totalItems")
     func storageListResponseDecodesFromCanonicalShape() throws {
-        let data = try dataFromJSON(ContractFixtures.storageListResponse)
+        let data = dataFromJSON(ContractFixtures.storageListResponse)
         let json = try AYBJSON.expectDictionary(AYBJSON.parse(data), "StorageListResponse")
 
         let response = try StorageListResponse(from: json)

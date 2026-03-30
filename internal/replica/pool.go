@@ -181,7 +181,6 @@ func (p *PoolRouter) HasReplicas() bool {
 	return len(p.replicas) > 0
 }
 
-// SetHealthy updates the set of healthy replica pools and rebuilds the weighted selection for load balancing. It is a no-op in passThrough mode and must be called when replica health changes to exclude unhealthy replicas from query routing.
 func (p *PoolRouter) SetHealthy(pools []*pgxpool.Pool) {
 	healthySet := make(map[*pgxpool.Pool]struct{}, len(pools))
 	for _, pool := range pools {
@@ -207,6 +206,13 @@ func (p *PoolRouter) SetHealthy(pools []*pgxpool.Pool) {
 		}
 	}
 
+	// Warn operators when all replicas drop out — all reads will hit the
+	// primary until at least one replica recovers.
+	if len(healthy) == 0 && len(p.replicas) > 0 && len(p.healthy) > 0 && p.logger != nil {
+		p.logger.Warn("all replicas unhealthy; reads falling back to primary",
+			slog.Int("total_replicas", len(p.replicas)),
+		)
+	}
 	p.healthy = healthy
 	p.selection = buildWeightedSelection(healthy)
 }
@@ -230,7 +236,7 @@ func (p *PoolRouter) RoutingStats() (primary, replica uint64) {
 	return p.primaryReads.Load(), p.replicaReads.Load()
 }
 
-// TODO: Document PoolRouter.AddReplicaEntry.
+// AddReplicaEntry appends a replica pool to the router, marks it as healthy, rebuilds the weighted selection, and disables passThrough mode.
 func (p *PoolRouter) AddReplicaEntry(pool *pgxpool.Pool, name string, cfg ReplicaConfig) {
 	if pool == nil {
 		return

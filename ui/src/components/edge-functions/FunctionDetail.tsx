@@ -54,7 +54,7 @@ export function FunctionDetail({ id, onBack, addToast }: FunctionDetailProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-300">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading function...
       </div>
@@ -75,7 +75,7 @@ export function FunctionDetail({ id, onBack, addToast }: FunctionDetailProps) {
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={onBack}
-          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+          className="p-1.5 rounded hover:bg-gray-100 dark:bg-gray-700"
           aria-label="Back"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -102,7 +102,7 @@ export function FunctionDetail({ id, onBack, addToast }: FunctionDetailProps) {
               "px-3 py-1 text-xs rounded font-medium",
               tab === t.key
                 ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 dark:text-gray-200",
+                : "text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200",
             )}
           >
             {t.label}

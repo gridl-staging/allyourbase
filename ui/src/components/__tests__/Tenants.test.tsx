@@ -31,7 +31,7 @@ import {
   mockUpdateTenant,
   mockUpdateTenantMemberRole,
 } from "./tenants-test-helpers";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { Tenants } from "../Tenants";
 
 describe("Tenants", () => {
@@ -39,6 +39,14 @@ describe("Tenants", () => {
     mockFetchTenantList.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Tenants />);
     expect(screen.getByText(/loading tenants/i)).toBeInTheDocument();
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockFetchTenantList.mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<Tenants />);
+
+    const className = screen.getByText(/loading tenants/i).className;
+    expectWcagContrastToken(className);
   });
 
   it("renders tenant list with names and state badges after load", async () => {
@@ -181,6 +189,18 @@ describe("Tenants", () => {
     expect(screen.getByTestId("tenant-member-role-u-2")).toHaveTextContent("admin");
   });
 
+  it("member joined timestamp uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<Tenants />);
+    const user = userEvent.setup();
+    await screen.findByText("Acme");
+    await user.click(screen.getByText("Acme"));
+    await user.click(screen.getByText("Members"));
+    const section = await screen.findByTestId("tenant-members-section");
+
+    const className = within(section).getAllByText("2026-01-01T00:00:00Z")[0].className;
+    expectWcagContrastToken(className);
+  });
+
   it("adds a member from the members panel", async () => {
     renderWithProviders(<Tenants />);
     const user = userEvent.setup();
@@ -233,6 +253,18 @@ describe("Tenants", () => {
     await user.click(screen.getByText("Audit"));
     await expect(screen.findByText("tenant.created")).resolves.toBeInTheDocument();
     expect(screen.getByText("success")).toBeInTheDocument();
+  });
+
+  it("audit actor uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<Tenants />);
+    const user = userEvent.setup();
+    await screen.findByText("Acme");
+    await user.click(screen.getByText("Acme"));
+    await user.click(screen.getByText("Audit"));
+    const section = await screen.findByTestId("tenant-audit-section");
+
+    const className = within(section).getByText("u-1").className;
+    expectWcagContrastToken(className);
   });
 
   it("validates required create-tenant fields and slug format before submit", async () => {

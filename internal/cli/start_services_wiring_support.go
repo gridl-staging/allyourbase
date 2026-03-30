@@ -122,7 +122,7 @@ func wireAIEmbedding(srv *server.Server, reg *ai.Registry, aiCfg config.AIConfig
 	logger.Info("semantic search enabled", "provider", embProviderName, "model", finalModel)
 }
 
-// TODO: Document wireDashboardAIAssistant.
+// wireDashboardAIAssistant builds the dashboard AI assistant service from config and registers it on the server if enabled.
 func wireDashboardAIAssistant(
 	srv *server.Server,
 	cfg *config.Config,
@@ -143,7 +143,7 @@ func wireDashboardAIAssistant(
 	logger.Info("dashboard AI assistant enabled")
 }
 
-// TODO: Document buildDashboardAIAssistantService.
+// buildDashboardAIAssistantService creates an AssistantService from the dashboard AI config, returning nil if the feature is disabled.
 func buildDashboardAIAssistantService(
 	cfg *config.Config,
 	reg *ai.Registry,
@@ -280,7 +280,6 @@ func wireJobDomainHandlers(ctx context.Context, srv *server.Server, jobSvc *jobs
 	}
 }
 
-// wireTenantServices sets up tenant usage, quota, rate limiting, breaker, and service.
 func wireTenantServices(ctx context.Context, srv *server.Server, cfg *config.Config, pool *postgres.Pool, state *shutdownState, logger *slog.Logger) {
 	if pool == nil {
 		return
@@ -322,6 +321,11 @@ func wireTenantServices(ctx context.Context, srv *server.Server, cfg *config.Con
 
 	// Periodic breaker snapshot.
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("tenant breaker snapshot panic recovered", "panic", r)
+			}
+		}()
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {

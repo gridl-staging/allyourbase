@@ -1,5 +1,3 @@
-// Package emailtemplates provides custom email template storage, rendering,
-// and fallback to built-in defaults embedded in the binary.
 package emailtemplates
 
 import (
@@ -83,9 +81,6 @@ type BuiltinTemplate struct {
 	Variables       []string
 }
 
-// DefaultBuiltins constructs the built-in template map from the embedded
-// mailer templates and their default subjects. Used by start.go to wire
-// the email template service.
 func DefaultBuiltins() map[string]BuiltinTemplate {
 	systemVars, mfaVars := []string{"AppName", "ActionURL"}, []string{"AppName", "Code"}
 	builtins := make(map[string]BuiltinTemplate, 5)

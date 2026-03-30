@@ -19,9 +19,6 @@ function assertSafeSQLInteger(value: number, label: string): number {
   return value;
 }
 
-/**
- * TODO: Document ensureUserByEmail.
- */
 export async function ensureUserByEmail(
   request: APIRequestContext,
   token: string,
@@ -56,9 +53,6 @@ export async function cleanupUserByEmail(
   await execSQL(request, token, `DELETE FROM _ayb_users WHERE email = '${escapedEmail}'`);
 }
 
-/**
- * TODO: Document seedApiKey.
- */
 export async function seedApiKey(
   request: APIRequestContext,
   token: string,
@@ -96,9 +90,6 @@ export async function cleanupApiKeyByName(
   await execSQL(request, token, `DELETE FROM _ayb_api_keys WHERE name = '${sqlLiteral(name)}'`);
 }
 
-/**
- * TODO: Document seedOAuthClient.
- */
 export async function seedOAuthClient(
   request: APIRequestContext,
   token: string,
@@ -138,9 +129,6 @@ export async function seedOAuthClient(
   return { id, clientId, name, clientSecret };
 }
 
-/**
- * TODO: Document cleanupOAuthClientByName.
- */
 export async function cleanupOAuthClientByName(
   request: APIRequestContext,
   token: string,
@@ -154,9 +142,6 @@ export async function cleanupOAuthClientByName(
   await execSQL(request, token, `DELETE FROM _ayb_oauth_clients WHERE name = '${safeName}'`);
 }
 
-/**
- * TODO: Document seedAdminApp.
- */
 export async function seedAdminApp(
   request: APIRequestContext,
   token: string,
@@ -196,9 +181,6 @@ export async function cleanupAdminAppByName(
   await execSQL(request, token, `DELETE FROM _ayb_apps WHERE name = '${sqlLiteral(name)}'`);
 }
 
-/**
- * TODO: Document seedSupportTicket.
- */
 export async function seedSupportTicket(
   request: APIRequestContext,
   token: string,
@@ -259,9 +241,6 @@ export async function cleanupSupportTicketByID(
   );
 }
 
-/**
- * TODO: Document seedIncident.
- */
 export async function seedIncident(
   request: APIRequestContext,
   token: string,
@@ -347,9 +326,6 @@ interface SeedRequestLogEntryOptions {
   ipAddress?: string;
 }
 
-/**
- * TODO: Document seedRequestLogEntry.
- */
 export async function seedRequestLogEntry(
   request: APIRequestContext,
   token: string,
@@ -429,9 +405,6 @@ interface SeedAuditLogEntryOptions {
   ipAddress?: string;
 }
 
-/**
- * TODO: Document seedAuditLogEntry.
- */
 export async function seedAuditLogEntry(
   request: APIRequestContext,
   token: string,
@@ -510,9 +483,6 @@ export interface AdminStatsSnapshot {
   db_pool_max?: number;
 }
 
-/**
- * TODO: Document fetchAdminStatsSnapshot.
- */
 export async function fetchAdminStatsSnapshot(
   request: APIRequestContext,
   token: string,
@@ -537,9 +507,6 @@ export async function fetchAdminStatsSnapshot(
   return body as AdminStatsSnapshot;
 }
 
-/**
- * TODO: Document seedEmailTemplate.
- */
 export async function seedEmailTemplate(
   request: APIRequestContext,
   token: string,
@@ -650,9 +617,6 @@ export interface SecurityAdvisorSnapshot {
   }>;
 }
 
-/**
- * TODO: Document fetchSecurityAdvisorReport.
- */
 export async function fetchSecurityAdvisorReport(
   request: APIRequestContext,
   token: string,
@@ -688,9 +652,6 @@ export interface PerformanceAdvisorSnapshot {
   }>;
 }
 
-/**
- * TODO: Document fetchPerformanceAdvisorReport.
- */
 export async function fetchPerformanceAdvisorReport(
   request: APIRequestContext,
   token: string,

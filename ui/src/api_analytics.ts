@@ -17,9 +17,6 @@ interface ListRequestLogsParams {
   offset?: number;
 }
 
-/**
- * TODO: Document listRequestLogs.
- */
 export function listRequestLogs(
   params?: ListRequestLogsParams,
 ): Promise<RequestLogListResponse> {

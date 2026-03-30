@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/cursor.go.
 package api
 
 import (
@@ -107,7 +106,7 @@ func projectedResultColumns(tbl *schema.Table, requestedFields []string) map[str
 	return result
 }
 
-// TODO: Document nextAvailableCursorSortAlias.
+// nextAvailableCursorSortAlias returns a unique alias for a cursor sort column that does not collide with any existing result column name, appending numeric suffixes if needed.
 func nextAvailableCursorSortAlias(resultColumns map[string]struct{}, sortIndex int) string {
 	baseAlias := fmt.Sprintf("%s%d", cursorSortSelectAliasPrefix, sortIndex)
 	if _, exists := resultColumns[baseAlias]; !exists {
@@ -125,7 +124,7 @@ func nextAvailableCursorSortAlias(resultColumns map[string]struct{}, sortIndex i
 	}
 }
 
-// TODO: Document prepareCursorSortProjection.
+// prepareCursorSortProjection adds hidden SELECT aliases for sort columns that are not in the requested field list, so cursor values can be extracted from query results and then stripped before returning to the client.
 func prepareCursorSortProjection(tbl *schema.Table, requestedFields []string, sortFields []SortField) cursorSortProjection {
 	if len(requestedFields) == 0 {
 		return cursorSortProjection{Fields: sortFields}
@@ -342,7 +341,7 @@ func buildListWithCursor(tbl *schema.Table, opts listOpts, sortFields []SortFiel
 	return dataQuery, allArgs
 }
 
-// TODO: Document stripCursorHelperFields.
+// stripCursorHelperFields removes the temporary sort-projection columns added by prepareCursorSortProjection from each result item before the response is sent to the client.
 func stripCursorHelperFields(items []map[string]any, helperColumns []string) {
 	if len(helperColumns) == 0 {
 		return

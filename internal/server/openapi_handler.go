@@ -1,4 +1,3 @@
-// Package server Provides HTTP handlers for the OpenAPI JSON specification and Swagger UI documentation with ETag-based caching.
 package server
 
 import (
@@ -43,7 +42,6 @@ func (c *openapiCache) get(builtAt time.Time) ([]byte, string, bool) {
 	return nil, "", false
 }
 
-// handleOpenAPIJSON is an HTTP handler that serves the OpenAPI specification as JSON. It uses ETag-based caching to support conditional requests, returning 304 Not Modified when the client's If-None-Match header matches the current ETag, or 503 Service Unavailable if the schema cache is not ready.
 func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	if s.schema == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "schema cache not ready")
@@ -71,7 +69,7 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) regenerateOpenAPISpec(sc *schema.SchemaCache) ([]byte, string) {

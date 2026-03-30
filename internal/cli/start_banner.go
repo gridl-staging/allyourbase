@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_5_webhooks_bug_and_dx_polish/allyourbase_dev/internal/cli/start_banner.go.
 package cli
 
 import (
@@ -98,7 +97,7 @@ func (h *multiHandler) WithGroup(name string) slog.Handler {
 	return &multiHandler{handlers: handlers}
 }
 
-// TODO: Document newLogger.
+// newLogger creates a structured logger that writes to stderr and optionally to a log file, returning the logger, a dynamic level control, the log file path, and a cleanup function.
 func newLogger(level, format string) (*slog.Logger, *slog.LevelVar, string, func()) {
 	var lvlVar slog.LevelVar
 	lvlVar.Set(parseSlogLevel(level))

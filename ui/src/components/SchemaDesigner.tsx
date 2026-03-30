@@ -73,7 +73,7 @@ export function SchemaDesigner({
   const effectiveRetry = onRetry ?? retry;
 
   if (effectiveLoading) {
-    return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">Loading schema designer...</div>;
+    return <div className="p-6 text-sm text-gray-500 dark:text-gray-300">Loading schema designer...</div>;
   }
 
   if (effectiveError) {
@@ -93,7 +93,7 @@ export function SchemaDesigner({
   }
 
   if (arrangedNodes.length === 0) {
-    return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">No tables available</div>;
+    return <div className="p-6 text-sm text-gray-500 dark:text-gray-300">No tables available</div>;
   }
 
   return (
@@ -108,7 +108,7 @@ export function SchemaDesigner({
           >
             <Minus className="w-3 h-3" />
           </button>
-          <span data-testid="schema-zoom-level" className="text-xs text-gray-500 dark:text-gray-400 w-10 text-center">
+          <span data-testid="schema-zoom-level" className="text-xs text-gray-500 dark:text-gray-300 w-10 text-center">
             {Math.round(zoom * 100)}%
           </span>
           <button
@@ -179,7 +179,7 @@ export function SchemaDesigner({
                   style={{ left: node.position.x, top: node.position.y }}
                 >
                   <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{node.label}</div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-2">{node.kind} · {node.columnCount} cols</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-300 mb-2">{node.kind} · {node.columnCount} cols</div>
                   <div className="space-y-0.5">
                     {node.columnsPreview.map((c) => (
                       <div key={c} className="text-[10px] text-gray-600 dark:text-gray-300 truncate">{c}</div>
@@ -195,14 +195,14 @@ export function SchemaDesigner({
           {selected ? (
             <>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{selected.schema}.{selected.name}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{selected.kind}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-300">{selected.kind}</p>
 
               <section>
                 <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Columns</h4>
                 <ul className="space-y-1">
                   {selected.columns.map((c) => (
                     <li key={c.name} className="text-xs text-gray-600 dark:text-gray-300">
-                      {c.name} <span className="text-gray-400">({c.type})</span>
+                      {c.name} <span className="text-gray-500">({c.type})</span>
                     </li>
                   ))}
                 </ul>
@@ -211,7 +211,7 @@ export function SchemaDesigner({
               <section>
                 <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Foreign Keys</h4>
                 {(selected.foreignKeys?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-gray-400">None</p>
+                  <p className="text-xs text-gray-500">None</p>
                 ) : (
                   <ul className="space-y-1">
                     {selected.foreignKeys.map((fk) => (
@@ -224,7 +224,7 @@ export function SchemaDesigner({
               <section>
                 <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Indexes</h4>
                 {selected.indexes.length === 0 ? (
-                  <p className="text-xs text-gray-400">None</p>
+                  <p className="text-xs text-gray-500">None</p>
                 ) : (
                   <ul className="space-y-1">
                     {selected.indexes.map((idx) => (
@@ -235,7 +235,7 @@ export function SchemaDesigner({
               </section>
             </>
           ) : (
-            <p className="text-xs text-gray-500 dark:text-gray-400">Select a table node to inspect details.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-300">Select a table node to inspect details.</p>
           )}
         </aside>
       </div>

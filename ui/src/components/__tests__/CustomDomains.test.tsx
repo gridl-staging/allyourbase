@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { CustomDomains } from "../CustomDomains";
 
 vi.mock("../../api_domains", () => ({
@@ -55,6 +55,25 @@ beforeEach(() => {
 });
 
 describe("CustomDomains", () => {
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    (api.listDomains as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<CustomDomains />);
+
+    const className = screen.getByText("Loading...").className;
+    expectWcagContrastToken(className);
+  });
+
+  it("delete action uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<CustomDomains />);
+    await waitFor(() => {
+      expect(screen.getByText("api.example.com")).toBeInTheDocument();
+    });
+
+    const deleteButton = screen.getByLabelText("Delete api.example.com");
+    expect(deleteButton.className).toContain("text-red-600");
+    expect(deleteButton.className).not.toContain("text-red-500");
+  });
+
   it("renders domain list with hostname/status/environment", async () => {
     renderWithProviders(<CustomDomains />);
     await waitFor(() => {

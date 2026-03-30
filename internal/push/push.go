@@ -30,3 +30,8 @@ type Result struct {
 type Provider interface {
 	Send(ctx context.Context, token string, msg *Message) (*Result, error)
 }
+
+// maxResponseSize caps how many bytes we read from a push-notification
+// provider's HTTP response.  APNs and FCM responses are small JSON — anything
+// larger signals a misbehaving upstream.
+const maxResponseSize = 64 << 10 // 64 KB

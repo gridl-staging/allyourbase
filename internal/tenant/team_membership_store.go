@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/team_membership_store.go.
 package tenant
 
 import (
@@ -52,7 +51,7 @@ func scanTeamMembership(row pgx.Row) (*TeamMembership, error) {
 	return &membership, nil
 }
 
-// TODO: Document scanTeamMemberships.
+// scanTeamMemberships collects all rows into a slice, returning an empty (non-nil) slice when no rows exist.
 func scanTeamMemberships(rows pgx.Rows) ([]TeamMembership, error) {
 	var memberships []TeamMembership
 	for rows.Next() {
@@ -71,7 +70,7 @@ func scanTeamMemberships(rows pgx.Rows) ([]TeamMembership, error) {
 	return memberships, nil
 }
 
-// TODO: Document PostgresTeamMembershipStore.AddTeamMembership.
+// AddTeamMembership inserts a new membership within a transaction that locks the team row first to prevent concurrent duplicate inserts.
 func (s *PostgresTeamMembershipStore) AddTeamMembership(ctx context.Context, teamID, userID, role string) (*TeamMembership, error) {
 	if !IsValidTeamRole(role) {
 		return nil, ErrInvalidRole
@@ -111,7 +110,7 @@ func (s *PostgresTeamMembershipStore) AddTeamMembership(ctx context.Context, tea
 	return membership, nil
 }
 
-// TODO: Document PostgresTeamMembershipStore.GetTeamMembership.
+// GetTeamMembership returns a single membership by team and user ID, or ErrTeamMembershipNotFound if it does not exist.
 func (s *PostgresTeamMembershipStore) GetTeamMembership(ctx context.Context, teamID, userID string) (*TeamMembership, error) {
 	membership, err := scanTeamMembership(s.pool.QueryRow(ctx,
 		`SELECT `+teamMembershipColumns+`
@@ -129,7 +128,7 @@ func (s *PostgresTeamMembershipStore) GetTeamMembership(ctx context.Context, tea
 	return membership, nil
 }
 
-// TODO: Document PostgresTeamMembershipStore.ListTeamMemberships.
+// ListTeamMemberships returns all memberships for a team, ordered by creation time, within a transaction that verifies the team exists.
 func (s *PostgresTeamMembershipStore) ListTeamMemberships(ctx context.Context, teamID string) ([]TeamMembership, error) {
 	tx, err := s.beginTeamMembershipTx(ctx, teamID, "list")
 	if err != nil {
@@ -174,7 +173,7 @@ func (s *PostgresTeamMembershipStore) ListUserTeamMemberships(ctx context.Contex
 	return scanTeamMemberships(rows)
 }
 
-// TODO: Document PostgresTeamMembershipStore.RemoveTeamMembership.
+// RemoveTeamMembership deletes a membership, returning ErrTeamMembershipNotFound if no matching row exists.
 func (s *PostgresTeamMembershipStore) RemoveTeamMembership(ctx context.Context, teamID, userID string) error {
 	tx, err := s.beginTeamMembershipTx(ctx, teamID, "remove")
 	if err != nil {
@@ -201,7 +200,7 @@ func (s *PostgresTeamMembershipStore) RemoveTeamMembership(ctx context.Context, 
 	return nil
 }
 
-// TODO: Document PostgresTeamMembershipStore.UpdateTeamMembershipRole.
+// UpdateTeamMembershipRole changes a member's role after validating it, returning ErrTeamMembershipNotFound if the membership does not exist.
 func (s *PostgresTeamMembershipStore) UpdateTeamMembershipRole(ctx context.Context, teamID, userID, role string) (*TeamMembership, error) {
 	if !IsValidTeamRole(role) {
 		return nil, ErrInvalidRole
@@ -248,7 +247,7 @@ func (s *PostgresTeamMembershipStore) beginTeamMembershipTx(ctx context.Context,
 	return tx, nil
 }
 
-// TODO: Document lockTeamMembershipTeam.
+// lockTeamMembershipTeam acquires a FOR KEY SHARE lock on the team row to ensure it is not deleted mid-transaction, returning ErrTeamNotFound if absent.
 func lockTeamMembershipTeam(ctx context.Context, tx pgx.Tx, teamID string) error {
 	var lockedTeamID string
 	err := tx.QueryRow(ctx,

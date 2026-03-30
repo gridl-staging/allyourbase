@@ -1,4 +1,3 @@
-// Package openapi Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/openapi/typemap.go.
 package openapi
 
 import (
@@ -44,13 +43,9 @@ func nullable(p *schemaProperty) *schemaProperty {
 	return &schemaProperty{OneOf: []*schemaProperty{p, nullProp}}
 }
 
-// pgTypeToSchema maps a PostgreSQL column type to a JSON Schema property.
-// It does not apply nullable or readOnly — callers handle those separately.
-func pgTypeToSchema(col *schema.Column) *schemaProperty {
-	return pgTypeToSchemaWithGeoJSONRefs(col, true)
-}
-
-// TODO: Document pgTypeToSchemaWithGeoJSONRefs.
+// pgTypeToSchemaWithGeoJSONRefs maps a column to a JSON Schema property, with
+// control over whether spatial columns emit $ref pointers to GeoJSON component
+// schemas or fall back to a plain "object" type.
 func pgTypeToSchemaWithGeoJSONRefs(col *schema.Column, emitGeoJSONComponentRefs bool) *schemaProperty {
 	// Enum columns: resolve to string with enum values.
 	if col.IsEnum && len(col.EnumValues) > 0 {
@@ -88,7 +83,9 @@ func spatialColumnProperty(col *schema.Column, emitGeoJSONComponentRefs bool) *s
 	}
 }
 
-// TODO: Document geoJSONComponentForColumn.
+// geoJSONComponentForColumn maps a column's PostGIS geometry type (Point,
+// Polygon, etc.) to the corresponding GeoJSON component schema name. Falls
+// back to the generic "GeoJSONGeometry" union for nil columns or unknown types.
 func geoJSONComponentForColumn(col *schema.Column) string {
 	if col == nil {
 		return "GeoJSONGeometry"
@@ -114,7 +111,8 @@ func geoJSONComponentForColumn(col *schema.Column) string {
 	}
 }
 
-// TODO: Document spatialColumnDescription.
+// spatialColumnDescription builds a human-readable description for a spatial
+// column's OpenAPI property, including SRID and geography qualifiers when present.
 func spatialColumnDescription(col *schema.Column, componentName string) string {
 	label := strings.TrimPrefix(componentName, "GeoJSON")
 	if label == "Geometry" || label == "" {

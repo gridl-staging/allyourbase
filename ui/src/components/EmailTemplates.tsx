@@ -272,7 +272,7 @@ export function EmailTemplates() {
 
   if (loadingList && !list) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-300">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading email templates...
       </div>
@@ -303,7 +303,7 @@ export function EmailTemplates() {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-lg font-semibold">Email Templates</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+        <p className="text-sm text-gray-500 dark:text-gray-300 mt-0.5">
           Customize built-in auth emails and manage app-specific templates
         </p>
       </div>
@@ -325,7 +325,7 @@ export function EmailTemplates() {
                     )}
                   >
                     <div className="font-mono text-xs text-gray-800 dark:text-gray-200">{item.templateKey}</div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-300">
                       <span
                         className={cn(
                           "px-1.5 py-0.5 rounded",
@@ -342,15 +342,15 @@ export function EmailTemplates() {
               ))}
             </ul>
           ) : (
-            <div className="px-4 py-8 text-sm text-gray-500 dark:text-gray-400">No templates found.</div>
+            <div className="px-4 py-8 text-sm text-gray-500 dark:text-gray-300">No templates found.</div>
           )}
         </section>
 
         <section className="border rounded-lg p-4">
           {!selectedKey ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400">Select a template key to edit.</div>
+            <div className="text-sm text-gray-500 dark:text-gray-300">Select a template key to edit.</div>
           ) : loadingEffective ? (
-            <div className="flex items-center text-sm text-gray-400 dark:text-gray-500">
+            <div className="flex items-center text-sm text-gray-500 dark:text-gray-300">
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
               Loading template...
             </div>
@@ -359,7 +359,7 @@ export function EmailTemplates() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-base font-semibold">{selectedKey}</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     Editing {effective?.source ?? selectedItem?.source ?? "template"} template
                   </p>
                 </div>
@@ -461,7 +461,7 @@ export function EmailTemplates() {
               <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 space-y-2">
                 <h3 className="text-sm font-medium">Preview</h3>
                 {previewLoading ? (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Rendering preview...</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-300">Rendering preview...</p>
                 ) : previewError ? (
                   <p className="text-xs text-red-600">{previewError}</p>
                 ) : previewResult ? (
@@ -485,7 +485,7 @@ export function EmailTemplates() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Preview will appear after template or variables change.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-300">Preview will appear after template or variables change.</p>
                 )}
               </div>
             </div>

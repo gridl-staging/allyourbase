@@ -1,4 +1,3 @@
-// Package config Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/config/config_validate_runtime.go.
 package config
 
 import (
@@ -6,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -30,7 +30,6 @@ func validateServerConfig(c *Config) error {
 	return nil
 }
 
-// validateDatabaseConfig validates database connection pool settings, replica configurations, and port ranges for embedded and managed PostgreSQL.
 func validateDatabaseConfig(c *Config) error {
 	if c.Database.MaxConns < 1 {
 		return fmt.Errorf("database.max_conns must be at least 1, got %d", c.Database.MaxConns)
@@ -41,10 +40,19 @@ func validateDatabaseConfig(c *Config) error {
 	if c.Database.MinConns > c.Database.MaxConns {
 		return fmt.Errorf("database.min_conns (%d) cannot exceed database.max_conns (%d)", c.Database.MinConns, c.Database.MaxConns)
 	}
+	seenReplicaURLs := make(map[string]int, len(c.Database.Replicas))
 	for i, replica := range c.Database.Replicas {
-		if strings.TrimSpace(replica.URL) == "" {
+		trimmedURL := strings.TrimSpace(replica.URL)
+		if trimmedURL == "" {
 			return fmt.Errorf("database.replicas[%d].url must not be empty", i)
 		}
+		if _, err := url.Parse(trimmedURL); err != nil {
+			return fmt.Errorf("database.replicas[%d].url is not a valid URL: %w", i, err)
+		}
+		if prev, ok := seenReplicaURLs[trimmedURL]; ok {
+			return fmt.Errorf("database.replicas[%d].url is a duplicate of replicas[%d]", i, prev)
+		}
+		seenReplicaURLs[trimmedURL] = i
 		if replica.Weight < 1 {
 			return fmt.Errorf("database.replicas[%d].weight must be at least 1", i)
 		}
@@ -168,7 +176,7 @@ func validateStorageConfig(c *Config) error {
 	return nil
 }
 
-// TODO: Document validateStorageCDNConfig.
+// validateStorageCDNConfig validates CDN cache-invalidation provider settings (cloudflare, cloudfront, or webhook) when a provider is configured, ensuring required credentials and endpoints are present.
 func validateStorageCDNConfig(storage StorageConfig) error {
 	provider := storage.CDN.NormalizedProvider()
 	switch provider {

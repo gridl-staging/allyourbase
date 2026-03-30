@@ -58,8 +58,6 @@ func New(cfg Config) *Manager {
 	}
 }
 
-// Start downloads PG binaries (on first run), initializes the data directory,
-// starts the PostgreSQL child process, and returns a connection URL.
 func (m *Manager) Start(ctx context.Context) (string, error) {
 	if m.running {
 		return m.connURL, nil

@@ -72,9 +72,6 @@ interface MockAuditEvent {
   createdAt: string;
 }
 
-/**
- * TODO: Document OrgAdminMockState.
- */
 export interface OrgAdminMockState {
   addOrgMemberCalls: number;
   createTeamCalls: number;
@@ -104,9 +101,6 @@ function isValidSlug(value: string): boolean {
   return SLUG_PATTERN.test(value);
 }
 
-/**
- * TODO: Document makeTenant.
- */
 function makeTenant(tenantId: string, orgId: string): MockTenant {
   return {
     id: tenantId,
@@ -146,9 +140,6 @@ function parsePath(pathname: string, pattern: RegExp): string[] | null {
   return match.slice(1).map((segment) => decodeURIComponent(segment));
 }
 
-/**
- * TODO: Document mockOrgAdminApis.
- */
 export async function mockOrgAdminApis(page: Page): Promise<OrgAdminMockState> {
   const orgOne: MockOrganization = {
     id: "org-1",

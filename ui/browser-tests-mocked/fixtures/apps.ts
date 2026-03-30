@@ -40,9 +40,6 @@ const defaultUsers = [
   },
 ];
 
-/**
- * TODO: Document mockAdminAppsApis.
- */
 export async function mockAdminAppsApis(
   page: Page,
   options: AppsMockOptions = {},

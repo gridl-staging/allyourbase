@@ -188,7 +188,7 @@ export function ContentRouter({
             )}
             {selected.name}
           </h1>
-          <span className="text-xs text-gray-500 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5">
+          <span className="text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5">
             {selected.kind}
           </span>
 
@@ -199,7 +199,7 @@ export function ContentRouter({
                 "px-3 py-1 text-xs rounded font-medium transition-colors",
                 view === "data"
                   ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
               )}
             >
               <TableIcon className="w-3.5 h-3.5 inline mr-1" />
@@ -211,7 +211,7 @@ export function ContentRouter({
                 "px-3 py-1 text-xs rounded font-medium transition-colors",
                 view === "schema"
                   ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
               )}
             >
               <Columns3 className="w-3.5 h-3.5 inline mr-1" />
@@ -223,7 +223,7 @@ export function ContentRouter({
                 "px-3 py-1 text-xs rounded font-medium transition-colors",
                 view === "sql"
                   ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200",
               )}
             >
               <Code className="w-3.5 h-3.5 inline mr-1" />

@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Handles the functions invoke CLI command, invoking an edge function via the admin API and displaying the response status, headers, and body.
 func runFunctionsInvoke(cmd *cobra.Command, args []string) error {
 	nameOrID := strings.TrimSpace(args[0])
 	if nameOrID == "" {
@@ -42,36 +41,9 @@ func runFunctionsInvoke(cmd *cobra.Command, args []string) error {
 		bodyStr = string(data)
 	}
 
-	// Parse headers into map[string][]string.
-	headerMap := make(map[string][]string)
-	headerFlag := cmd.Flags().Lookup("header")
-	headerExplicit := headerFlag != nil && headerFlag.Changed
-	for _, h := range headers {
-		if strings.TrimSpace(h) == "" {
-			continue
-		}
-		idx := strings.Index(h, ":")
-		if idx < 0 {
-			if !headerExplicit {
-				continue
-			}
-			return fmt.Errorf("invalid header format %q (expected key:value)", h)
-		}
-		key := strings.TrimSpace(h[:idx])
-		value := strings.TrimSpace(h[idx+1:])
-		if key == "" {
-			if !headerExplicit {
-				continue
-			}
-			if value == "" {
-				continue
-			}
-			return fmt.Errorf("header name must not be empty")
-		}
-		if strings.ContainsAny(key, "\r\n") || strings.ContainsAny(value, "\r\n") {
-			return fmt.Errorf("header %q contains invalid control characters", key)
-		}
-		headerMap[key] = append(headerMap[key], value)
+	headerMap, err := parseInvokeHeaders(cmd, headers)
+	if err != nil {
+		return err
 	}
 
 	functionID, err := resolveFunctionID(cmd, nameOrID)
@@ -97,6 +69,52 @@ func runFunctionsInvoke(cmd *cobra.Command, args []string) error {
 	}
 
 	outFmt := outputFormat(cmd)
+	return renderInvokeResult(body, outFmt)
+}
+
+func normalizeInvokeMethod(method string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(method))
+	if _, ok := validInvokeMethods[normalized]; !ok {
+		return "", fmt.Errorf("--method must be one of: GET, POST, PUT, DELETE, PATCH")
+	}
+	return normalized, nil
+}
+
+func parseInvokeHeaders(cmd *cobra.Command, headers []string) (map[string][]string, error) {
+	headerMap := make(map[string][]string)
+	headerFlag := cmd.Flags().Lookup("header")
+	headerExplicit := headerFlag != nil && headerFlag.Changed
+	for _, h := range headers {
+		if strings.TrimSpace(h) == "" {
+			continue
+		}
+		idx := strings.Index(h, ":")
+		if idx < 0 {
+			if !headerExplicit {
+				continue
+			}
+			return nil, fmt.Errorf("invalid header format %q (expected key:value)", h)
+		}
+		key := strings.TrimSpace(h[:idx])
+		value := strings.TrimSpace(h[idx+1:])
+		if key == "" {
+			if !headerExplicit {
+				continue
+			}
+			if value == "" {
+				continue
+			}
+			return nil, fmt.Errorf("header name must not be empty")
+		}
+		if strings.ContainsAny(key, "\r\n") || strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("header %q contains invalid control characters", key)
+		}
+		headerMap[key] = append(headerMap[key], value)
+	}
+	return headerMap, nil
+}
+
+func renderInvokeResult(body []byte, outFmt string) error {
 	if outFmt == "json" {
 		os.Stdout.Write(body)
 		fmt.Println()
@@ -131,12 +149,4 @@ func runFunctionsInvoke(cmd *cobra.Command, args []string) error {
 		fmt.Println(result.Body)
 	}
 	return nil
-}
-
-func normalizeInvokeMethod(method string) (string, error) {
-	normalized := strings.ToUpper(strings.TrimSpace(method))
-	if _, ok := validInvokeMethods[normalized]; !ok {
-		return "", fmt.Errorf("--method must be one of: GET, POST, PUT, DELETE, PATCH")
-	}
-	return normalized, nil
 }

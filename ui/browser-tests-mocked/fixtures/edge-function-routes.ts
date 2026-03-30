@@ -22,9 +22,6 @@ interface EdgeFunctionRouteContext {
   url: URL;
 }
 
-/**
- * TODO: Document handleEdgeFunctionApiRoute.
- */
 export async function handleEdgeFunctionApiRoute(
   route: Route,
   options: EdgeFunctionMockOptions | undefined,
@@ -59,9 +56,6 @@ function createRouteContext(route: Route): EdgeFunctionRouteContext {
   };
 }
 
-/**
- * TODO: Document handleEdgeFunctionCollectionRoute.
- */
 async function handleEdgeFunctionCollectionRoute(
   context: EdgeFunctionRouteContext,
   options: EdgeFunctionMockOptions | undefined,
@@ -100,9 +94,6 @@ async function handleEdgeFunctionCollectionRoute(
   return false;
 }
 
-/**
- * TODO: Document createEdgeFunctionRecord.
- */
 function createEdgeFunctionRecord(
   body: Record<string, unknown>,
   nextFunctionNumber: number,
@@ -136,9 +127,6 @@ async function handleEdgeFunctionDetailRoute(
   return true;
 }
 
-/**
- * TODO: Document handleEdgeFunctionUpdateRoute.
- */
 async function handleEdgeFunctionUpdateRoute(
   context: EdgeFunctionRouteContext,
   options: EdgeFunctionMockOptions | undefined,
@@ -172,9 +160,6 @@ async function handleEdgeFunctionUpdateRoute(
   return true;
 }
 
-/**
- * TODO: Document buildUpdatedEdgeFunction.
- */
 function buildUpdatedEdgeFunction(
   existing: EdgeFunctionRecord,
   body: Record<string, unknown>,
@@ -192,9 +177,6 @@ function buildUpdatedEdgeFunction(
   };
 }
 
-/**
- * TODO: Document handleEdgeFunctionDeleteRoute.
- */
 async function handleEdgeFunctionDeleteRoute(
   context: EdgeFunctionRouteContext,
   state: EdgeFunctionMockState,
@@ -235,9 +217,6 @@ function removeMatchingItems<T>(items: T[], predicate: (item: T) => boolean): vo
   }
 }
 
-/**
- * TODO: Document handleEdgeFunctionLogsRoute.
- */
 async function handleEdgeFunctionLogsRoute(
   context: EdgeFunctionRouteContext,
   state: EdgeFunctionMockState,
@@ -263,9 +242,6 @@ async function handleEdgeFunctionLogsRoute(
   return true;
 }
 
-/**
- * TODO: Document handleDBTriggerRoute.
- */
 async function handleDBTriggerRoute(
   context: EdgeFunctionRouteContext,
   state: EdgeFunctionMockState,
@@ -309,9 +285,6 @@ async function handleDBTriggerRoute(
   return false;
 }
 
-/**
- * TODO: Document createDBTriggerRecord.
- */
 function createDBTriggerRecord(
   functionId: string,
   body: Record<string, unknown>,
@@ -333,9 +306,6 @@ function createDBTriggerRecord(
   };
 }
 
-/**
- * TODO: Document handleDBTriggerToggle.
- */
 async function handleDBTriggerToggle(
   route: Route,
   toggleMatch: RegExpMatchArray,
@@ -365,9 +335,6 @@ async function handleDBTriggerToggle(
   return true;
 }
 
-/**
- * TODO: Document handleDBTriggerDelete.
- */
 async function handleDBTriggerDelete(
   route: Route,
   deleteMatch: RegExpMatchArray,
@@ -389,9 +356,6 @@ async function handleDBTriggerDelete(
   return true;
 }
 
-/**
- * TODO: Document handleCronTriggerRoute.
- */
 async function handleCronTriggerRoute(
   context: EdgeFunctionRouteContext,
   state: EdgeFunctionMockState,
@@ -442,9 +406,6 @@ async function handleCronTriggerRoute(
   return false;
 }
 
-/**
- * TODO: Document createCronTriggerRecord.
- */
 function createCronTriggerRecord(
   functionId: string,
   body: Record<string, unknown>,
@@ -464,9 +425,6 @@ function createCronTriggerRecord(
   };
 }
 
-/**
- * TODO: Document handleCronTriggerToggle.
- */
 async function handleCronTriggerToggle(
   route: Route,
   toggleMatch: RegExpMatchArray,
@@ -496,9 +454,6 @@ async function handleCronTriggerToggle(
   return true;
 }
 
-/**
- * TODO: Document handleCronTriggerManualRun.
- */
 async function handleCronTriggerManualRun(
   route: Route,
   runMatch: RegExpMatchArray,
@@ -519,9 +474,6 @@ async function handleCronTriggerManualRun(
   return true;
 }
 
-/**
- * TODO: Document handleCronTriggerDelete.
- */
 async function handleCronTriggerDelete(
   route: Route,
   deleteMatch: RegExpMatchArray,
@@ -543,9 +495,6 @@ async function handleCronTriggerDelete(
   return true;
 }
 
-/**
- * TODO: Document handleStorageTriggerRoute.
- */
 async function handleStorageTriggerRoute(
   context: EdgeFunctionRouteContext,
   state: EdgeFunctionMockState,
@@ -595,9 +544,6 @@ async function handleStorageTriggerRoute(
   return false;
 }
 
-/**
- * TODO: Document createStorageTriggerRecord.
- */
 function createStorageTriggerRecord(
   functionId: string,
   body: Record<string, unknown>,
@@ -619,9 +565,6 @@ function createStorageTriggerRecord(
   };
 }
 
-/**
- * TODO: Document handleStorageTriggerToggle.
- */
 async function handleStorageTriggerToggle(
   route: Route,
   toggleMatch: RegExpMatchArray,
@@ -651,9 +594,6 @@ async function handleStorageTriggerToggle(
   return true;
 }
 
-/**
- * TODO: Document handleStorageTriggerDelete.
- */
 async function handleStorageTriggerDelete(
   route: Route,
   deleteMatch: RegExpMatchArray,
@@ -675,9 +615,6 @@ async function handleStorageTriggerDelete(
   return true;
 }
 
-/**
- * TODO: Document handleInvokeRoute.
- */
 async function handleInvokeRoute(
   context: EdgeFunctionRouteContext,
   options: EdgeFunctionMockOptions | undefined,
@@ -717,9 +654,6 @@ async function handleInvokeRoute(
   return true;
 }
 
-/**
- * TODO: Document createInvokeLog.
- */
 function createInvokeLog(
   fn: EdgeFunctionRecord,
   body: Record<string, unknown>,

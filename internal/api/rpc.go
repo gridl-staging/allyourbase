@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/rpc.go.
 package api
 
 import (
@@ -14,7 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// TODO: Document Handler.handleRPC.
+// handleRPC handles POST /rpc/{function}, resolving the named function from the schema cache, building a parameterized SQL call, and dispatching to void or read execution paths.
 func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if !requireWriteScope(w, r) {
 		return
@@ -103,7 +102,7 @@ func (h *Handler) executeVoidRPC(w http.ResponseWriter, r *http.Request, fn *sch
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// TODO: Document Handler.executeReadRPC.
+// executeReadRPC executes a non-void RPC function, scanning the result as a set or single row and optionally publishing realtime notify events for each returned record.
 func (h *Handler) executeReadRPC(w http.ResponseWriter, r *http.Request, fn *schema.Function, q Querier, done func(error) error, query string, queryArgs []any, notify rpcNotifyContract) {
 	rows, err := q.Query(r.Context(), query, queryArgs...)
 	if err != nil {

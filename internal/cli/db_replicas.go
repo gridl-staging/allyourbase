@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/db_replicas.go.
 package cli
 
 import (
@@ -120,7 +119,7 @@ func init() {
 	dbCmd.AddCommand(dbReplicasCmd)
 }
 
-// TODO: Document runDBReplicas.
+// runDBReplicas sends an admin API request using the given method and path, then displays the replica list as JSON or a formatted table.
 func runDBReplicas(cmd *cobra.Command, method, path string) error {
 	resp, body, err := adminRequest(cmd, method, path, nil)
 	if err != nil {
@@ -141,7 +140,7 @@ func runDBReplicas(cmd *cobra.Command, method, path string) error {
 	return writeReplicaTable(cmd, payload.Replicas)
 }
 
-// TODO: Document runDBReplicasAdd.
+// runDBReplicasAdd collects replica connection parameters from CLI flags and posts them to the admin API to register a new read replica.
 func runDBReplicasAdd(cmd *cobra.Command, _ []string) error {
 	host, _ := cmd.Flags().GetString("host")
 	if host == "" {
@@ -178,7 +177,7 @@ func runDBReplicasAdd(cmd *cobra.Command, _ []string) error {
 	return writeReplicaAddOutput(cmd, respBody)
 }
 
-// TODO: Document runDBReplicasRemove.
+// runDBReplicasRemove deletes a named replica from the topology via the admin API, with an optional --force flag to allow removing the last active replica.
 func runDBReplicasRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	force, _ := cmd.Flags().GetBool("force")
@@ -210,7 +209,7 @@ func runDBReplicasPromote(cmd *cobra.Command, args []string) error {
 	return writeReplicaPromoteOutput(cmd, body)
 }
 
-// TODO: Document runDBReplicasFailover.
+// runDBReplicasFailover initiates a failover to a target replica (or auto-selects one) by posting to the admin failover endpoint.
 func runDBReplicasFailover(cmd *cobra.Command, _ []string) error {
 	target, _ := cmd.Flags().GetString("target")
 	force, _ := cmd.Flags().GetBool("force")
@@ -274,7 +273,7 @@ func writeReplicaPromoteOutput(cmd *cobra.Command, body []byte) error {
 	return writeReplicaTable(cmd, payload.Replicas)
 }
 
-// TODO: Document writeReplicaTable.
+// writeReplicaTable writes a tab-aligned table of replica URLs, states, lag, and last-checked times to the command's output.
 func writeReplicaTable(cmd *cobra.Command, replicas []dbReplicaEntry) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	if len(replicas) == 0 {

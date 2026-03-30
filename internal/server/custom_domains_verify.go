@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"time"
 
@@ -58,9 +58,9 @@ func verifyRetryDelay(attempt int) time.Duration {
 
 	// Intentionally not exponential: use two fixed polling bands for DNS propagation.
 	if attempt <= 20 {
-		return 30*time.Second + time.Duration(rand.Intn(3))*time.Second
+		return 30*time.Second + time.Duration(rand.IntN(3))*time.Second
 	}
-	return 5*time.Minute + time.Duration(rand.Intn(11))*time.Second
+	return 5*time.Minute + time.Duration(rand.IntN(11))*time.Second
 }
 
 func verifyTimedOut(startedAt time.Time) bool {

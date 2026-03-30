@@ -325,4 +325,21 @@ describe("CommandPaletteHint", () => {
     render(<CommandPaletteHint onClick={vi.fn()} />);
     expect(screen.getByText("K")).toBeInTheDocument();
   });
+
+  it("uses WCAG AA compliant contrast on search hint text", () => {
+    render(<CommandPaletteHint onClick={vi.fn()} />);
+    const btn = screen.getByText("Search...").closest("button")!;
+    // text-gray-500 (#6b7280) passes 4.5:1 on white; text-gray-400 (#9ca3af) fails at 2.53:1
+    expect(btn.className).toContain("text-gray-500");
+  });
+
+  it("keeps dark-mode hint styles free of redundant hover tokens", () => {
+    render(<CommandPaletteHint onClick={vi.fn()} />);
+    const btn = screen.getByText("Search...").closest("button")!;
+
+    expect(btn.className).toContain("dark:text-gray-300");
+    expect(btn.className).toContain("dark:bg-gray-800");
+    expect(btn.className).not.toContain("dark:hover:text-gray-300");
+    expect(btn.className).not.toContain("dark:hover:bg-gray-800");
+  });
 });

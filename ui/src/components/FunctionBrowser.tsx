@@ -68,7 +68,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
 
   if (fnList.length === 0) {
     return (
-      <div className="p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+      <div className="p-8 text-center text-gray-500 dark:text-gray-300 text-sm">
         No functions found in the database.
       </div>
     );
@@ -94,20 +94,20 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
                 className="w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 text-sm"
               >
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                  <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-300 shrink-0" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-300 shrink-0" />
                 )}
                 <code className="font-mono text-sm">
                   {fn.schema !== "public" && (
-                    <span className="text-gray-400 dark:text-gray-500">{fn.schema}.</span>
+                    <span className="text-gray-500 dark:text-gray-300">{fn.schema}.</span>
                   )}
                   {fn.name}
                 </code>
-                <span className="text-xs text-gray-400 dark:text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-300">
                   ({params.map((p) => p.name || `$${p.position}`).join(", ")})
                 </span>
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                <span className="ml-auto text-xs text-gray-500 dark:text-gray-300">
                   {fn.returnsSet ? `SETOF ${fn.returnType}` : fn.returnType}
                 </span>
               </button>
@@ -115,7 +115,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
               {isExpanded && (
                 <div className="px-4 pb-4 border-t bg-gray-50 dark:bg-gray-800">
                   {fn.comment && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 mb-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-300 mt-2 mb-3">
                       {fn.comment}
                     </p>
                   )}
@@ -129,7 +129,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
                     <>
                       {params.length > 0 && (
                         <div className="mt-3 space-y-2">
-                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Parameters
                           </p>
                           {params.map((p) => (
@@ -139,7 +139,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
                             >
                               <label className="text-xs text-gray-600 dark:text-gray-300 w-32 truncate font-mono">
                                 {p.name}
-                                <span className="text-gray-400 dark:text-gray-500 ml-1">
+                                <span className="text-gray-500 dark:text-gray-300 ml-1">
                                   ({p.type})
                                 </span>
                               </label>
@@ -183,11 +183,11 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
                       ) : (
                         <div className="bg-white dark:bg-gray-800 border rounded">
                           <div className="px-3 py-1.5 border-b bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                            <span className="text-xs text-gray-500 dark:text-gray-300">
                               Result
                               {result.status === 204 && " (void)"}
                             </span>
-                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                            <span className="text-xs text-gray-500 dark:text-gray-300">
                               {result.durationMs}ms
                             </span>
                           </div>

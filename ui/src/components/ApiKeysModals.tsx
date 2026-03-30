@@ -132,7 +132,7 @@ export function ApiKeysModals({
                     <option key={app.id} value={app.id}>{app.name}</option>
                   ))}
                 </select>
-                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                <p className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                   Select an app to apply app-level scopes and rate limits.
                 </p>
                 {appsError && <p className="text-[10px] text-amber-600 mt-1">{appsError}</p>}
@@ -148,7 +148,7 @@ export function ApiKeysModals({
                   className="w-full border rounded px-3 py-1.5 text-sm"
                   aria-label="Allowed tables"
                 />
-                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                <p className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                   Comma-separated table names. Leave empty to allow all tables.
                 </p>
               </div>
@@ -157,7 +157,7 @@ export function ApiKeysModals({
             <div className="flex justify-end gap-2 mt-6">
               <button
                 onClick={onCancelCreate}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>
@@ -184,7 +184,7 @@ export function ApiKeysModals({
               <code className="flex-1 text-xs break-all font-mono">{modal.key}</code>
               <button
                 onClick={() => onCopy(modal.key)}
-                className="p-1.5 text-gray-400 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 shrink-0"
+                className="p-1.5 text-gray-500 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-300 rounded hover:bg-gray-200 dark:bg-gray-700 shrink-0"
                 title="Copy to clipboard"
                 aria-label="Copy to clipboard"
               >
@@ -195,7 +195,7 @@ export function ApiKeysModals({
                 )}
               </button>
             </div>
-            <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+            <div className="mt-4 text-xs text-gray-500 dark:text-gray-300 space-y-0.5">
               <p><strong>Name:</strong> {modal.apiKey.name}</p>
               <p><strong>User:</strong> {userEmails[modal.apiKey.userId] || modal.apiKey.userId}</p>
               <p><strong>Scope:</strong> {modal.apiKey.scope === "*" ? "full access" : modal.apiKey.scope}</p>
@@ -228,13 +228,13 @@ export function ApiKeysModals({
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               This will permanently revoke the API key. Any applications using this key will lose access.
             </p>
-            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-300 break-all mb-4">
               {modal.apiKey.name} ({modal.apiKey.keyPrefix}...)
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={onClose}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>

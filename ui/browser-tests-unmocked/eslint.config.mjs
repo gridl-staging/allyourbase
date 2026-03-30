@@ -14,6 +14,29 @@ export default [
     },
     rules: {
       ...playwright.configs["flat/recommended"].rules,
+      // Intentional environment-conditional skips are a core pattern in this
+      // suite — tests skip based on server config (auth mode, feature flags).
+      "playwright/no-skipped-test": "off",
+      // Environment-adaptive branching (e.g. checking UI state that differs
+      // between local/staging/prod) is legitimate for cross-environment E2E.
+      "playwright/no-conditional-in-test": "off",
+      "playwright/no-conditional-expect": "off",
+      // Allow helper functions that wrap expect() (e.g. assertAccessible,
+      // assertReadonlyLane, navigateAndScan) to count as assertion-bearing tests.
+      // Uses assertFunctionNames for exact names and glob patterns.
+      "playwright/expect-expect": ["warn", {
+        assertFunctionNames: [
+          "assertAccessible",
+          "assertOrganizationsPageOutcome",
+          "assertTenantsPageOutcome",
+          "assertUsagePageOutcome",
+          "assertTriggerToggleLifecycle",
+          "assertReadonlyLane",
+          "assertAllowedTablesLane",
+          "assertOwnerMatchLane",
+          "navigateAndScan",
+        ],
+      }],
       "playwright/no-eval": "error",
       "playwright/no-raw-locators": ["error", {
         allowed: ["aside", "tr", 'input[type="file"]', "main", "option"],

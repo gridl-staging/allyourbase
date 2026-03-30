@@ -4,8 +4,8 @@ Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_p
 
 from __future__ import annotations
 
-from urllib.parse import urlencode
 from typing import TYPE_CHECKING, Any, BinaryIO, Dict, Optional, Union
+from urllib.parse import urlencode
 
 from allyourbase.types import StorageListResponse, StorageObject
 
@@ -33,7 +33,6 @@ class StorageClient:
         *,
         content_type: Optional[str] = None,
     ) -> StorageObject:
-        """TODO: Document StorageClient.upload."""
         url = f"{self._client.base_url}/api/storage/{bucket}"
         headers: Dict[str, str] = {}
         if self._client.token is not None:
@@ -68,7 +67,6 @@ class StorageClient:
         limit: Optional[int] = None,
         offset: Optional[int] = None,
     ) -> StorageListResponse:
-        """TODO: Document StorageClient.list."""
         params: Dict[str, str] = {}
         if prefix is not None:
             params["prefix"] = prefix
@@ -90,7 +88,6 @@ class StorageClient:
         *,
         expires_in: int = 3600,
     ) -> str:
-        """TODO: Document StorageClient.get_signed_url."""
         resp = await self._client._request(
             f"/api/storage/{bucket}/{name}/sign",
             method="POST",

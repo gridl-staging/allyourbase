@@ -4,8 +4,8 @@ Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_p
 
 from __future__ import annotations
 
-from urllib.parse import urlencode
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from allyourbase.types import BatchOperation, BatchResult, ListResponse
 
@@ -38,7 +38,6 @@ class RecordsClient:
         expand: Optional[str] = None,
         skip_total: bool = False,
     ) -> ListResponse[Dict[str, Any]]:
-        """TODO: Document RecordsClient.list."""
         params: Dict[str, str] = {}
         if page is not None:
             params["page"] = str(page)
@@ -71,7 +70,6 @@ class RecordsClient:
         fields: Optional[str] = None,
         expand: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """TODO: Document RecordsClient.get."""
         params: Dict[str, str] = {}
         if fields is not None:
             params["fields"] = fields
@@ -127,7 +125,6 @@ class RecordsClient:
         collection: str,
         operations: List[BatchOperation],
     ) -> List[BatchResult[Dict[str, Any]]]:
-        """TODO: Document RecordsClient.batch."""
         resp = await self._client._request(
             f"/api/collections/{collection}/batch",
             method="POST",

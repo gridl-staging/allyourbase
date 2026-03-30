@@ -29,7 +29,7 @@ type RecordsClient struct {
 	client *Client
 }
 
-// TODO: Document RecordsClient.List.
+// List returns a paginated list of records from the given collection, filtered and sorted by the provided parameters.
 func (r *RecordsClient) List(ctx context.Context, collection string, params ListParams) (*ListResponse, error) {
 	q := url.Values{}
 	if params.Page > 0 {
@@ -67,7 +67,7 @@ func (r *RecordsClient) List(ctx context.Context, collection string, params List
 	return &out, nil
 }
 
-// TODO: Document RecordsClient.Get.
+// Get retrieves a single record by ID from the given collection with optional field selection and relation expansion.
 func (r *RecordsClient) Get(ctx context.Context, collection, id string, params GetParams) (map[string]any, error) {
 	q := url.Values{}
 	if params.Fields != "" {

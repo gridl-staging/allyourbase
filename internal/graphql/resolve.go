@@ -104,9 +104,6 @@ func queryAndScanRows(ctx context.Context, q queryRunner, sql string, args ...an
 	return result, affected, nil
 }
 
-// resolveWhere recursively walks a WhereInput argument map and produces
-// a parameterized SQL WHERE clause fragment. paramIdx is the starting $N index.
-// Returns the SQL fragment, accumulated args, and any error.
 func resolveWhere(args map[string]interface{}, tbl *schema.Table, paramIdx int) (string, []any, error) {
 	if len(args) == 0 {
 		return "", nil, nil
@@ -116,81 +113,29 @@ func resolveWhere(args map[string]interface{}, tbl *schema.Table, paramIdx int) 
 	var allArgs []any
 	idx := paramIdx
 
-	// Process keys in sorted order for deterministic output
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
+	for _, key := range sortedMapKeys(args) {
 		val := args[key]
 
 		switch key {
-		case "_and":
-			list, ok := val.([]interface{})
-			if !ok {
-				return "", nil, fmt.Errorf("_and must be a list")
+		case "_and", "_or":
+			sql, subArgs, nextIdx, err := resolveLogicalClause(key, val, tbl, idx)
+			if err != nil {
+				return "", nil, err
 			}
-			var andParts []string
-			for _, item := range list {
-				sub, ok := item.(map[string]interface{})
-				if !ok {
-					return "", nil, fmt.Errorf("_and items must be objects")
-				}
-				sql, subArgs, err := resolveWhere(sub, tbl, idx)
-				if err != nil {
-					return "", nil, err
-				}
-				if sql != "" {
-					andParts = append(andParts, sql)
-					allArgs = append(allArgs, subArgs...)
-					idx += len(subArgs)
-				}
-			}
-			if len(andParts) > 0 {
-				parts = append(parts, "("+strings.Join(andParts, " AND ")+")")
-			}
-
-		case "_or":
-			list, ok := val.([]interface{})
-			if !ok {
-				return "", nil, fmt.Errorf("_or must be a list")
-			}
-			var orParts []string
-			for _, item := range list {
-				sub, ok := item.(map[string]interface{})
-				if !ok {
-					return "", nil, fmt.Errorf("_or items must be objects")
-				}
-				sql, subArgs, err := resolveWhere(sub, tbl, idx)
-				if err != nil {
-					return "", nil, err
-				}
-				if sql != "" {
-					orParts = append(orParts, sql)
-					allArgs = append(allArgs, subArgs...)
-					idx += len(subArgs)
-				}
-			}
-			if len(orParts) > 0 {
-				parts = append(parts, "("+strings.Join(orParts, " OR ")+")")
-			}
+			parts, allArgs = appendResolvedClause(parts, allArgs, sql, subArgs)
+			idx = nextIdx
 
 		case "_not":
 			sub, ok := val.(map[string]interface{})
 			if !ok {
 				return "", nil, fmt.Errorf("_not must be an object")
 			}
-			sql, subArgs, err := resolveWhere(sub, tbl, idx)
+			sql, subArgs, nextIdx, err := resolveLogicalNot(sub, tbl, idx)
 			if err != nil {
 				return "", nil, err
 			}
-			if sql != "" {
-				parts = append(parts, "NOT ("+sql+")")
-				allArgs = append(allArgs, subArgs...)
-				idx += len(subArgs)
-			}
+			parts, allArgs = appendResolvedClause(parts, allArgs, sql, subArgs)
+			idx = nextIdx
 
 		default:
 			// Column-level comparison
@@ -204,73 +149,141 @@ func resolveWhere(args map[string]interface{}, tbl *schema.Table, paramIdx int) 
 				return "", nil, fmt.Errorf("column %s filter must be an object", key)
 			}
 
-			// Sort operator keys for deterministic output
-			opKeys := make([]string, 0, len(ops))
-			for k := range ops {
-				opKeys = append(opKeys, k)
+			columnParts, columnArgs, nextIdx, err := resolveColumnFilter(key, ops, idx)
+			if err != nil {
+				return "", nil, err
 			}
-			sort.Strings(opKeys)
-
-			for _, opKey := range opKeys {
-				opVal := ops[opKey]
-
-				if opKey == "_is_null" {
-					boolVal, ok := opVal.(bool)
-					if !ok {
-						return "", nil, fmt.Errorf("_is_null must be boolean")
-					}
-					if boolVal {
-						parts = append(parts, sqlutil.QuoteIdent(key)+" IS NULL")
-					} else {
-						parts = append(parts, sqlutil.QuoteIdent(key)+" IS NOT NULL")
-					}
-					continue
-				}
-
-				if opKey == "_in" {
-					list, ok := opVal.([]interface{})
-					if !ok {
-						return "", nil, fmt.Errorf("_in must be a list")
-					}
-					placeholders := make([]string, len(list))
-					for i, v := range list {
-						placeholders[i] = fmt.Sprintf("$%d", idx)
-						allArgs = append(allArgs, v)
-						idx++
-					}
-					parts = append(parts, sqlutil.QuoteIdent(key)+" IN ("+strings.Join(placeholders, ", ")+")")
-					continue
-				}
-
-				sqlOp, ok := operatorSQL[opKey]
-				if !ok {
-					return "", nil, fmt.Errorf("unknown operator: %s", opKey)
-				}
-				parts = append(parts, fmt.Sprintf("%s %s $%d", sqlutil.QuoteIdent(key), sqlOp, idx))
-				allArgs = append(allArgs, opVal)
-				idx++
-			}
+			parts = append(parts, columnParts...)
+			allArgs = append(allArgs, columnArgs...)
+			idx = nextIdx
 		}
 	}
 
 	return strings.Join(parts, " AND "), allArgs, nil
 }
 
-// resolveOrderBy walks an OrderByInput argument map and produces an ORDER BY clause.
+func sortedMapKeys(values map[string]interface{}) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func appendResolvedClause(parts []string, args []any, sql string, subArgs []any) ([]string, []any) {
+	if sql == "" {
+		return parts, args
+	}
+	return append(parts, sql), append(args, subArgs...)
+}
+
+func resolveLogicalClause(key string, value interface{}, tbl *schema.Table, idx int) (string, []any, int, error) {
+	list, ok := value.([]interface{})
+	if !ok {
+		return "", nil, idx, fmt.Errorf("%s must be a list", key)
+	}
+
+	joiner := " AND "
+	if key == "_or" {
+		joiner = " OR "
+	}
+	return resolveLogicalCombinator(key, joiner, list, tbl, idx)
+}
+
+func resolveLogicalCombinator(key, joiner string, list []interface{}, tbl *schema.Table, idx int) (string, []any, int, error) {
+	var combinedParts []string
+	var allArgs []any
+
+	for _, item := range list {
+		sub, ok := item.(map[string]interface{})
+		if !ok {
+			return "", nil, idx, fmt.Errorf("%s items must be objects", key)
+		}
+
+		sql, subArgs, err := resolveWhere(sub, tbl, idx)
+		if err != nil {
+			return "", nil, idx, err
+		}
+		if sql == "" {
+			continue
+		}
+		combinedParts = append(combinedParts, sql)
+		allArgs = append(allArgs, subArgs...)
+		idx += len(subArgs)
+	}
+
+	if len(combinedParts) == 0 {
+		return "", nil, idx, nil
+	}
+	return "(" + strings.Join(combinedParts, joiner) + ")", allArgs, idx, nil
+}
+
+func resolveLogicalNot(sub map[string]interface{}, tbl *schema.Table, idx int) (string, []any, int, error) {
+	sql, subArgs, err := resolveWhere(sub, tbl, idx)
+	if err != nil {
+		return "", nil, idx, err
+	}
+	if sql == "" {
+		return "", nil, idx, nil
+	}
+	return "NOT (" + sql + ")", subArgs, idx + len(subArgs), nil
+}
+
+func resolveColumnFilter(key string, ops map[string]interface{}, idx int) ([]string, []any, int, error) {
+	opKeys := sortedMapKeys(ops)
+	parts := make([]string, 0, len(opKeys))
+	var allArgs []any
+	for _, opKey := range opKeys {
+		opVal := ops[opKey]
+
+		if opKey == "_is_null" {
+			boolVal, ok := opVal.(bool)
+			if !ok {
+				return nil, nil, idx, fmt.Errorf("_is_null must be boolean")
+			}
+			if boolVal {
+				parts = append(parts, sqlutil.QuoteIdent(key)+" IS NULL")
+			} else {
+				parts = append(parts, sqlutil.QuoteIdent(key)+" IS NOT NULL")
+			}
+			continue
+		}
+
+		if opKey == "_in" {
+			list, ok := opVal.([]interface{})
+			if !ok {
+				return nil, nil, idx, fmt.Errorf("_in must be a list")
+			}
+			placeholders := make([]string, len(list))
+			for i, value := range list {
+				placeholders[i] = fmt.Sprintf("$%d", idx)
+				allArgs = append(allArgs, value)
+				idx++
+			}
+			parts = append(parts, sqlutil.QuoteIdent(key)+" IN ("+strings.Join(placeholders, ", ")+")")
+			continue
+		}
+
+		sqlOp, ok := operatorSQL[opKey]
+		if !ok {
+			return nil, nil, idx, fmt.Errorf("unknown operator: %s", opKey)
+		}
+		parts = append(parts, fmt.Sprintf("%s %s $%d", sqlutil.QuoteIdent(key), sqlOp, idx))
+		allArgs = append(allArgs, opVal)
+		idx++
+	}
+
+	return parts, allArgs, idx, nil
+}
+
 func resolveOrderBy(args map[string]interface{}, tbl *schema.Table) (string, error) {
 	if len(args) == 0 {
 		return "", nil
 	}
 
-	// Sort keys for deterministic output
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
 	var parts []string
-	for _, key := range keys {
+	for _, key := range sortedMapKeys(args) {
 		col := tbl.ColumnByName(key)
 		if col == nil {
 			return "", fmt.Errorf("unknown column: %s", key)
@@ -296,7 +309,7 @@ func buildSelectQuery(tbl *schema.Table, where map[string]interface{}, orderBy m
 	return buildSelectQueryWithSpatial(tbl, where, nil, orderBy, limit, offset)
 }
 
-// TODO: Document buildSelectQueryWithSpatial.
+// buildSelectQueryWithSpatial constructs a parameterized SELECT query from table metadata, optional WHERE/spatial/ORDER BY clauses, and limit/offset pagination.
 func buildSelectQueryWithSpatial(
 	tbl *schema.Table,
 	where map[string]interface{},
@@ -375,7 +388,7 @@ func buildSelectQueryWithSpatial(
 	return b.String(), allArgs, nil
 }
 
-// TODO: Document buildGraphQLProjection.
+// buildGraphQLProjection returns the SELECT column list, converting geometry/geography columns to GeoJSON via ST_AsGeoJSON and selecting all other columns by name.
 func buildGraphQLProjection(tbl *schema.Table) string {
 	if tbl == nil || !tbl.HasGeometry() {
 		return "*"

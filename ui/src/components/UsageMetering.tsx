@@ -430,7 +430,7 @@ export function UsageMetering() {
 
   if (overview.isLoading && !overview.listData && !overview.trendData && !overview.breakdownData) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-300">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading usage metering...
       </div>
@@ -488,7 +488,7 @@ export function UsageMetering() {
       />
 
       {overview.isLoading && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-2">
+        <p className="text-xs text-gray-500 dark:text-gray-300 inline-flex items-center gap-2">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           Refreshing usage data...
         </p>
@@ -502,7 +502,7 @@ export function UsageMetering() {
       )}
 
       {trendPoints.length > 0 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-gray-500 dark:text-gray-300">
           Trend sample starts {formatDate(trendPoints[0]?.timestamp ?? null)}
         </p>
       )}

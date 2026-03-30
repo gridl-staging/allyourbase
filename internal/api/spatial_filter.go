@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/spatial_filter.go.
 package api
 
 import (
@@ -75,7 +74,7 @@ func parseSpatialParams(tbl *schema.Table, q url.Values, cache *schema.SchemaCac
 	return strings.Join(whereClauses, " AND "), args, nil
 }
 
-// TODO: Document parseNearSpatial.
+// parseNearSpatial parses a "near=column,lng,lat,distance" query parameter into a ST_DWithin WHERE clause with parameterized args.
 func parseNearSpatial(tbl *schema.Table, raw string, argOffset int) (string, []any, error) {
 	parts := strings.Split(raw, ",")
 	if len(parts) != 4 {
@@ -167,7 +166,7 @@ func parseIntersectsSpatial(tbl *schema.Table, raw string, argOffset int) (strin
 	return filter.WhereClause(argOffset)
 }
 
-// TODO: Document parseBBoxSpatial.
+// parseBBoxSpatial parses a "bbox=column,minLng,minLat,maxLng,maxLat" query parameter into a bounding-box intersection WHERE clause, validating that min values are strictly less than max values.
 func parseBBoxSpatial(tbl *schema.Table, raw string, argOffset int) (string, []any, error) {
 	parts := strings.Split(raw, ",")
 	if len(parts) != 5 {

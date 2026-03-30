@@ -297,6 +297,57 @@ func TestHandleUpload_FastUploadNotAffectedByTimeout(t *testing.T) {
 	testutil.Equal(t, int64(len("fast-image")), resp.Size)
 }
 
+func TestHandleResumableCreateRollsBackReservedQuotaWhenCreateFails(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "")
+
+	reserveCalls := 0
+	createCalls := 0
+	rollbackCalls := 0
+	const reservedBytes = int64(123)
+	const userID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+	h.mutations.reserveQuota = func(_ context.Context, gotUserID string, gotBytes int64) error {
+		reserveCalls++
+		testutil.Equal(t, userID, gotUserID)
+		testutil.Equal(t, reservedBytes, gotBytes)
+		return nil
+	}
+	h.mutations.createResumableUpload = func(_ context.Context, bucket, name, contentType string, gotUserID *string, totalSize int64) (*ResumableUpload, error) {
+		createCalls++
+		testutil.Equal(t, "images", bucket)
+		testutil.Equal(t, "movie.bin", name)
+		testutil.Equal(t, "application/octet-stream", contentType)
+		testutil.NotNil(t, gotUserID)
+		testutil.Equal(t, userID, *gotUserID)
+		testutil.Equal(t, reservedBytes, totalSize)
+		return nil, ErrInvalidName
+	}
+	h.mutations.decrementUsage = func(_ context.Context, gotUserID string, gotBytes int64) error {
+		rollbackCalls++
+		testutil.Equal(t, userID, gotUserID)
+		testutil.Equal(t, reservedBytes, gotBytes)
+		return nil
+	}
+
+	router := testRouter(h)
+	req := httptest.NewRequest(http.MethodPost, "/api/storage/upload/resumable?bucket=images&name=movie.bin", nil)
+	req.Header.Set(tusResumableHeader, tusResumableVersion)
+	req.Header.Set(tusUploadLengthHeader, strconv.FormatInt(reservedBytes, 10))
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: userID},
+	}))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	testutil.Equal(t, http.StatusBadRequest, rec.Code)
+	testutil.Equal(t, 1, reserveCalls)
+	testutil.Equal(t, 1, createCalls)
+	testutil.Equal(t, 1, rollbackCalls)
+}
+
 func TestPublicObjectResponseURLUsesCDN(t *testing.T) {
 	t.Parallel()
 	h := NewHandler(newTestService(), testutil.DiscardLogger(), 10<<20, "https://cdn.example.com")

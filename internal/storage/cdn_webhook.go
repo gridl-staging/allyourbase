@@ -1,4 +1,3 @@
-// Package storage Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/storage/cdn_webhook.go.
 package storage
 
 import (
@@ -10,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/backoff"
 )
@@ -39,11 +39,10 @@ type WebhookCDNProvider struct {
 	backoffConfig backoff.Config
 }
 
-// NewWebhookCDNProvider constructs a webhook-backed CDN provider.
 func NewWebhookCDNProvider(opts WebhookCDNOptions) *WebhookCDNProvider {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	maxRetries, backoffConfig := resolveCDNRetrySettings(opts.MaxRetries, opts.BackoffConfig)
@@ -80,7 +79,7 @@ func (p *WebhookCDNProvider) PurgeAll(ctx context.Context) error {
 	return p.send(ctx, webhookPayload{Operation: webhookPurgeAllOp})
 }
 
-// TODO: Document WebhookCDNProvider.send.
+// send marshals the webhook payload, signs it with HMAC-SHA256, and POSTs it to the configured endpoint with retries on transient failures.
 func (p *WebhookCDNProvider) send(ctx context.Context, payload webhookPayload) error {
 	body, err := stableWebhookPayloadBytes(payload)
 	if err != nil {

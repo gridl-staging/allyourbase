@@ -59,9 +59,6 @@ function parseOrgMetadataDraft(rawValue: string): { value?: unknown; error?: str
   }
 }
 
-/**
- * TODO: Document useTenantManagementState.
- */
 export function useTenantManagementState({
   selectedId,
   detail,

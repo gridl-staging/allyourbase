@@ -47,7 +47,7 @@ test.describe("Smoke: Security Advisor", () => {
     if (report.findings.length === 0) {
       await expect(emptyState).toBeVisible();
     } else {
-      await expect(emptyState).not.toBeVisible();
+      await expect(emptyState).toBeHidden();
     }
     await expect(panel.getByText(/Last evaluated:/i)).toContainText(report.evaluatedAt.substring(0, 10));
   });

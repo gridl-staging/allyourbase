@@ -26,7 +26,7 @@ export function FunctionList({ functions, loading, error, onSelect, onCreate }: 
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-12 text-gray-400 dark:text-gray-500">
+        <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-300">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
           Loading edge functions...
         </div>
@@ -42,8 +42,8 @@ export function FunctionList({ functions, loading, error, onSelect, onCreate }: 
       {!loading && !error && functions.length === 0 && (
         <div className="text-center py-12">
           <Zap className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-500 dark:text-gray-400 mb-1">No edge functions deployed yet</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+          <p className="text-gray-500 dark:text-gray-300 mb-1">No edge functions deployed yet</p>
+          <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
             Deploy your first edge function to get started.
           </p>
           <button
@@ -93,10 +93,10 @@ export function FunctionList({ functions, loading, error, onSelect, onCreate }: 
                   <td className="px-4 py-2.5 text-gray-600 dark:text-gray-300">
                     {formatTimeout(fn.timeout)}
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">
+                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-300 text-xs">
                     {new Date(fn.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">
+                  <td className="px-4 py-2.5 text-gray-500 dark:text-gray-300 text-xs">
                     {formatLastInvoked(fn.lastInvokedAt)}
                   </td>
                 </tr>

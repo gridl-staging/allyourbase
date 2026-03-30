@@ -20,9 +20,6 @@ function readSavedAdminAuth(): string {
   return savedAdminAuth;
 }
 
-/**
- * TODO: Document resolveAdminBootstrapCredential.
- */
 export function resolveAdminBootstrapCredential(): AdminBootstrapCredential {
   if (process.env.AYB_ADMIN_PASSWORD) {
     return { source: "env-password", value: process.env.AYB_ADMIN_PASSWORD };
@@ -43,9 +40,6 @@ export function resolveAdminBootstrapCredential(): AdminBootstrapCredential {
 // The standalone login smoke needs an actual password to exercise the form.
 // If the saved file already contains a bearer token, skip that positive-path
 // form login instead of submitting the token as if it were a password.
-/**
- * TODO: Document resolveAdminPasswordForBrowserLogin.
- */
 export async function resolveAdminPasswordForBrowserLogin(
   request: APIRequestContext,
 ): Promise<string | null> {

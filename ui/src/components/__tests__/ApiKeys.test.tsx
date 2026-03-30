@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { ApiKeys } from "../ApiKeys";
 import {
@@ -139,6 +139,14 @@ describe("ApiKeys", () => {
     expect(screen.getByText("Loading API keys...")).toBeInTheDocument();
   });
 
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListApiKeys.mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<ApiKeys />);
+
+    const className = screen.getByText("Loading API keys...").className;
+    expectWcagContrastToken(className);
+  });
+
   it("renders API keys list", async () => {
     const keys = [
       makeKey({ id: "k1", name: "CI/CD" }),
@@ -151,6 +159,18 @@ describe("ApiKeys", () => {
       expect(screen.getByText("CI/CD")).toBeInTheDocument();
       expect(screen.getByText("Backend Service")).toBeInTheDocument();
     });
+  });
+
+  it("key metadata uses WCAG AA compliant contrast token", async () => {
+    mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
+    renderWithProviders(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("CI/CD")).toBeInTheDocument();
+    });
+
+    const className = screen.getByText("k1").className;
+    expectWcagContrastToken(className);
   });
 
   it("shows empty state when no keys", async () => {
@@ -261,6 +281,22 @@ describe("ApiKeys", () => {
 
     expect(screen.getByText("Create API Key")).toBeInTheDocument();
     expect(screen.getByLabelText("Key name")).toBeInTheDocument();
+  });
+
+  it("app-scope helper text uses WCAG AA compliant contrast token", async () => {
+    mockListApiKeys.mockResolvedValueOnce(makeResponse([makeKey()]));
+    renderWithProviders(<ApiKeys />);
+
+    await waitFor(() => {
+      expect(screen.getByText("CI/CD")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Create Key"));
+
+    const helperText = "Select an app to apply app-level scopes and rate limits.";
+    const className = screen.getByText(helperText).className;
+    expectWcagContrastToken(className);
   });
 
   it("create flow calls createApiKey and shows key", async () => {
@@ -403,6 +439,12 @@ describe("ApiKeys", () => {
     await waitFor(() => {
       expect(screen.getByText("45 keys")).toBeInTheDocument();
       expect(screen.getByText("1 / 3")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Previous page" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Next page" }),
+      ).toBeEnabled();
     });
   });
 

@@ -5,48 +5,26 @@ package schemadiff_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schemadiff"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/allyourbase/ayb/internal/testutil"
 )
 
-func getTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
-	}
-	pool, err := pgxpool.New(context.Background(), dbURL)
-	if err != nil {
-		t.Fatalf("connecting to database: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
-}
-
-func execSQL(t *testing.T, pool *pgxpool.Pool, sql string) {
-	t.Helper()
-	if _, err := pool.Exec(context.Background(), sql); err != nil {
-		t.Fatalf("exec SQL: %v\nSQL: %s", err, sql)
-	}
-}
-
 func TestIntegration_SnapshotDiffRoundTrip(t *testing.T) {
-	pool := getTestPool(t)
+	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
 	// Clean up test objects.
 	t.Cleanup(func() {
-		execSQL(t, pool, `DROP TABLE IF EXISTS test_orders CASCADE`)
-		execSQL(t, pool, `DROP TABLE IF EXISTS test_users CASCADE`)
-		execSQL(t, pool, `DROP TYPE IF EXISTS test_status CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TABLE IF EXISTS test_orders CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TABLE IF EXISTS test_users CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TYPE IF EXISTS test_status CASCADE`)
 	})
 
 	// Step 1: Create initial schema.
-	execSQL(t, pool, `CREATE TYPE test_status AS ENUM ('active', 'inactive')`)
-	execSQL(t, pool, `
+	testutil.ExecSQL(t, pool, `CREATE TYPE test_status AS ENUM ('active', 'inactive')`)
+	testutil.ExecSQL(t, pool, `
 		CREATE TABLE test_users (
 			id serial PRIMARY KEY,
 			email text NOT NULL UNIQUE,
@@ -77,10 +55,10 @@ func TestIntegration_SnapshotDiffRoundTrip(t *testing.T) {
 	}
 
 	// Step 3: Apply DDL changes.
-	execSQL(t, pool, `ALTER TABLE test_users ADD COLUMN phone text`)
-	execSQL(t, pool, `ALTER TABLE test_users DROP COLUMN bio`)
-	execSQL(t, pool, `ALTER TYPE test_status ADD VALUE 'pending'`)
-	execSQL(t, pool, `
+	testutil.ExecSQL(t, pool, `ALTER TABLE test_users ADD COLUMN phone text`)
+	testutil.ExecSQL(t, pool, `ALTER TABLE test_users DROP COLUMN bio`)
+	testutil.ExecSQL(t, pool, `ALTER TYPE test_status ADD VALUE 'pending'`)
+	testutil.ExecSQL(t, pool, `
 		CREATE TABLE test_orders (
 			id serial PRIMARY KEY,
 			user_id integer REFERENCES test_users(id),
@@ -88,7 +66,7 @@ func TestIntegration_SnapshotDiffRoundTrip(t *testing.T) {
 			created_at timestamptz DEFAULT now()
 		)
 	`)
-	execSQL(t, pool, `CREATE INDEX idx_test_orders_user ON test_orders(user_id)`)
+	testutil.ExecSQL(t, pool, `CREATE INDEX idx_test_orders_user ON test_orders(user_id)`)
 
 	// Step 4: Take second snapshot.
 	snap2, err := schemadiff.TakeSnapshot(ctx, pool)
@@ -136,22 +114,22 @@ func TestIntegration_SnapshotDiffRoundTrip(t *testing.T) {
 }
 
 func TestIntegration_RLSPolicySnapshot(t *testing.T) {
-	pool := getTestPool(t)
+	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
 	t.Cleanup(func() {
-		execSQL(t, pool, `DROP TABLE IF EXISTS test_rls_items CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TABLE IF EXISTS test_rls_items CASCADE`)
 	})
 
-	execSQL(t, pool, `
+	testutil.ExecSQL(t, pool, `
 		CREATE TABLE test_rls_items (
 			id serial PRIMARY KEY,
 			owner_id integer NOT NULL,
 			data text
 		)
 	`)
-	execSQL(t, pool, `ALTER TABLE test_rls_items ENABLE ROW LEVEL SECURITY`)
-	execSQL(t, pool, `
+	testutil.ExecSQL(t, pool, `ALTER TABLE test_rls_items ENABLE ROW LEVEL SECURITY`)
+	testutil.ExecSQL(t, pool, `
 		CREATE POLICY owner_only ON test_rls_items
 			FOR ALL
 			USING (owner_id = current_setting('app.user_id')::integer)
@@ -182,7 +160,7 @@ func TestIntegration_RLSPolicySnapshot(t *testing.T) {
 }
 
 func TestIntegration_EmptyDiffAfterNoChanges(t *testing.T) {
-	pool := getTestPool(t)
+	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
 	// Take two snapshots without changing anything.

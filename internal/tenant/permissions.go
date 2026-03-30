@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/permissions.go.
 package tenant
 
 import (
@@ -90,7 +89,7 @@ func (r *PermissionResolver) ResolvePermissions(ctx context.Context, userID, ten
 	return bestPermission, nil
 }
 
-// TODO: Document PermissionResolver.resolveOrgPermission.
+// resolveOrgPermission maps the user's org membership role to an effective tenant role, returning nil if the user is not an org member.
 func (r *PermissionResolver) resolveOrgPermission(ctx context.Context, orgID, userID string) (*ResolvedPermission, error) {
 	orgMembership, err := r.orgMembershipStore.GetOrgMembership(ctx, orgID, userID)
 	if errors.Is(err, ErrOrgMembershipNotFound) {
@@ -112,7 +111,7 @@ func (r *PermissionResolver) resolveOrgPermission(ctx context.Context, orgID, us
 	}, nil
 }
 
-// TODO: Document PermissionResolver.resolveTeamPermission.
+// resolveTeamPermission scans all teams in the org and returns the highest-ranked team-derived permission, upgrading currentBest if a stronger role is found.
 func (r *PermissionResolver) resolveTeamPermission(
 	ctx context.Context,
 	orgID string,

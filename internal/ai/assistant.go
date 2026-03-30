@@ -1,4 +1,3 @@
-// Package ai Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/ai/assistant.go.
 package ai
 
 import (
@@ -208,7 +207,7 @@ func (s *AssistantService) ExecuteStream(ctx context.Context, req AssistantReque
 	return s.executeStreamWithSyncFallback(ctx, prepared.meta, prepared.provider, prepared.request, onChunk)
 }
 
-// TODO: Document AssistantService.executeStreamWithSyncFallback.
+// executeStreamWithSyncFallback calls the non-streaming GenerateText API and delivers the full response as a single chunk to the onChunk callback.
 func (s *AssistantService) executeStreamWithSyncFallback(
 	ctx context.Context,
 	meta assistantCallMetadata,
@@ -240,7 +239,7 @@ func (s *AssistantService) executeStreamWithSyncFallback(
 	return s.finalizeStreamSuccess(ctx, meta, resp.Text, firstNonEmpty(resp.Model, meta.model), finishedAt, resp.Usage)
 }
 
-// TODO: Document AssistantService.executeStreamWithStreamingProvider.
+// executeStreamWithStreamingProvider reads incremental chunks from a streaming AI provider and forwards each chunk to the onChunk callback.
 func (s *AssistantService) executeStreamWithStreamingProvider(
 	ctx context.Context,
 	meta assistantCallMetadata,
@@ -319,7 +318,7 @@ func (s *AssistantService) ListHistory(ctx context.Context, filter AssistantHist
 	return s.historyStore.List(ctx, filter)
 }
 
-// TODO: Document AssistantService.prepareCall.
+// prepareCall validates that the assistant is enabled and configured, resolves the AI provider and model, and assembles the prompt with schema context into a ready-to-execute call.
 func (s *AssistantService) prepareCall(req AssistantRequest) (preparedAssistantCall, error) {
 	startedAt := time.Now().UTC()
 	if !s.enabled {
@@ -405,7 +404,7 @@ func (meta assistantCallMetadata) durationMs(finishedAt time.Time) int {
 	return int(finishedAt.Sub(meta.startedAt).Milliseconds())
 }
 
-// TODO: Document assistantCallMetadata.successResult.
+// successResult parses the AI response text into SQL, explanation, and warning components, and returns both the API response and the corresponding history entry.
 func (meta assistantCallMetadata) successResult(text, model string, finishedAt time.Time, usage Usage) (AssistantResponse, AssistantHistoryEntry) {
 	durationMs := meta.durationMs(finishedAt)
 	parsed := ParseAssistantResponseText(text)
@@ -442,7 +441,7 @@ func (meta assistantCallMetadata) successResult(text, model string, finishedAt t
 	return response, historyEntry
 }
 
-// TODO: Document assistantCallMetadata.nonSuccessHistoryEntry.
+// nonSuccessHistoryEntry builds a history entry for a failed or cancelled assistant call, recording the partial response text and error status.
 func (meta assistantCallMetadata) nonSuccessHistoryEntry(
 	responseText, model string,
 	status AssistantStatus,

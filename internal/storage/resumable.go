@@ -146,6 +146,25 @@ func appendChunk(path string, offset int64, remaining int64, src io.Reader) (int
 	return written, nil
 }
 
+// Resumable cleanup needs tx-scoped quota reclamation so the upload row delete
+// can roll back if usage accounting fails.
+func decrementUsageInTx(ctx context.Context, tx pgx.Tx, userID string, bytes int64) error {
+	if userID == "" || bytes <= 0 {
+		return nil
+	}
+
+	_, err := tx.Exec(ctx,
+		`UPDATE _ayb_storage_usage
+		 SET bytes_used = GREATEST(bytes_used - $2, 0), updated_at = NOW()
+		 WHERE user_id = $1`,
+		userID, bytes,
+	)
+	if err != nil {
+		return fmt.Errorf("decrementing storage usage: %w", err)
+	}
+	return nil
+}
+
 // CreateResumableUpload creates a new resumable session record and returns it.
 func (s *Service) CreateResumableUpload(ctx context.Context, bucket, name, contentType string, userID *string, totalSize int64) (*ResumableUpload, error) {
 	if err := validateBucket(bucket); err != nil {
@@ -401,41 +420,61 @@ func (s *Service) FinalizeResumableUpload(ctx context.Context, id string, caller
 	return obj, nil
 }
 
-// CleanupExpiredResumableUploads deletes stale resumable sessions and their temp files.
-// It returns the number of stale session rows removed.
 func (s *Service) CleanupExpiredResumableUploads(ctx context.Context) (int, error) {
 	if s.pool == nil {
 		return 0, fmt.Errorf("database pool is not configured")
 	}
 
-	rows, err := s.pool.Query(ctx, `SELECT path FROM _ayb_storage_uploads WHERE expires_at < NOW()`)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("querying expired resumable uploads: %w", err)
+		return 0, fmt.Errorf("begin cleanup tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		DELETE FROM _ayb_storage_uploads
+		WHERE expires_at < NOW()
+		RETURNING path, user_id, total_size`)
+	if err != nil {
+		return 0, fmt.Errorf("deleting expired resumable uploads: %w", err)
 	}
 	defer rows.Close()
 
-	var paths []string
+	type expiredUpload struct {
+		path      string
+		userID    *string
+		totalSize int64
+	}
+
+	expiredUploads := make([]expiredUpload, 0)
 	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
+		var upload expiredUpload
+		if err := rows.Scan(&upload.path, &upload.userID, &upload.totalSize); err != nil {
 			return 0, fmt.Errorf("scanning expired resumable upload: %w", err)
 		}
-		paths = append(paths, path)
+		expiredUploads = append(expiredUploads, upload)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("reading expired resumable uploads: %w", err)
 	}
+	rows.Close()
 
-	tag, err := s.pool.Exec(ctx, `DELETE FROM _ayb_storage_uploads WHERE expires_at < NOW()`)
-	if err != nil {
-		return 0, fmt.Errorf("deleting expired resumable uploads: %w", err)
+	for _, upload := range expiredUploads {
+		if upload.userID != nil {
+			if err := decrementUsageInTx(ctx, tx, *upload.userID, upload.totalSize); err != nil {
+				return 0, fmt.Errorf("reclaiming resumable quota: %w", err)
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit cleanup tx: %w", err)
 	}
 
-	for _, path := range paths {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			s.logger.Warn("failed to remove resumable temp file", "path", path, "error", err)
+	for _, upload := range expiredUploads {
+		if err := os.Remove(upload.path); err != nil && !os.IsNotExist(err) {
+			s.logger.Warn("failed to remove resumable temp file", "path", upload.path, "error", err)
 		}
 	}
 
-	return int(tag.RowsAffected()), nil
+	return len(expiredUploads), nil
 }

@@ -214,6 +214,23 @@ func TestValidate(t *testing.T) {
 			wantErr: "database.replicas[0].max_lag_bytes must be non-negative",
 		},
 		{
+			name: "replica duplicate url",
+			modify: func(c *Config) {
+				c.Database.Replicas = []ReplicaConfig{
+					{URL: "postgresql://replica-1/db", Weight: 1, MaxLagBytes: 1},
+					{URL: "postgresql://replica-1/db", Weight: 2, MaxLagBytes: 1},
+				}
+			},
+			wantErr: "database.replicas[1].url is a duplicate",
+		},
+		{
+			name: "replica unparseable url",
+			modify: func(c *Config) {
+				c.Database.Replicas = []ReplicaConfig{{URL: "://bad\x00url", Weight: 1, MaxLagBytes: 1}}
+			},
+			wantErr: "database.replicas[0].url is not a valid URL",
+		},
+		{
 			name: "min_conns exceeds max_conns",
 			modify: func(c *Config) {
 				c.Database.MaxConns = 5

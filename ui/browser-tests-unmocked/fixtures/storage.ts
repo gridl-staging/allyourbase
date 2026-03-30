@@ -4,9 +4,6 @@
 import type { APIRequestContext } from "@playwright/test";
 import { validateResponse } from "./core";
 
-/**
- * TODO: Document seedWebhook.
- */
 export async function seedWebhook(
   request: APIRequestContext,
   token: string,
@@ -35,9 +32,6 @@ export async function deleteWebhook(
   await validateResponse(res, `Delete webhook ${id}`);
 }
 
-/**
- * TODO: Document seedFile.
- */
 export async function seedFile(
   request: APIRequestContext,
   token: string,

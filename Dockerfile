@@ -70,6 +70,12 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata libgcc libstdc++ libwebp libxml2 openssl su-exec
 RUN addgroup -S ayb && adduser -S -D -h /home/ayb -G ayb ayb && install -d -o ayb -g ayb /home/ayb/.ayb
 
+# Keep the container package explicitly associated with the public repo so
+# command-line pushes and workflow pushes converge on one package identity.
+LABEL org.opencontainers.image.source="https://github.com/gridlhq/allyourbase"
+LABEL org.opencontainers.image.description="Allyourbase single-binary PostgreSQL backend with auth, realtime, storage, and admin UI"
+LABEL org.opencontainers.image.licenses="MIT"
+
 COPY --from=pg-builder --chown=ayb:ayb /opt/ayb-managed-pg /home/ayb/.ayb/pgbin
 COPY --from=builder /ayb /usr/local/bin/ayb
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

@@ -85,7 +85,7 @@ export function CustomDomains() {
             <button
               onClick={() => handleVerify(row)}
               disabled={actionLoading}
-              className="text-xs text-blue-500 hover:text-blue-600 disabled:opacity-50"
+              className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
             >
               Verify
             </button>
@@ -93,7 +93,7 @@ export function CustomDomains() {
           <button
             aria-label={`Delete ${row.hostname}`}
             onClick={() => setDeleteTarget(row)}
-            className="text-xs text-red-500 hover:text-red-600"
+            className="text-xs text-red-600 hover:text-red-700"
           >
             Delete
           </button>
@@ -133,7 +133,7 @@ export function CustomDomains() {
             New Domain
           </h3>
           <div className="flex flex-col gap-2 max-w-md">
-            <label className="text-xs text-gray-600 dark:text-gray-400">
+            <label className="text-xs text-gray-600 dark:text-gray-300">
               Hostname
               <input
                 type="text"
@@ -143,7 +143,7 @@ export function CustomDomains() {
                 className="mt-1 block w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </label>
-            <label className="text-xs text-gray-600 dark:text-gray-400">
+            <label className="text-xs text-gray-600 dark:text-gray-300">
               Environment
               <select
                 value={environment}
@@ -155,7 +155,7 @@ export function CustomDomains() {
                 <option value="development">Development</option>
               </select>
             </label>
-            <label className="text-xs text-gray-600 dark:text-gray-400">
+            <label className="text-xs text-gray-600 dark:text-gray-300">
               Redirect Mode
               <select
                 value={redirectMode}
@@ -179,7 +179,7 @@ export function CustomDomains() {
                   setShowCreate(false);
                   resetForm();
                 }}
-                className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-200"
               >
                 Cancel
               </button>
@@ -189,7 +189,7 @@ export function CustomDomains() {
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-300">Loading...</p>
       ) : (
         <AdminTable
           columns={columns}

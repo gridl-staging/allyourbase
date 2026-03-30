@@ -44,7 +44,6 @@ error() { printf "${RED}error${NC} %s\n" "$1" >&2; }
 
 # ── Platform Detection ───────────────────────────────────────────────────────
 
-# TODO: Document detect_platform.
 detect_platform() {
   os="$(uname -s)"
   arch="$(uname -m)"
@@ -97,7 +96,6 @@ detect_downloader() {
   fi
 }
 
-# TODO: Document download.
 download() {
   url="$1"
   output="$2"
@@ -154,7 +152,6 @@ latest_app_release_tag() {
 
 # ── Version Resolution ───────────────────────────────────────────────────────
 
-# TODO: Document get_version.
 get_version() {
   if [ -n "${AYB_VERSION:-}" ]; then
     version="$AYB_VERSION"
@@ -220,7 +217,6 @@ download_release_asset() {
 
 # ── Download & Verify ────────────────────────────────────────────────────────
 
-# TODO: Document download_and_verify.
 download_and_verify() {
   # Strip leading 'v' for archive naming (goreleaser uses version without v prefix)
   version_num=$(echo "$version" | sed 's/^v//')
@@ -276,7 +272,6 @@ install_binary() {
 
 # ── PATH Setup ───────────────────────────────────────────────────────────────
 
-# TODO: Document setup_path.
 setup_path() {
   if [ "${NO_MODIFY_PATH:-0}" = "1" ]; then
     return
@@ -345,7 +340,6 @@ setup_path() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-# TODO: Document main.
 main() {
   setup_colors
 

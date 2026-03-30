@@ -110,7 +110,7 @@ func fetchLatestLegacyVersion(ctx context.Context, metadataURL, major string) (s
 		return "", fmt.Errorf("creating metadata request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetching metadata: %w", err)
 	}

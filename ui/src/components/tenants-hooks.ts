@@ -53,9 +53,6 @@ const EMPTY_DETAIL_STATE: DetailState = {
   error: null,
 };
 
-/**
- * TODO: Document useTenantListState.
- */
 export function useTenantListState() {
   const [listQuery, setListQuery] = useState<TenantListQuery>({ page: 1, perPage: 20 });
   const [listState, setListState] = useState<ListState>({
@@ -109,9 +106,6 @@ export function useTenantListState() {
   return { listState, listQuery, nextPage, prevPage, refreshList };
 }
 
-/**
- * TODO: Document useTenantDetailState.
- */
 export function useTenantDetailState(
   selectedId: string | null,
   activeTab: DetailTab,

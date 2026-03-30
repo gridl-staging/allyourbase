@@ -111,9 +111,6 @@ export interface AssistantRequest {
   model?: string;
 }
 
-/**
- * TODO: Document AssistantResponse.
- */
 export interface AssistantResponse {
   history_id?: string;
   mode?: string;
@@ -132,9 +129,6 @@ export interface AssistantResponse {
   finished_at?: string;
 }
 
-/**
- * TODO: Document AssistantHistoryEntry.
- */
 export interface AssistantHistoryEntry {
   id: string;
   mode: string;

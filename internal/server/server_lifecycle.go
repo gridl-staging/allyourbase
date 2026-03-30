@@ -1,4 +1,3 @@
-// Package server Manages the lifecycle of the HTTP server and its runtime services, including startup, request handling, and graceful shutdown.
 package server
 
 import (
@@ -67,7 +66,6 @@ func (s *Server) startRuntimeServices(ctx context.Context) {
 	s.startStoragePoller(ctx)
 }
 
-// startStoragePoller starts a background polling goroutine that periodically queries the database for storage usage metrics and updates infrastructure metrics. It returns early if the database pool, metrics, or poller is not available.
 func (s *Server) startStoragePoller(ctx context.Context) {
 	if s.pool == nil || s.infraMetrics == nil || s.storagePollerCancel != nil {
 		return
@@ -77,6 +75,12 @@ func (s *Server) startStoragePoller(ctx context.Context) {
 	s.storagePollerCancel = cancel
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("storage poller panic recovered", "panic", r)
+			}
+		}()
+
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 

@@ -49,11 +49,11 @@ export function ApiExplorerResponse({
             <span className={cn("text-sm font-bold", statusColor(response.status))}>
               {response.status} {response.statusText}
             </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+            <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {response.durationMs}ms
             </span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-300">
               {new TextEncoder().encode(response.body).length} bytes
             </span>
           </div>
@@ -90,7 +90,7 @@ export function ApiExplorerResponse({
                       : generateJsSdk(method, fullPath, body || undefined),
                   )
                 }
-                className="ml-auto px-3 py-1.5 text-xs text-gray-400 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+                className="ml-auto px-3 py-1.5 text-xs text-gray-500 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
               >
                 {copied ? (
                   <>
@@ -111,7 +111,7 @@ export function ApiExplorerResponse({
           </div>
 
           <div className="border rounded-lg overflow-hidden">
-            <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b text-xs font-medium text-gray-500 dark:text-gray-400">
+            <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b text-xs font-medium text-gray-500 dark:text-gray-300">
               Response Body
             </div>
             <pre className="p-3 text-xs font-mono overflow-x-auto max-h-96 bg-white dark:bg-gray-800 whitespace-pre-wrap">
@@ -122,7 +122,7 @@ export function ApiExplorerResponse({
       )}
 
       {!response && !error && (
-        <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm h-48">
+        <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-300 text-sm h-48">
           Send a request to see the response
         </div>
       )}

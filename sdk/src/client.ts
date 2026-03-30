@@ -25,9 +25,6 @@ function normalizeErrorCode(rawCode: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * TODO: Document AYBClient.
- */
 export class AYBClient {
   private baseURL: string;
   private _fetch: typeof globalThis.fetch;

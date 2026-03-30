@@ -369,3 +369,26 @@ func TestMatchesGraphQLWhereSupportsLikeAndILike(t *testing.T) {
 		},
 	}, row))
 }
+
+func TestHandlerRejectsOversizedBody(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// Build a JSON body just over 1MB — well beyond any legitimate GraphQL
+	// query size. The handler must enforce a body-size ceiling to prevent
+	// memory-exhaustion attacks from authenticated (but malicious) clients.
+	oversized := bytes.Repeat([]byte("x"), 1<<20+1) // 1 MB + 1 byte
+	body := append([]byte(`{"query":"`), oversized...)
+	body = append(body, '"', '}')
+
+	req := httptest.NewRequest(http.MethodPost, "/api/graphql", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	// Must reject — either 400 (body decode fails because MaxBytesReader
+	// truncates) or 413 (explicit entity-too-large). Both are acceptable.
+	if rr.Code == http.StatusOK {
+		t.Errorf("handler accepted a >1 MB body; want rejection (got status %d)", rr.Code)
+	}
+}

@@ -74,7 +74,7 @@ export function Users() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-300">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading users...
       </div>
@@ -106,7 +106,7 @@ export function Users() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">Users</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-0.5">
             Manage registered user accounts
           </p>
         </div>
@@ -115,7 +115,7 @@ export function Users() {
       {/* Search bar */}
       <div className="mb-4 flex items-center gap-2">
         <div className="flex items-center gap-2 flex-1 max-w-md border rounded px-3 py-1.5 bg-white dark:bg-gray-800">
-          <Search className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <Search className="w-4 h-4 text-gray-500 dark:text-gray-300" />
           <input
             type="text"
             value={search}
@@ -132,7 +132,7 @@ export function Users() {
                 setAppliedSearch("");
                 setPage(1);
               }}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300"
+              className="text-gray-500 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-200"
               aria-label="Clear search"
             >
               <X className="w-4 h-4" />
@@ -150,7 +150,7 @@ export function Users() {
       {data && data.items.length === 0 ? (
         <div className="text-center py-16 border rounded-lg bg-gray-50 dark:bg-gray-800">
           <UsersIcon className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-gray-500 dark:text-gray-300 text-sm">
             {appliedSearch ? "No users matching search" : "No users registered yet"}
           </p>
         </div>
@@ -182,7 +182,7 @@ export function Users() {
                   >
                     <td className="px-4 py-2.5">
                       <span className="font-mono text-xs">{user.email}</span>
-                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                         {user.id}
                       </div>
                     </td>
@@ -193,14 +193,14 @@ export function Users() {
                         <XCircle className="w-4 h-4 text-gray-300 dark:text-gray-500 inline" />
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">
+                    <td className="px-4 py-2.5 text-gray-500 dark:text-gray-300 text-xs">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-end">
                         <button
                           onClick={() => setModal({ kind: "delete", user })}
-                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                          className="p-1 text-gray-500 dark:text-gray-300 hover:text-red-500 rounded hover:bg-gray-100 dark:bg-gray-700"
                           title="Delete user"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -214,7 +214,7 @@ export function Users() {
           </div>
 
           {/* Pagination */}
-          <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+          <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-300">
             <span>
               {data.totalItems} user{data.totalItems !== 1 ? "s" : ""}
             </span>
@@ -222,7 +222,8 @@ export function Users() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
+                aria-label="Previous page"
+                className="p-1 rounded hover:bg-gray-200 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -232,7 +233,8 @@ export function Users() {
               <button
                 onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
                 disabled={page >= data.totalPages}
-                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
+                aria-label="Next page"
+                className="p-1 rounded hover:bg-gray-200 dark:bg-gray-700 disabled:opacity-30"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -249,13 +251,13 @@ export function Users() {
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
               This will permanently delete the user and all their sessions.
             </p>
-            <p className="text-xs font-mono text-gray-500 dark:text-gray-400 break-all mb-4">
+            <p className="text-xs font-mono text-gray-500 dark:text-gray-300 break-all mb-4">
               {modal.user.email}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>

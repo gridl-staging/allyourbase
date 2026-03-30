@@ -122,9 +122,6 @@ export function mockListUsersSearchResults(
   mockListUsers.mockResolvedValue(makeUserSearchResponse(items, overrides));
 }
 
-/**
- * TODO: Document getCreateTenantDialogControls.
- */
 export function getCreateTenantDialogControls() {
   return {
     nameInput: screen.getByLabelText("Tenant Name", { selector: "#tenant-create-name" }),
@@ -161,9 +158,6 @@ export function makeApiError(status: number, message: string): Error & { status:
   return Object.assign(new Error(message), { status });
 }
 
-/**
- * TODO: Document makeTenant.
- */
 export function makeTenant(overrides: Partial<Tenant> = {}): Tenant {
   return {
     id: "t-1",
@@ -229,9 +223,6 @@ export function makeBreakerState(overrides: Partial<BreakerStateResponse> = {}):
   };
 }
 
-/**
- * TODO: Document makeAuditResponse.
- */
 export function makeAuditResponse(overrides: Partial<TenantAuditResponse> = {}): TenantAuditResponse {
   return {
     items: [
@@ -253,9 +244,6 @@ export function makeAuditResponse(overrides: Partial<TenantAuditResponse> = {}):
   };
 }
 
-/**
- * TODO: Document setupTenantTestMocks.
- */
 export function setupTenantTestMocks() {
   mockListUsersSearchResults();
   mockFetchTenantList.mockResolvedValue(makeListResponse());

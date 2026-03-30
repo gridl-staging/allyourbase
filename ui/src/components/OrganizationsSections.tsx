@@ -24,7 +24,7 @@ interface OrgListPanelProps {
 }
 
 const TIER_BADGE_COLORS: Record<string, string> = {
-  free: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  free: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
   pro: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   enterprise: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
 };
@@ -105,8 +105,8 @@ export function OrgListPanel({
           >
             <div className="font-medium text-gray-900 dark:text-gray-100">{org.name}</div>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{org.slug}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded ${TIER_BADGE_COLORS[org.planTier] ?? "bg-gray-100 text-gray-500"}`}>
+              <span className="text-xs text-gray-500 dark:text-gray-300">{org.slug}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded ${TIER_BADGE_COLORS[org.planTier] ?? "bg-gray-100 text-gray-600"}`}>
                 {org.planTier}
               </span>
             </div>
@@ -144,7 +144,7 @@ export function OrgDetailHeader({ org, activeTab, onTabChange, onDelete, isDelet
       <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{org.name}</h2>
-          <div className="flex gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <div className="flex gap-3 text-xs text-gray-500 dark:text-gray-300 mt-1">
             <span>{org.childOrgCount} child org{org.childOrgCount !== 1 ? "s" : ""}</span>
             <span>{org.teamCount} team{org.teamCount !== 1 ? "s" : ""}</span>
             <span>{org.tenantCount} tenant{org.tenantCount !== 1 ? "s" : ""}</span>
@@ -168,7 +168,7 @@ export function OrgDetailHeader({ org, activeTab, onTabChange, onDelete, isDelet
             className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
               activeTab === tab
                 ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                : "text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
             {TAB_LABELS[tab]}
@@ -223,10 +223,10 @@ export function OrgUsageSection({
         onReset={onResetFilters}
       />
       {!summary ? (
-        <div className="text-sm text-gray-400 py-4">No usage data available</div>
+        <div className="text-sm text-gray-500 py-4">No usage data available</div>
       ) : (
         <>
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-gray-500 dark:text-gray-300">
             Period: {summary.period} | Tenants: {summary.tenantCount}
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -316,7 +316,7 @@ export function OrgAuditSection({
         onReset={onResetFilters}
       />
       {items.length === 0 ? (
-        <div className="text-sm text-gray-400 py-4">No audit events found</div>
+        <div className="text-sm text-gray-500 py-4">No audit events found</div>
       ) : (
         <>
           <div className="text-xs text-gray-500 mb-2">{count} event{count !== 1 ? "s" : ""}</div>
@@ -334,8 +334,8 @@ export function OrgAuditSection({
                 <tr key={event.id} className="border-b border-gray-100 dark:border-gray-800">
                   <td className="py-1.5 pr-4 text-gray-900 dark:text-gray-100">{event.action}</td>
                   <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{event.result}</td>
-                  <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-400">{event.actorId ?? "—"}</td>
-                  <td className="py-1.5 text-gray-500 dark:text-gray-400">{event.createdAt}</td>
+                  <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-300">{event.actorId ?? "—"}</td>
+                  <td className="py-1.5 text-gray-500 dark:text-gray-300">{event.createdAt}</td>
                 </tr>
               ))}
             </tbody>

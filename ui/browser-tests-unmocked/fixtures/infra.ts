@@ -4,9 +4,6 @@
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
 
-/**
- * TODO: Document seedSite.
- */
 export async function seedSite(
   request: APIRequestContext,
   token: string,
@@ -44,9 +41,6 @@ export async function cleanupSiteByID(
   }
 }
 
-/**
- * TODO: Document getSite.
- */
 export async function getSite(
   request: APIRequestContext,
   token: string,
@@ -87,9 +81,6 @@ export async function getSiteStatus(
   return res.status();
 }
 
-/**
- * TODO: Document seedCustomDomain.
- */
 export async function seedCustomDomain(
   request: APIRequestContext,
   token: string,
@@ -139,9 +130,6 @@ export async function cleanupCustomDomain(
   }
 }
 
-/**
- * TODO: Document seedLogDrain.
- */
 export async function seedLogDrain(
   request: APIRequestContext,
   token: string,
@@ -185,9 +173,6 @@ export async function cleanupLogDrain(
   }
 }
 
-/**
- * TODO: Document seedSAMLProvider.
- */
 export async function seedSAMLProvider(
   request: APIRequestContext,
   token: string,
@@ -290,9 +275,6 @@ export async function cleanupBranch(
   }
 }
 
-/**
- * TODO: Document seedReplica.
- */
 export async function seedReplica(
   request: APIRequestContext,
   token: string,
@@ -322,9 +304,6 @@ export async function seedReplica(
   return { name: options.name };
 }
 
-/**
- * TODO: Document fetchReplicaStatuses.
- */
 export async function fetchReplicaStatuses(
   request: APIRequestContext,
   token: string,
@@ -393,9 +372,6 @@ export async function disableExtension(
   }
 }
 
-/**
- * TODO: Document seedBackup.
- */
 export async function seedBackup(
   request: APIRequestContext,
   token: string,
@@ -441,9 +417,6 @@ export async function cleanupBackupsByDbName(
   );
 }
 
-/**
- * TODO: Document seedFDWServer.
- */
 export async function seedFDWServer(
   request: APIRequestContext,
   token: string,
@@ -515,9 +488,6 @@ export async function seedAIPrompt(
   return { id: body.id, name: body.name };
 }
 
-/**
- * TODO: Document cleanupAIPromptByName.
- */
 export async function cleanupAIPromptByName(
   request: APIRequestContext,
   token: string,

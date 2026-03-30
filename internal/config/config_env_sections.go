@@ -1,4 +1,3 @@
-// Package config Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/config/config_env_sections.go.
 package config
 
 import (
@@ -6,7 +5,7 @@ import (
 	"strings"
 )
 
-// TODO: Document applyServerEnv.
+// applyServerEnv overrides server-section config fields from AYB_SERVER_* and AYB_TLS_* environment variables.
 func applyServerEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_SERVER_HOST"); v != "" {
 		cfg.Server.Host = v
@@ -32,7 +31,7 @@ func applyServerEnv(cfg *Config) error {
 	return nil
 }
 
-// TODO: Document applyDatabaseEnv.
+// applyDatabaseEnv overrides database-section config fields from AYB_DATABASE_* environment variables. Replica URLs are parsed as CSV and assigned default weight/lag values.
 func applyDatabaseEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
@@ -92,7 +91,7 @@ func applyMetricsEnv(cfg *Config) {
 	}
 }
 
-// TODO: Document applyRealtimeEnv.
+// applyRealtimeEnv overrides realtime WebSocket config fields from AYB_REALTIME_* environment variables (all integer-valued).
 func applyRealtimeEnv(cfg *Config) error {
 	for _, env := range []struct {
 		name  string
@@ -173,7 +172,7 @@ func applyRateLimitEnv(cfg *Config) {
 	}
 }
 
-// TODO: Document applyEmailEnv.
+// applyEmailEnv overrides email-section config fields from AYB_EMAIL_* environment variables, covering backend selection, SMTP credentials, and webhook settings.
 func applyEmailEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_EMAIL_BACKEND"); v != "" {
 		cfg.Email.Backend = v
@@ -214,7 +213,7 @@ func applyEmailEnv(cfg *Config) error {
 	return nil
 }
 
-// TODO: Document applyStorageEnv.
+// applyStorageEnv overrides storage-section config fields from AYB_STORAGE_* environment variables, including local/S3 backend settings and CDN provider credentials.
 func applyStorageEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_STORAGE_ENABLED"); v != "" {
 		cfg.Storage.Enabled = v == "true" || v == "1"
@@ -273,7 +272,7 @@ func applyStorageEnv(cfg *Config) error {
 	return nil
 }
 
-// TODO: Document applyEdgeFunctionsEnv.
+// applyEdgeFunctionsEnv overrides edge function config fields from AYB_EDGE_FUNCTIONS_* environment variables, including pool sizing, timeouts, memory limits, and the fetch domain allowlist.
 func applyEdgeFunctionsEnv(cfg *Config) error {
 	if err := envInt("AYB_EDGE_FUNCTIONS_POOL_SIZE", &cfg.EdgeFunctions.PoolSize); err != nil {
 		return err
@@ -299,7 +298,7 @@ func applyEdgeFunctionsEnv(cfg *Config) error {
 	return nil
 }
 
-// TODO: Document applyBillingEnv.
+// applyBillingEnv overrides billing-section config fields from AYB_BILLING_* environment variables, including Stripe API keys, price IDs, and usage meter event names.
 func applyBillingEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_BILLING_PROVIDER"); v != "" {
 		cfg.Billing.Provider = v
@@ -343,7 +342,7 @@ func applySupportEnv(cfg *Config) {
 	}
 }
 
-// TODO: Document applyJobsEnv.
+// applyJobsEnv overrides job queue config fields from AYB_JOBS_* environment variables, including worker concurrency, polling intervals, lease duration, and scheduler settings.
 func applyJobsEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_JOBS_ENABLED"); v != "" {
 		cfg.Jobs.Enabled = v == "true" || v == "1"
@@ -385,7 +384,7 @@ func applyStatusEnv(cfg *Config) error {
 	return nil
 }
 
-// TODO: Document applyPushEnv.
+// applyPushEnv overrides push notification config fields from AYB_PUSH_* environment variables, covering FCM credentials and APNS key/team/bundle settings.
 func applyPushEnv(cfg *Config) {
 	if v := os.Getenv("AYB_PUSH_ENABLED"); v != "" {
 		cfg.Push.Enabled = v == "true" || v == "1"

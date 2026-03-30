@@ -1,4 +1,3 @@
-// Package graphql Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/graphql/schema.go.
 package graphql
 
 import (
@@ -113,7 +112,7 @@ func buildSchemaInputTypes(tables []*schema.Table) (map[string]*gql.InputObject,
 	return whereInputs, orderByInputs
 }
 
-// TODO: Document buildSchemaQueryFields.
+// buildSchemaQueryFields constructs GraphQL query fields for each table, wiring up where, order_by, limit, offset, and spatial filter arguments with the provided resolver factory.
 func buildSchemaQueryFields(
 	tables []*schema.Table,
 	cache *schema.SchemaCache,
@@ -150,7 +149,7 @@ func buildSchemaQueryFields(
 	return queryFields
 }
 
-// TODO: Document buildSchemaSubscriptionFields.
+// buildSchemaSubscriptionFields constructs GraphQL subscription fields for eligible tables (excluding views and materialized views), with optional where filtering.
 func buildSchemaSubscriptionFields(
 	tables []*schema.Table,
 	objectTypes map[string]*gql.Object,

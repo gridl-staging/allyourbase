@@ -66,9 +66,6 @@ function buildAuditResponse(items: MockTenantAuditEvent[], limit: number, offset
   };
 }
 
-/**
- * TODO: Document mockTenantAdminApis.
- */
 export async function mockTenantAdminApis(page: Page): Promise<TenantAdminMockState> {
   const tenantOne: MockTenant = {
     id: "tenant-1",

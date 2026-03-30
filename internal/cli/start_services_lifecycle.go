@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_02_ci_e2e_wiring/allyourbase_dev/internal/cli/start_services_lifecycle.go.
 package cli
 
 import (
@@ -109,7 +108,7 @@ func (s *shutdownState) cleanup(pool *pgxpool.Pool, logger *slog.Logger) {
 	}
 }
 
-// TODO: Document runForegroundPreflight.
+// runForegroundPreflight verifies the configured port is available, generates a default config file if needed, and validates PocketBase migration source paths.
 func runForegroundPreflight(cfg *config.Config, configPath, fromValue string, logger *slog.Logger) error {
 	ln, err := net.Listen("tcp", cfg.Address())
 	if err != nil {
@@ -137,7 +136,7 @@ func runForegroundPreflight(cfg *config.Config, configPath, fromValue string, lo
 	return nil
 }
 
-// TODO: Document waitForServerReady.
+// waitForServerReady blocks until the server signals readiness or an error, then writes PID/token artifacts and prints the startup banner.
 func waitForServerReady(
 	ready <-chan struct{},
 	errCh <-chan error,
@@ -174,7 +173,7 @@ func waitForServerReady(
 	}
 }
 
-// TODO: Document prepareServerReadyArtifacts.
+// prepareServerReadyArtifacts writes the PID file and admin token file after the server is ready, returning a cleanup function that removes them.
 func prepareServerReadyArtifacts(cfg *config.Config, baseURL string, logger *slog.Logger) func() {
 	var cleanupFuncs []func()
 
@@ -205,7 +204,7 @@ func loopbackServerURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-// TODO: Document writeAdminTokenFile.
+// writeAdminTokenFile exchanges the admin password for a bearer token and persists it to ~/.ayb/admin-token for use by CLI commands.
 func writeAdminTokenFile(baseURL, password string) (string, error) {
 	trimmedPassword := strings.TrimSpace(password)
 	if trimmedPassword == "" {
@@ -280,7 +279,7 @@ func stopManagedPostgres(pgMgr *pgmanager.Manager, logger *slog.Logger) {
 // initDatabase starts managed PG if needed, connects to the database, runs
 // system and user migrations, handles --from and --branch, and initializes
 
-// TODO: Document handlePasswordResets.
+// handlePasswordResets listens for USR signals and resets the admin password, updating both the result file and admin token file.
 func handlePasswordResets(usrCh <-chan os.Signal, srv *server.Server, baseURL string, logger *slog.Logger) {
 	for range usrCh {
 		newPw, err := srv.ResetAdminPassword()

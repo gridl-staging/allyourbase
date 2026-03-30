@@ -72,7 +72,7 @@ export function EnvVarEditor({ envVars, onChange }: EnvVarEditorProps) {
         </button>
       </div>
       {envVars.length === 0 && (
-        <p className="text-xs text-gray-400 dark:text-gray-500" data-testid="env-empty">
+        <p className="text-xs text-gray-500 dark:text-gray-300" data-testid="env-empty">
           No environment variables configured.
         </p>
       )}
@@ -103,7 +103,7 @@ export function EnvVarEditor({ envVars, onChange }: EnvVarEditorProps) {
                 <button
                   type="button"
                   onClick={() => toggleReveal(idx)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-200"
                   aria-label={revealedIndices.has(idx) ? "Hide value" : "Reveal value"}
                   data-testid={`env-reveal-${idx}`}
                 >
@@ -116,7 +116,7 @@ export function EnvVarEditor({ envVars, onChange }: EnvVarEditorProps) {
               </div>
               <button
                 onClick={() => removeEnvVar(idx)}
-                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500"
+                className="p-1.5 text-gray-500 dark:text-gray-300 hover:text-red-500"
                 data-testid={`env-remove-${idx}`}
               >
                 <X className="w-4 h-4" />

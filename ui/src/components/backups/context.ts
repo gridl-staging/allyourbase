@@ -20,9 +20,6 @@ export function buildPITRContextKey(projectId: string, databaseId: string): stri
   return `${projectId}:${databaseId}`;
 }
 
-/**
- * TODO: Document buildPITRContextOptions.
- */
 export function buildPITRContextOptions(
   backups: readonly BackupContextSource[],
 ): PITRContextOption[] {

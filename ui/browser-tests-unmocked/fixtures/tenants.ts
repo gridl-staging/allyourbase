@@ -10,9 +10,6 @@ export interface SeededTenantDashboardTenant {
   tenantSlug: string;
 }
 
-/**
- * TODO: Document seedTenantDashboardSmokeTenant.
- */
 export async function seedTenantDashboardSmokeTenant(
   request: APIRequestContext,
   token: string,

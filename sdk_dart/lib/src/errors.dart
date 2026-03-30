@@ -1,4 +1,3 @@
-/// TODO: Document AYBError.
 class AYBError implements Exception {
   const AYBError(
     this.status,

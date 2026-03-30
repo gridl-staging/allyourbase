@@ -1,4 +1,3 @@
-// Package ai OpenAI implements Provider for OpenAI-compatible APIs, handling text generation and embedding requests.
 package ai
 
 import (
@@ -8,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const openaiDefaultBaseURL = "https://api.openai.com/v1"
@@ -27,11 +27,10 @@ func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
 	return &OpenAIProvider{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-// GenerateText sends a chat completion request to the OpenAI API and returns the generated text with usage metrics. It respects the provided context for cancellation and returns a ProviderError on HTTP failures.
 func (p *OpenAIProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	messages := buildOpenAIMessages(req)
 
@@ -64,7 +63,7 @@ func (p *OpenAIProvider) GenerateText(ctx context.Context, req GenerateTextReque
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return GenerateTextResponse{}, fmt.Errorf("openai: read response: %w", err)
 	}
@@ -183,7 +182,6 @@ type openaiResponse struct {
 	} `json:"usage"`
 }
 
-// GenerateEmbedding implements EmbeddingProvider for OpenAI.
 func (p *OpenAIProvider) GenerateEmbedding(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
 	body := openaiEmbeddingRequest(req)
 
@@ -205,7 +203,7 @@ func (p *OpenAIProvider) GenerateEmbedding(ctx context.Context, req EmbeddingReq
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return EmbeddingResponse{}, fmt.Errorf("openai: read embedding response: %w", err)
 	}

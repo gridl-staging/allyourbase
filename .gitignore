@@ -120,6 +120,7 @@ node_modules/
 /data
 /tmp
 /venv
+**/.venv/
 
 # Data directories
 /datasets/

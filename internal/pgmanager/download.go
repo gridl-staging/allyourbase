@@ -4,14 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// downloadHTTPClient is used for all binary downloads. 5-minute timeout
+// accommodates large Postgres binary downloads on slow connections.
+var downloadHTTPClient = &http.Client{Timeout: 5 * time.Minute}
 
 type httpStatusError struct {
 	op         string
@@ -23,20 +27,13 @@ func (e *httpStatusError) Error() string {
 	return fmt.Sprintf("%s %s: HTTP %d", e.op, e.url, e.statusCode)
 }
 
-func isHTTPStatus(err error, statusCode int) bool {
-	var statusErr *httpStatusError
-	return errors.As(err, &statusErr) && statusErr.statusCode == statusCode
-}
-
-// downloadBinary streams an HTTP GET to a temp file, then renames on success.
-// On failure the temp file is cleaned up so no partial file remains at destPath.
 func downloadBinary(ctx context.Context, url, destPath string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating download request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", url, err)
 	}
@@ -101,14 +98,13 @@ func verifySHA256(filePath, expectedHash string) error {
 	return nil
 }
 
-// fetchSHA256Sums downloads a SHA256SUMS file and parses "hash  filename" lines.
 func fetchSHA256Sums(ctx context.Context, url string) (map[string]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating SHA256SUMS request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching SHA256SUMS: %w", err)
 	}
@@ -144,7 +140,7 @@ func fetchSHA256Digest(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("creating SHA256 digest request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetching SHA256 digest: %w", err)
 	}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, fireEvent, act } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { EmailTemplates } from "../EmailTemplates";
 import {
@@ -138,6 +138,27 @@ describe("EmailTemplates", () => {
     await waitFor(() => {
       expect(mockGetEmailTemplate).toHaveBeenCalledWith("auth.password_reset");
     });
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListEmailTemplates.mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<EmailTemplates />);
+
+    const className = screen.getByText("Loading email templates...").className;
+    expectWcagContrastToken(className);
+  });
+
+  it("selected template metadata uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<EmailTemplates />);
+    await waitFor(() => {
+      expect(screen.getByText("auth.password_reset")).toBeInTheDocument();
+    });
+
+    const selectedTemplateButton = screen.getByRole("button", { name: /auth\.password_reset/i });
+    const metadataRow = selectedTemplateButton.querySelector(".mt-1");
+    expect(metadataRow).not.toBeNull();
+    expect(metadataRow?.className).toContain("text-gray-600");
+    expect(metadataRow?.className).not.toContain("text-gray-500");
   });
 
   it("switches selected template and loads editor values", async () => {

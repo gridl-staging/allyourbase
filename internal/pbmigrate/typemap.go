@@ -1,4 +1,3 @@
-// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/typemap.go.
 package pbmigrate
 
 import (
@@ -124,7 +123,7 @@ func BuildCreateIndexSQL(coll PBCollection) ([]string, error) {
 	return translated, nil
 }
 
-// TODO: Document translateSQLiteCreateIndexStatement.
+// translateSQLiteCreateIndexStatement converts a SQLite CREATE INDEX statement to PostgreSQL syntax by quoting identifiers and translating column specifications.
 func translateSQLiteCreateIndexStatement(sqliteStmt string) (string, error) {
 	matches := createIndexStatementPattern.FindStringSubmatch(strings.TrimSpace(sqliteStmt))
 	if len(matches) == 0 {
@@ -165,7 +164,7 @@ func translateSQLiteCreateIndexStatement(sqliteStmt string) (string, error) {
 	return builder.String(), nil
 }
 
-// TODO: Document translateSQLiteIndexColumns.
+// translateSQLiteIndexColumns parses a comma-separated column list from a SQLite index definition, quoting each identifier and preserving optional ASC/DESC modifiers.
 func translateSQLiteIndexColumns(columnsSpec string) (string, error) {
 	rawColumns := strings.Split(columnsSpec, ",")
 	if len(rawColumns) == 0 {
@@ -207,7 +206,7 @@ func translateSQLiteIndexColumns(columnsSpec string) (string, error) {
 	return strings.Join(translatedColumns, ", "), nil
 }
 
-// TODO: Document quoteSQLiteIdentifierToken.
+// quoteSQLiteIdentifierToken strips SQLite backtick or double-quote delimiters from an identifier and re-quotes it using PostgreSQL conventions.
 func quoteSQLiteIdentifierToken(token string) (string, error) {
 	trimmed := strings.TrimSpace(token)
 	if trimmed == "" {
@@ -276,7 +275,7 @@ func validateEmbeddedSQLExpression(expression string) error {
 	return nil
 }
 
-// TODO: Document normalizeEmbeddedSQLFragment.
+// normalizeEmbeddedSQLFragment validates that a SQL fragment contains no comments or multiple statements, strips a trailing semicolon if allowed, and rejects unterminated quotes.
 func normalizeEmbeddedSQLFragment(fragment string, allowTrailingSemicolon bool) (string, error) {
 	trimmed := strings.TrimSpace(fragment)
 	if trimmed == "" {

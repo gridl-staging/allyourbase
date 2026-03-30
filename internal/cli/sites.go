@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/sites.go.
 package cli
 
 import (
@@ -47,7 +46,7 @@ type adminDeploySummary struct {
 	ID string `json:"id"`
 }
 
-// TODO: Document runSitesDeploy.
+// runSitesDeploy deploys a local directory to a hosted static site by collecting files, creating a deploy, uploading each file, and promoting the deploy.
 func runSitesDeploy(cmd *cobra.Command, args []string) error {
 	siteReference := strings.TrimSpace(args[0])
 	if siteReference == "" {
@@ -86,7 +85,7 @@ func runSitesDeploy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: Document collectDeployFiles.
+// collectDeployFiles walks a directory and returns a sorted list of relative file paths, validating that the directory exists, contains regular files only, and includes index.html.
 func collectDeployFiles(deployDirectory string) ([]string, error) {
 	if strings.TrimSpace(deployDirectory) == "" {
 		return nil, fmt.Errorf("deploy directory is required")
@@ -144,7 +143,7 @@ func sortedPathsContain(paths []string, target string) bool {
 	return targetIndex < len(paths) && paths[targetIndex] == target
 }
 
-// TODO: Document lookupAdminSiteByReference.
+// lookupAdminSiteByReference paginates through the admin sites list to find a site matching the given ID or slug.
 func lookupAdminSiteByReference(cmd *cobra.Command, siteReference string) (*adminSiteSummary, error) {
 	const pageSize = 100
 
@@ -181,7 +180,7 @@ func lookupAdminSiteByReference(cmd *cobra.Command, siteReference string) (*admi
 	return nil, fmt.Errorf("site %q not found", siteReference)
 }
 
-// TODO: Document createAdminSiteDeploy.
+// createAdminSiteDeploy creates a new deploy record for the given site via the admin API and returns its summary.
 func createAdminSiteDeploy(cmd *cobra.Command, siteID string) (*adminDeploySummary, error) {
 	response, body, err := adminRequest(cmd, http.MethodPost, "/api/admin/sites/"+siteID+"/deploys", nil)
 	if err != nil {
@@ -201,7 +200,7 @@ func createAdminSiteDeploy(cmd *cobra.Command, siteID string) (*adminDeploySumma
 	return &deploy, nil
 }
 
-// TODO: Document uploadAdminDeployFile.
+// uploadAdminDeployFile uploads a single file from the deploy directory to the admin deploy files endpoint as a multipart form.
 func uploadAdminDeployFile(cmd *cobra.Command, siteID, deployID, deployDirectory, relativePath string) error {
 	sourcePath := filepath.Join(deployDirectory, filepath.FromSlash(relativePath))
 	sourceFile, err := os.Open(sourcePath)

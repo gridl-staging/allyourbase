@@ -107,7 +107,7 @@ func validateTenantPathID(w http.ResponseWriter, r *http.Request) (string, bool)
 	return tenantID, true
 }
 
-// TODO: Document resolveTenantIDForSelfService.
+// resolveTenantIDForSelfService extracts the tenant ID from the authenticated user's JWT claims for self-service usage endpoints, returning 403 if no tenant scope is available.
 func resolveTenantIDForSelfService(w http.ResponseWriter, r *http.Request) (string, bool) {
 	tenantID := ""
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {

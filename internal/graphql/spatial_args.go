@@ -1,4 +1,3 @@
-// Package graphql Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/graphql/spatial_args.go.
 package graphql
 
 import (
@@ -9,7 +8,7 @@ import (
 	"github.com/allyourbase/ayb/internal/spatial"
 )
 
-// TODO: Document parseSpatialArgs.
+// parseSpatialArgs extracts near, within, and bbox spatial filter arguments from a GraphQL query, requiring PostGIS to be available in the schema cache.
 func parseSpatialArgs(tbl *schema.Table, cache *schema.SchemaCache, args map[string]interface{}) ([]spatial.Filter, error) {
 	if tbl == nil {
 		return nil, fmt.Errorf("table is required for spatial arguments")
@@ -52,7 +51,7 @@ func parseSpatialArgs(tbl *schema.Table, cache *schema.SchemaCache, args map[str
 	return filters, nil
 }
 
-// TODO: Document parseNearArg.
+// parseNearArg parses a "near" spatial argument into a NearFilter, validating the column is spatial and coordinates are valid WGS84 with a positive distance.
 func parseNearArg(tbl *schema.Table, raw interface{}) (spatial.Filter, error) {
 	obj, err := requireObjectArg(raw, "near")
 	if err != nil {
@@ -96,7 +95,7 @@ func parseNearArg(tbl *schema.Table, raw interface{}) (spatial.Filter, error) {
 	}, nil
 }
 
-// TODO: Document parseWithinArg.
+// parseWithinArg parses a "within" spatial argument into a WithinFilter, requiring a Polygon or MultiPolygon GeoJSON geometry on a spatial column.
 func parseWithinArg(tbl *schema.Table, raw interface{}) (spatial.Filter, error) {
 	obj, err := requireObjectArg(raw, "within")
 	if err != nil {
@@ -131,7 +130,7 @@ func parseWithinArg(tbl *schema.Table, raw interface{}) (spatial.Filter, error) 
 	return spatial.WithinFilter{Column: col, GeoJSON: geoJSONString}, nil
 }
 
-// TODO: Document parseBBoxArg.
+// parseBBoxArg parses a "bbox" spatial argument into a BBoxFilter, validating that min bounds are strictly less than max bounds on a spatial column.
 func parseBBoxArg(tbl *schema.Table, raw interface{}) (spatial.Filter, error) {
 	obj, err := requireObjectArg(raw, "bbox")
 	if err != nil {
@@ -226,7 +225,7 @@ func requireFloatField(obj map[string]interface{}, fieldName, argumentName strin
 	return value, nil
 }
 
-// TODO: Document toSpatialFloat64.
+// toSpatialFloat64 converts numeric types (float32, int, int32, int64) to float64 for spatial argument parsing.
 func toSpatialFloat64(raw interface{}) (float64, bool) {
 	switch typed := raw.(type) {
 	case float64:
@@ -244,7 +243,7 @@ func toSpatialFloat64(raw interface{}) (float64, bool) {
 	}
 }
 
-// TODO: Document encodeGeoJSONArgument.
+// encodeGeoJSONArgument converts a GeoJSON value (map, string, or bytes) into a JSON string suitable for PostGIS ST_GeomFromGeoJSON.
 func encodeGeoJSONArgument(raw interface{}) (string, error) {
 	switch typed := raw.(type) {
 	case map[string]interface{}:

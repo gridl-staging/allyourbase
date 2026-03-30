@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SMSMessages } from "../SMSMessages";
@@ -73,6 +74,14 @@ describe("SMSMessages", () => {
     mockListMessages.mockReturnValue(new Promise(() => {}));
     render(<SMSMessages />);
     expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListMessages.mockReturnValue(new Promise(() => {}));
+    render(<SMSMessages />);
+
+    const className = screen.getByText("Loading...").className;
+    expectWcagContrastToken(className);
   });
 
   it("shows empty state when no messages", async () => {

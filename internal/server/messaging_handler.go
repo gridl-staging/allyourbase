@@ -260,7 +260,6 @@ func (s *Server) validateSMSSendBody(r *http.Request) (*smsSendInput, int, strin
 	return &smsSendInput{Phone: phone, Body: body.Body}, 0, ""
 }
 
-// handleMessagingSMSSend handles POST /api/messaging/sms/send.
 func (s *Server) handleMessagingSMSSend(w http.ResponseWriter, r *http.Request) {
 	if s.smsProvider == nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound,
@@ -280,6 +279,8 @@ func (s *Server) handleMessagingSMSSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Cap request body at 1 MB to prevent memory-exhaustion attacks.
+	r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
 	input, status, errMsg := s.validateSMSSendBody(r)
 	if status != 0 {
 		httputil.WriteError(w, status, errMsg)

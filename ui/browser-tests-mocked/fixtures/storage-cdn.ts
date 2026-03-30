@@ -23,9 +23,6 @@ export interface StorageCDNPurgeMockState {
   lastPurgeBody: CDNPurgeResponderInput | null;
 }
 
-/**
- * TODO: Document mockStorageCDNApis.
- */
 export async function mockStorageCDNApis(
   page: Page,
   options: StorageCDNPurgeMockOptions = {},

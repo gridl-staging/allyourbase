@@ -15,9 +15,6 @@ const defaultSecrets = [
   { name: "API_TOKEN", createdAt: "2026-02-28T00:00:00Z", updatedAt: "2026-02-28T00:00:00Z" },
 ];
 
-/**
- * TODO: Document mockAdminSecretApis.
- */
 export async function mockAdminSecretApis(
   page: Page,
   options: SecretsMockOptions = {},

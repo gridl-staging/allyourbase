@@ -55,10 +55,6 @@ func buildCertmagicConfig(cfg *config.Config, logger *slog.Logger) (*certmagic.C
 	return magic, cache
 }
 
-// buildTLSListener uses a pre-configured certmagic.Config to obtain a Let's Encrypt
-// certificate and returns a TLS net.Listener on port 443 plus an *http.Server for the
-// port 80 HTTP-01 challenge responder / redirect. The caller must shut down the
-// redirect server during graceful shutdown.
 func buildTLSListener(ctx context.Context, cfg *config.Config, magic *certmagic.Config, logger *slog.Logger) (net.Listener, *http.Server, error) {
 	logger.Info("obtaining TLS certificate", "domain", cfg.Server.TLSDomain)
 	if err := magic.ManageSync(ctx, []string{cfg.Server.TLSDomain}); err != nil {
@@ -80,6 +76,11 @@ func buildTLSListener(ctx context.Context, cfg *config.Config, magic *certmagic.
 		IdleTimeout:       120 * time.Second,
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Warn("TLS redirect listener panic recovered", "panic", r)
+			}
+		}()
 		if err := redirectSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Warn("HTTP redirect listener error", "error", err)
 		}

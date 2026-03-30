@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/server/email_send_handler.go.
 package server
 
 import (
@@ -132,7 +131,7 @@ func (s *Server) handlePublicEmailSend(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
-// TODO: Document parsePublicEmailSendInput.
+// parsePublicEmailSendInput validates the email send request, parsing recipients, checking email addresses, and ensuring exactly one of html/text body or templateKey is provided.
 func parsePublicEmailSendInput(req emailSendRequest) (publicEmailSendInput, string) {
 	parsed := publicEmailSendInput{
 		hasBody:     req.HTML != "" || req.Text != "",
@@ -165,7 +164,7 @@ func parsePublicEmailSendInput(req emailSendRequest) (publicEmailSendInput, stri
 	return parsed, ""
 }
 
-// TODO: Document Server.enforcePublicEmailRateLimit.
+// enforcePublicEmailRateLimit checks the per-key email send rate limit keyed by API key ID (or user ID as fallback), writing a 429 response with Retry-After header if exceeded.
 func (s *Server) enforcePublicEmailRateLimit(w http.ResponseWriter, claims *auth.Claims) bool {
 	if s.emailRL == nil {
 		return true
@@ -190,7 +189,7 @@ func (s *Server) enforcePublicEmailRateLimit(w http.ResponseWriter, claims *auth
 	return false
 }
 
-// TODO: Document Server.resolvePublicEmailContent.
+// resolvePublicEmailContent returns the subject, HTML, and text content for an email send, either directly from the request body or by rendering the specified template.
 func (s *Server) resolvePublicEmailContent(w http.ResponseWriter, ctx context.Context, req emailSendRequest, hasTemplate bool) (string, string, string, bool) {
 	if !hasTemplate {
 		return req.Subject, req.HTML, req.Text, true

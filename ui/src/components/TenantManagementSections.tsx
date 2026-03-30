@@ -16,7 +16,7 @@ interface TenantInfoSectionProps {
 function InfoRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex justify-between py-1.5 border-b border-gray-100 dark:border-gray-800 text-sm">
-      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-gray-500 dark:text-gray-300">{label}</span>
       <span className="text-gray-900 dark:text-gray-100">{value ?? "—"}</span>
     </div>
   );
@@ -161,7 +161,7 @@ export function TenantMembersSection({
         {actionError && <div className="text-sm text-red-600">{actionError}</div>}
       </div>
       {members.length === 0 ? (
-        <div className="text-sm text-gray-400 py-2">No members found</div>
+        <div className="text-sm text-gray-500 py-2">No members found</div>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -211,7 +211,7 @@ export function TenantMembersSection({
                     </button>
                   </div>
                 </td>
-                <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-400">{m.createdAt}</td>
+                <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-300">{m.createdAt}</td>
                 <td className="py-1.5">
                   <button
                     onClick={() => onRemoveMember(m.userId)}

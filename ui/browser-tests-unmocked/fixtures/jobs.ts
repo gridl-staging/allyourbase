@@ -4,9 +4,6 @@
 import type { APIRequestContext } from "@playwright/test";
 import { execSQL, sqlLiteral, validateResponse } from "./core";
 
-/**
- * TODO: Document seedJob.
- */
 export async function seedJob(
   request: APIRequestContext,
   token: string,
@@ -48,9 +45,6 @@ export async function cleanupJobsByType(
   await execSQL(request, token, `DELETE FROM _ayb_jobs WHERE type = '${sqlLiteral(type)}'`);
 }
 
-/**
- * TODO: Document seedSchedule.
- */
 export async function seedSchedule(
   request: APIRequestContext,
   token: string,

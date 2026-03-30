@@ -28,9 +28,6 @@ export function listBackups(params?: ListBackupsParams): Promise<BackupListRespo
   return request<BackupListResponse>(`/api/admin/backups${query ? `?${query}` : ""}`);
 }
 
-/**
- * TODO: Document listAllBackups.
- */
 export async function listAllBackups(
   params?: Pick<ListBackupsParams, "status">,
 ): Promise<BackupListResponse> {
@@ -74,9 +71,6 @@ export function validatePITR(
   );
 }
 
-/**
- * TODO: Document restorePITR.
- */
 export function restorePITR(
   projectId: string,
   databaseId: string,

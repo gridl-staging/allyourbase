@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/sites_upload_handler.go.
 package server
 
 import (
@@ -36,7 +35,7 @@ type deployUploadRequest struct {
 	contentType  string
 }
 
-// TODO: Document handleAdminUploadDeployFile.
+// handleAdminUploadDeployFile handles multipart file uploads for a deploy, storing the file in the sites storage bucket and recording the upload against the deploy.
 func handleAdminUploadDeployFile(svc siteManager, storageSvc deployUploadStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -94,7 +93,7 @@ func handleAdminUploadDeployFile(svc siteManager, storageSvc deployUploadStorage
 	}
 }
 
-// TODO: Document parseDeployUploadRequest.
+// parseDeployUploadRequest extracts and validates the file, relative name, and content type from a multipart deploy upload request.
 func parseDeployUploadRequest(w http.ResponseWriter, r *http.Request) (*deployUploadRequest, bool) {
 	if err := r.ParseMultipartForm(deployUploadMultipartMemory); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid multipart form")

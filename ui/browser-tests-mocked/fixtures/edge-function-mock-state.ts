@@ -1,9 +1,6 @@
 /**
  * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/browser-tests-mocked/fixtures/edge-function-mock-state.ts.
  */
-/**
- * TODO: Document EdgeFunctionMockState.
- */
 export interface EdgeFunctionMockState {
   listCalls: number;
   deployCalls: number;
@@ -199,9 +196,6 @@ export interface EdgeFunctionMockStore {
   nextStorageTriggerNumber: number;
 }
 
-/**
- * TODO: Document createEdgeFunctionMockState.
- */
 export function createEdgeFunctionMockState(): EdgeFunctionMockState {
   return {
     listCalls: 0,
@@ -249,9 +243,6 @@ export function createEdgeFunctionMockState(): EdgeFunctionMockState {
   };
 }
 
-/**
- * TODO: Document createEdgeFunctionMockStore.
- */
 export function createEdgeFunctionMockStore(): EdgeFunctionMockStore {
   const edgeFunctions = defaultEdgeFunctions.map((fn) => ({ ...fn, envVars: { ...fn.envVars } }));
   const edgeFunctionLogs = defaultEdgeFunctionLogs.map((log) => ({ ...log }));

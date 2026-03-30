@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/handler_list.go.
 package api
 
 import (
@@ -357,7 +356,7 @@ func resolveCursorListSort(opts listOpts) (listOpts, error) {
 	return opts, nil
 }
 
-// TODO: Document decodeCursorListPredicate.
+// decodeCursorListPredicate decodes the opaque cursor token into a keyset WHERE clause and args for the next page. Returns empty strings when cursorParam is empty (first page).
 func decodeCursorListPredicate(opts listOpts, cursorParam string) (string, []any, error) {
 	if cursorParam == "" {
 		return "", nil, nil

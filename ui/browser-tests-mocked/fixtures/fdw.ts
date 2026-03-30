@@ -19,9 +19,6 @@ const defaultTables = [
   { schema: "public", name: "remote_metrics", server_name: "remote_pg", columns: [{ name: "id", type: "integer" }, { name: "value", type: "numeric" }, { name: "ts", type: "timestamptz" }], options: {} },
 ];
 
-/**
- * TODO: Document mockAdminFDWApis.
- */
 export async function mockAdminFDWApis(
   page: Page,
   options: FDWMockOptions = {},

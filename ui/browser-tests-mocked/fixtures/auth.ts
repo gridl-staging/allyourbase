@@ -149,9 +149,6 @@ async function handleMFAFactorRoute(context: AuthRouteContext, options: MFAMockO
   return false;
 }
 
-/**
- * TODO: Document handleMFATOTPRoute.
- */
 async function handleMFATOTPRoute(
   context: AuthRouteContext,
   options: MFAMockOptions,
@@ -199,9 +196,6 @@ async function handleMFATOTPRoute(
   return false;
 }
 
-/**
- * TODO: Document handleMFAEmailRoute.
- */
 async function handleMFAEmailRoute(
   context: AuthRouteContext,
   options: MFAMockOptions,
@@ -245,9 +239,6 @@ async function handleMFAEmailRoute(
   return false;
 }
 
-/**
- * TODO: Document handleMFABackupRoute.
- */
 async function handleMFABackupRoute(
   context: AuthRouteContext,
   options: MFAMockOptions,
@@ -394,9 +385,6 @@ function cloneProvidersList(body: unknown): ProviderRecord[] {
   return JSON.parse(JSON.stringify(providers)) as ProviderRecord[];
 }
 
-/**
- * TODO: Document handleAuthProviderApiRoute.
- */
 async function handleAuthProviderApiRoute(
   route: Route,
   options: AuthProviderMockOptions,
@@ -416,9 +404,6 @@ async function handleAuthProviderApiRoute(
   });
 }
 
-/**
- * TODO: Document handleAuthProviderShellRoute.
- */
 async function handleAuthProviderShellRoute(
   context: AuthRouteContext,
   options: AuthProviderMockOptions,
@@ -467,9 +452,6 @@ async function handleProviderListRoute(
   return false;
 }
 
-/**
- * TODO: Document handleUpdateProviderRoute.
- */
 async function handleUpdateProviderRoute(
   context: AuthRouteContext,
   state: AuthProviderMockState,
@@ -529,9 +511,6 @@ function applyProviderUpdate(currentProviders: ProviderRecord[], updatedProvider
   currentProviders.push(updatedProvider);
 }
 
-/**
- * TODO: Document handleTestProviderRoute.
- */
 async function handleTestProviderRoute(
   context: AuthRouteContext,
   state: AuthProviderMockState,
@@ -562,9 +541,6 @@ async function handleTestProviderRoute(
   return true;
 }
 
-/**
- * TODO: Document handleDeleteProviderRoute.
- */
 async function handleDeleteProviderRoute(
   context: AuthRouteContext,
   state: AuthProviderMockState,

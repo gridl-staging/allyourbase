@@ -142,89 +142,97 @@ func loadExtensions(ctx context.Context, pool *pgxpool.Pool) ([]SnapExtension, e
 // Extensions are NOT populated here — use TakeSnapshot for a full snapshot.
 func FromSchemaCache(cache *schema.SchemaCache) *Snapshot {
 	snap := &Snapshot{}
-
-	// Convert tables.
 	for _, tbl := range cache.TableList() {
-		st := SnapTable{
-			Schema:     tbl.Schema,
-			Name:       tbl.Name,
-			Kind:       tbl.Kind,
-			RLSEnabled: tbl.RLSEnabled,
-		}
+		snap.Tables = append(snap.Tables, convertTable(tbl))
+	}
+	snap.Enums = convertEnums(cache.Enums)
+	return snap
+}
 
-		for _, col := range tbl.Columns {
-			sc := SnapColumn{
-				Name:         col.Name,
-				TypeName:     col.TypeName,
-				IsNullable:   col.IsNullable,
-				DefaultExpr:  col.DefaultExpr,
-				IsPrimaryKey: col.IsPrimaryKey,
-			}
-			if len(col.EnumValues) > 0 {
-				sc.EnumValues = make([]string, len(col.EnumValues))
-				copy(sc.EnumValues, col.EnumValues)
-			}
-			st.Columns = append(st.Columns, sc)
-		}
-
-		for _, idx := range tbl.Indexes {
-			st.Indexes = append(st.Indexes, SnapIndex{
-				Name:       idx.Name,
-				IsUnique:   idx.IsUnique,
-				IsPrimary:  idx.IsPrimary,
-				Method:     idx.Method,
-				Definition: idx.Definition,
-			})
-		}
-		sort.Slice(st.Indexes, func(i, j int) bool {
-			return st.Indexes[i].Name < st.Indexes[j].Name
-		})
-
-		for _, fk := range tbl.ForeignKeys {
-			st.ForeignKeys = append(st.ForeignKeys, SnapForeignKey{
-				ConstraintName:    fk.ConstraintName,
-				Columns:           fk.Columns,
-				ReferencedSchema:  fk.ReferencedSchema,
-				ReferencedTable:   fk.ReferencedTable,
-				ReferencedColumns: fk.ReferencedColumns,
-				OnUpdate:          fk.OnUpdate,
-				OnDelete:          fk.OnDelete,
-			})
-		}
-		sort.Slice(st.ForeignKeys, func(i, j int) bool {
-			return st.ForeignKeys[i].ConstraintName < st.ForeignKeys[j].ConstraintName
-		})
-
-		for _, cc := range tbl.CheckConstraints {
-			st.CheckConstraints = append(st.CheckConstraints, SnapCheckConstraint{
-				Name:       cc.Name,
-				Definition: cc.Definition,
-			})
-		}
-		sort.Slice(st.CheckConstraints, func(i, j int) bool {
-			return st.CheckConstraints[i].Name < st.CheckConstraints[j].Name
-		})
-
-		for _, pol := range tbl.RLSPolicies {
-			st.RLSPolicies = append(st.RLSPolicies, SnapRLSPolicy{
-				Name:          pol.Name,
-				Command:       pol.Command,
-				Permissive:    pol.Permissive,
-				Roles:         pol.Roles,
-				UsingExpr:     pol.UsingExpr,
-				WithCheckExpr: pol.WithCheckExpr,
-			})
-		}
-		sort.Slice(st.RLSPolicies, func(i, j int) bool {
-			return st.RLSPolicies[i].Name < st.RLSPolicies[j].Name
-		})
-
-		snap.Tables = append(snap.Tables, st)
+// convertTable converts a schema.Table into a sorted, diffable SnapTable.
+func convertTable(tbl *schema.Table) SnapTable {
+	st := SnapTable{
+		Schema:     tbl.Schema,
+		Name:       tbl.Name,
+		Kind:       tbl.Kind,
+		RLSEnabled: tbl.RLSEnabled,
 	}
 
-	// Convert enums — SchemaCache stores enums by OID; normalize to sorted list.
-	enumList := make([]SnapEnum, 0, len(cache.Enums))
-	for _, e := range cache.Enums {
+	for _, col := range tbl.Columns {
+		sc := SnapColumn{
+			Name:         col.Name,
+			TypeName:     col.TypeName,
+			IsNullable:   col.IsNullable,
+			DefaultExpr:  col.DefaultExpr,
+			IsPrimaryKey: col.IsPrimaryKey,
+		}
+		if len(col.EnumValues) > 0 {
+			sc.EnumValues = make([]string, len(col.EnumValues))
+			copy(sc.EnumValues, col.EnumValues)
+		}
+		st.Columns = append(st.Columns, sc)
+	}
+
+	for _, idx := range tbl.Indexes {
+		st.Indexes = append(st.Indexes, SnapIndex{
+			Name:       idx.Name,
+			IsUnique:   idx.IsUnique,
+			IsPrimary:  idx.IsPrimary,
+			Method:     idx.Method,
+			Definition: idx.Definition,
+		})
+	}
+	sort.Slice(st.Indexes, func(i, j int) bool {
+		return st.Indexes[i].Name < st.Indexes[j].Name
+	})
+
+	for _, fk := range tbl.ForeignKeys {
+		st.ForeignKeys = append(st.ForeignKeys, SnapForeignKey{
+			ConstraintName:    fk.ConstraintName,
+			Columns:           fk.Columns,
+			ReferencedSchema:  fk.ReferencedSchema,
+			ReferencedTable:   fk.ReferencedTable,
+			ReferencedColumns: fk.ReferencedColumns,
+			OnUpdate:          fk.OnUpdate,
+			OnDelete:          fk.OnDelete,
+		})
+	}
+	sort.Slice(st.ForeignKeys, func(i, j int) bool {
+		return st.ForeignKeys[i].ConstraintName < st.ForeignKeys[j].ConstraintName
+	})
+
+	for _, cc := range tbl.CheckConstraints {
+		st.CheckConstraints = append(st.CheckConstraints, SnapCheckConstraint{
+			Name:       cc.Name,
+			Definition: cc.Definition,
+		})
+	}
+	sort.Slice(st.CheckConstraints, func(i, j int) bool {
+		return st.CheckConstraints[i].Name < st.CheckConstraints[j].Name
+	})
+
+	for _, pol := range tbl.RLSPolicies {
+		st.RLSPolicies = append(st.RLSPolicies, SnapRLSPolicy{
+			Name:          pol.Name,
+			Command:       pol.Command,
+			Permissive:    pol.Permissive,
+			Roles:         pol.Roles,
+			UsingExpr:     pol.UsingExpr,
+			WithCheckExpr: pol.WithCheckExpr,
+		})
+	}
+	sort.Slice(st.RLSPolicies, func(i, j int) bool {
+		return st.RLSPolicies[i].Name < st.RLSPolicies[j].Name
+	})
+
+	return st
+}
+
+// convertEnums converts SchemaCache enum entries (keyed by OID) into a sorted
+// slice of SnapEnum values.
+func convertEnums(enums map[uint32]*schema.EnumType) []SnapEnum {
+	enumList := make([]SnapEnum, 0, len(enums))
+	for _, e := range enums {
 		enumList = append(enumList, SnapEnum{
 			Schema: e.Schema,
 			Name:   e.Name,
@@ -237,9 +245,7 @@ func FromSchemaCache(cache *schema.SchemaCache) *Snapshot {
 		}
 		return enumList[i].Name < enumList[j].Name
 	})
-	snap.Enums = enumList
-
-	return snap
+	return enumList
 }
 
 // SaveSnapshot writes a Snapshot as JSON to the given path.

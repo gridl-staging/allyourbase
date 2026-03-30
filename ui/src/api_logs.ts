@@ -40,9 +40,6 @@ function stableSerialize(value: unknown): string {
   return `{${fields.join(",")}}`;
 }
 
-/**
- * TODO: Document normalizeRow.
- */
 function normalizeRow(rawEntry: unknown, duplicateCounts: Map<string, number>): AdminLogEntry {
   const entry = asRecord(rawEntry);
   const time = typeof entry?.time === "string" ? entry.time : "";

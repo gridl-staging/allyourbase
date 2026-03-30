@@ -29,9 +29,6 @@ async function deleteAdminResource(
   }
 }
 
-/**
- * TODO: Document seedEdgeFunction.
- */
 export async function seedEdgeFunction(
   request: APIRequestContext,
   token: string,
@@ -78,9 +75,6 @@ export async function deleteEdgeFunction(
   await deleteAdminResource(request, token, `/api/admin/functions/${id}`, `Delete edge function ${id}`);
 }
 
-/**
- * TODO: Document getEdgeFunctionIDByName.
- */
 export async function getEdgeFunctionIDByName(
   request: APIRequestContext,
   token: string,
@@ -144,9 +138,6 @@ export async function createDBTrigger(
   return { id: body.id };
 }
 
-/**
- * TODO: Document deleteDBTrigger.
- */
 export async function deleteDBTrigger(
   request: APIRequestContext,
   token: string,
@@ -176,9 +167,6 @@ export async function createCronTrigger(
   return { id: body.id };
 }
 
-/**
- * TODO: Document deleteCronTrigger.
- */
 export async function deleteCronTrigger(
   request: APIRequestContext,
   token: string,
@@ -209,9 +197,6 @@ export async function manualRunCronTrigger(
   return res.json();
 }
 
-/**
- * TODO: Document createStorageTrigger.
- */
 export async function createStorageTrigger(
   request: APIRequestContext,
   token: string,
@@ -232,9 +217,6 @@ export async function createStorageTrigger(
   return { id: body.id };
 }
 
-/**
- * TODO: Document deleteStorageTrigger.
- */
 export async function deleteStorageTrigger(
   request: APIRequestContext,
   token: string,
@@ -263,9 +245,6 @@ type FunctionLogEntry = {
   createdAt?: string | number | Date;
 };
 
-/**
- * TODO: Document waitForFunctionLog.
- */
 export async function waitForFunctionLog(
   request: APIRequestContext,
   token: string,

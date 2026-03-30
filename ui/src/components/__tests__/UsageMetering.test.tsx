@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { UsageMetering } from "../UsageMetering";
 import {
   fetchUsageBreakdown,
@@ -128,6 +128,20 @@ describe("UsageMetering", () => {
     expect(screen.getByText(/loading usage metering/i)).toBeInTheDocument();
   });
 
+  it("header helper text uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<UsageMetering />);
+    await expect(
+      screen.findByText(
+        "Shared usage contract across aggregate list, trends, breakdown, and per-tenant limits.",
+      ),
+    ).resolves.toBeInTheDocument();
+
+    const className = screen.getByText(
+      "Shared usage contract across aggregate list, trends, breakdown, and per-tenant limits.",
+    ).className;
+    expectWcagContrastToken(className);
+  });
+
   it("renders aggregate table, trend chart, breakdown chart, and tenant limits", async () => {
     renderWithProviders(<UsageMetering />);
 
@@ -142,6 +156,14 @@ describe("UsageMetering", () => {
     expect(mockFetchUsageLimits).toHaveBeenCalledWith(
       expect.objectContaining({ selectedTenantId: "tenant-1" }),
     );
+  });
+
+  it("usage breakdown bars expose valid ARIA semantics", async () => {
+    renderWithProviders(<UsageMetering />);
+    await expect(screen.findAllByText("Tenant One")).resolves.toHaveLength(2);
+
+    const breakdownBars = screen.getAllByRole("img", { name: "Usage breakdown chart" });
+    expect(breakdownBars.length).toBeGreaterThan(0);
   });
 
   it("renders empty state when aggregate usage returns no rows", async () => {

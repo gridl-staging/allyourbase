@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/routes_admin_ai.go.
 package server
 
 import (
@@ -10,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// TODO: Document Server.registerAdminAIRoutes.
+// registerAdminAIRoutes mounts admin-gated routes for AI logs, usage metrics, the AI assistant (with rate limiting), and prompt template CRUD.
 func (s *Server) registerAdminAIRoutes(r chi.Router) {
 	r.Route("/admin/ai", func(r chi.Router) {
 		r.Use(s.requireAdminToken)
@@ -33,7 +32,7 @@ func (s *Server) registerAdminAIRoutes(r chi.Router) {
 	})
 }
 
-// TODO: Document Server.assistantRateLimitMiddleware.
+// assistantRateLimitMiddleware returns HTTP middleware that enforces per-user (or per-IP for admin tokens) rate limits on AI assistant requests, returning a no-op middleware if no rate limiter is configured.
 func (s *Server) assistantRateLimitMiddleware() func(http.Handler) http.Handler {
 	if s.assistantRL == nil {
 		return func(next http.Handler) http.Handler { return next }

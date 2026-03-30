@@ -1,4 +1,3 @@
-// Package mcp Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/mcp/server_tools_spatial.go.
 package mcp
 
 import (
@@ -56,7 +55,7 @@ func handleSpatialInfo(ctx context.Context, c *apiClient) (*mcp.CallToolResult, 
 	return nil, schema.BuildSpatialInfoSummary(cache), nil
 }
 
-// TODO: Document handleSpatialQuery.
+// handleSpatialQuery executes a spatial query against the AYB REST API, translating MCP-style limit/offset pagination into page-based parameters and slicing the results back to the requested window.
 func handleSpatialQuery(ctx context.Context, c *apiClient, in SpatialQueryInput) (*mcp.CallToolResult, SpatialQueryOutput, error) {
 	if strings.TrimSpace(in.Table) == "" {
 		return nil, SpatialQueryOutput{}, fmt.Errorf("table is required")
@@ -158,7 +157,7 @@ func formatSpatialNumber(value float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
-// TODO: Document buildSpatialPaginationPlan.
+// buildSpatialPaginationPlan translates limit/offset pagination into a page-based request compatible with the AYB REST API, computing the internal page number, per-page size, and slice offset for result extraction.
 func buildSpatialPaginationPlan(limit, offset *int) (spatialPaginationPlan, error) {
 	if offset != nil && *offset < 0 {
 		return spatialPaginationPlan{}, fmt.Errorf("offset must be greater than or equal to 0")
@@ -204,7 +203,7 @@ func translateSpatialOffsetWindow(limit, offset, maxPerPage int) (page, perPage,
 	)
 }
 
-// TODO: Document decodeSpatialQueryOutput.
+// decodeSpatialQueryOutput unmarshals a raw JSON map from the AYB REST API into a typed SpatialQueryOutput with items, page, perPage, and total counts.
 func decodeSpatialQueryOutput(result map[string]any) SpatialQueryOutput {
 	out := SpatialQueryOutput{Items: []map[string]any{}}
 	if items, ok := result["items"].([]any); ok {
@@ -254,7 +253,7 @@ func intValue(value *int) int {
 	return *value
 }
 
-// TODO: Document decodeSchemaCache.
+// decodeSchemaCache reconstructs a SchemaCache from the raw JSON map returned by the /api/schema endpoint, populating tables, columns, and PostGIS metadata.
 func decodeSchemaCache(payload map[string]any) (*schema.SchemaCache, error) {
 	cache := &schema.SchemaCache{
 		Tables: make(map[string]*schema.Table),

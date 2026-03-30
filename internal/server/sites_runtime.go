@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/sites_runtime.go.
 package server
 
 import (
@@ -28,7 +27,7 @@ type siteRuntimeStorage interface {
 	Download(ctx context.Context, bucket, name string) (io.ReadCloser, *storage.Object, error)
 }
 
-// TODO: Document Server.siteRuntimeMiddleware.
+// siteRuntimeMiddleware returns HTTP middleware that intercepts requests matching a hosted site and serves its static content from storage.
 func (s *Server) siteRuntimeMiddleware(next http.Handler) http.Handler {
 	if s.siteStore == nil || s.storageSvc == nil {
 		return next
@@ -51,7 +50,7 @@ func buildSiteRuntimeMiddleware(resolver siteRuntimeResolver, runtimeStorage sit
 	return buildSiteRuntimeMiddlewareWithAdminPath(resolver, runtimeStorage, defaultHostBase, normalizedAdminPath("/admin"))
 }
 
-// TODO: Document buildSiteRuntimeMiddlewareWithAdminPath.
+// buildSiteRuntimeMiddlewareWithAdminPath constructs the site-runtime middleware, bypassing API, admin, and health paths, and resolving sites by custom domain or subdomain slug.
 func buildSiteRuntimeMiddlewareWithAdminPath(
 	resolver siteRuntimeResolver,
 	runtimeStorage siteRuntimeStorage,
@@ -95,7 +94,7 @@ func buildSiteRuntimeMiddlewareWithAdminPath(
 	}
 }
 
-// TODO: Document shouldBypassSiteRuntime.
+// shouldBypassSiteRuntime returns true for requests that should skip site runtime serving, including non-GET/HEAD methods and reserved paths like /api, /admin, /health, and /favicon.ico.
 func shouldBypassSiteRuntime(requestPath, adminPath, method string) bool {
 	if method != http.MethodGet && method != http.MethodHead {
 		return true
@@ -125,7 +124,7 @@ func pathIsOrWithin(requestPath, prefix string) bool {
 	return strings.HasPrefix(requestPath, prefix+"/")
 }
 
-// TODO: Document resolveRuntimeSite.
+// resolveRuntimeSite looks up a site first by custom domain ID from the request context, then by subdomain slug derived from the Host header.
 func resolveRuntimeSite(ctx context.Context, r *http.Request, resolver siteRuntimeResolver, defaultHostBase string) (*sites.RuntimeSite, bool, error) {
 	if routeEntry, ok := CustomDomainRouteFromContext(r.Context()); ok && strings.TrimSpace(routeEntry.DomainID) != "" {
 		runtimeSite, err := resolver.ResolveRuntimeSiteByCustomDomainID(ctx, routeEntry.DomainID)
@@ -163,7 +162,7 @@ func normalizeRequestHost(rawHost string) string {
 	return strings.ToLower(host)
 }
 
-// TODO: Document slugFromDerivedHost.
+// slugFromDerivedHost extracts a site slug from a subdomain host by stripping the host base suffix (e.g. "mysite.example.com" with base "example.com" yields "mysite").
 func slugFromDerivedHost(host, hostBase string) (string, bool) {
 	host = normalizeRouteHostname(host)
 	hostBase = normalizeRouteHostname(hostBase)
@@ -183,7 +182,7 @@ func slugFromDerivedHost(host, hostBase string) (string, bool) {
 	return slug, true
 }
 
-// TODO: Document configuredSiteRuntimeHostBase.
+// configuredSiteRuntimeHostBase derives the base hostname for site subdomain routing from the server's public base URL, falling back to "localhost".
 func configuredSiteRuntimeHostBase(cfg *config.Config) string {
 	if cfg == nil {
 		return "localhost"
@@ -210,7 +209,7 @@ func configuredSiteRuntimeHostBase(cfg *config.Config) string {
 	return host
 }
 
-// TODO: Document serveRuntimeSiteRequest.
+// serveRuntimeSiteRequest serves a static file from a site's live deploy, falling back to index.html for SPA-mode sites when the requested path is not found.
 func serveRuntimeSiteRequest(w http.ResponseWriter, r *http.Request, runtimeStorage siteRuntimeStorage, runtimeSite *sites.RuntimeSite) (bool, error) {
 	requestObjectPath, ok := normalizeRuntimeObjectPath(r.URL.Path)
 	if !ok {
@@ -247,7 +246,7 @@ func serveRuntimeSiteRequest(w http.ResponseWriter, r *http.Request, runtimeStor
 	return true, nil
 }
 
-// TODO: Document serveRuntimeObject.
+// serveRuntimeObject downloads a single object from site storage and writes it to the response with appropriate cache and content-type headers.
 func serveRuntimeObject(ctx context.Context, w http.ResponseWriter, runtimeStorage siteRuntimeStorage, siteID, deployID, relativeObjectPath string) (bool, error) {
 	objectName, err := runtimeObjectName(siteID, deployID, relativeObjectPath)
 	if err != nil {

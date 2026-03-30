@@ -1,4 +1,3 @@
-// Package sms VonageProvider implements SMS message sending via Vonage (Nexmo) REST API.
 package sms
 
 import (
@@ -9,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const vonageDefaultBaseURL = "https://rest.nexmo.com"
@@ -33,10 +33,10 @@ func NewVonageProvider(apiKey, apiSecret, fromNumber, baseURL string) *VonagePro
 		apiSecret:  apiSecret,
 		fromNumber: fromNumber,
 		baseURL:    baseURL,
+		client:     http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// Sends an SMS message to the specified recipient via the Vonage REST API. It returns a SendResult with the message ID on success, or an error if the request fails or Vonage returns an error status.
 func (p *VonageProvider) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	endpoint := p.baseURL + "/sms/json"
 
@@ -59,7 +59,7 @@ func (p *VonageProvider) Send(ctx context.Context, to, body string) (*SendResult
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("vonage: read response: %w", err)
 	}

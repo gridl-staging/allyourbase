@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/audit.go.
 package tenant
 
 import (
@@ -81,7 +80,7 @@ func (e *AuditEmitter) EmitWithOrg(ctx context.Context, tenantID, action, result
 	return e.insertEvent(ctx, tenantID, actorID, action, result, metaBytes, ipAddress, orgID)
 }
 
-// TODO: Document AuditEmitter.insertEvent.
+// insertEvent delegates to the org-aware inserter when orgID is non-nil and the inserter supports it, otherwise falls back to the basic inserter.
 func (e *AuditEmitter) insertEvent(ctx context.Context, tenantID string, actorID *string, action, result string, metadata json.RawMessage, ipAddress *string, orgID *string) error {
 	if orgID != nil {
 		if orgInserter, ok := e.inserter.(orgAwareAuditInserter); ok {
@@ -100,7 +99,7 @@ func (e *AuditEmitter) insertEvent(ctx context.Context, tenantID string, actorID
 	return err
 }
 
-// TODO: Document AuditEmitter.resolveTenantOrgID.
+// resolveTenantOrgID looks up the org that owns a tenant so audit events can be tagged with org_id; returns nil silently on any error to avoid blocking the audit write.
 func (e *AuditEmitter) resolveTenantOrgID(ctx context.Context, tenantID, action string) *string {
 	if tenantID == "" {
 		return nil

@@ -7,9 +7,6 @@ import { execSQL, sqlLiteral } from "./core";
 const PUSH_TEST_USER_ID = "00000000-0000-0000-0000-000000000098";
 const PUSH_TEST_APP_ID = "00000000-0000-0000-0000-000000000098";
 
-/**
- * TODO: Document ensurePushTestUserAndApp.
- */
 async function ensurePushTestUserAndApp(
   request: APIRequestContext,
   token: string,
@@ -30,9 +27,6 @@ async function ensurePushTestUserAndApp(
   );
 }
 
-/**
- * TODO: Document isPushEnabled.
- */
 export async function isPushEnabled(
   request: APIRequestContext,
   token: string,
@@ -57,9 +51,6 @@ export async function isPushEnabled(
   throw new Error(`Push enablement check failed with status ${status}${suffix}`);
 }
 
-/**
- * TODO: Document seedPushDeviceToken.
- */
 export async function seedPushDeviceToken(
   request: APIRequestContext,
   token: string,
@@ -93,9 +84,6 @@ export async function seedPushDeviceToken(
   };
 }
 
-/**
- * TODO: Document seedPushDelivery.
- */
 export async function seedPushDelivery(
   request: APIRequestContext,
   token: string,
@@ -141,9 +129,6 @@ export async function seedPushDelivery(
   };
 }
 
-/**
- * TODO: Document cleanupPushTestData.
- */
 export async function cleanupPushTestData(
   request: APIRequestContext,
   token: string,

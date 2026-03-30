@@ -344,6 +344,121 @@ func TestResolveTenantContextAdminTokenHeaderFallback(t *testing.T) {
 	testutil.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestRequestHeaderTenantID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil request", func(t *testing.T) {
+		t.Parallel()
+		testutil.Equal(t, "", requestHeaderTenantID(nil))
+	})
+
+	t.Run("trims whitespace", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/status", nil)
+		req.Header.Set("X-Tenant-ID", "  header-tenant  ")
+		testutil.Equal(t, "header-tenant", requestHeaderTenantID(req))
+	})
+}
+
+func TestAllowsAnonymousTenantHeaderFallback(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "admin status", path: "/api/admin/status", want: true},
+		{name: "realtime", path: "/api/realtime", want: true},
+		{name: "realtime websocket", path: "/api/realtime/ws", want: true},
+		{name: "storage exact", path: "/api/storage", want: true},
+		{name: "storage subtree", path: "/api/storage/uploads", want: true},
+		{name: "non allowlisted api route", path: "/api/collections/posts", want: false},
+		{name: "non api route", path: "/posts", want: false},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			testutil.Equal(t, tc.want, allowsAnonymousTenantHeaderFallback(tc.path))
+		})
+	}
+}
+
+func TestTenantIDFromRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("claim takes precedence over route and header", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/tenant/from-route/apps", nil)
+		req.Header.Set("X-Tenant-ID", "from-header")
+		req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{TenantID: "from-claim"}))
+
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("tenantId", "from-route")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		testutil.Equal(t, "from-claim", tenantIDFromRequest(req))
+	})
+
+	t.Run("route param takes precedence over header when claim is empty", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/tenant/from-route/apps", nil)
+		req.Header.Set("X-Tenant-ID", "from-header")
+		req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{}))
+
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("tenantId", "from-route")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+		testutil.Equal(t, "from-route", tenantIDFromRequest(req))
+	})
+
+	t.Run("anonymous allowlisted api route can use header", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/status", nil)
+		req.Header.Set("X-Tenant-ID", "from-header")
+		testutil.Equal(t, "from-header", tenantIDFromRequest(req))
+	})
+
+	t.Run("anonymous non allowlisted api route ignores header", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/api/collections/posts", nil)
+		req.Header.Set("X-Tenant-ID", "from-header")
+		testutil.Equal(t, "", tenantIDFromRequest(req))
+	})
+}
+
+func TestIsTenantRecoveryEndpoint(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "maintenance root", path: "/api/admin/tenants/t1/maintenance", want: true},
+		{name: "maintenance enable", path: "/api/admin/tenants/t1/maintenance/enable", want: true},
+		{name: "maintenance disable", path: "/api/admin/tenants/t1/maintenance/disable", want: true},
+		{name: "breaker root", path: "/api/admin/tenants/t1/breaker", want: true},
+		{name: "breaker reset", path: "/api/admin/tenants/t1/breaker/reset", want: true},
+		{name: "non admin prefix", path: "/api/projects/t1/breaker/reset", want: false},
+		{name: "unsupported maintenance suffix", path: "/api/admin/tenants/t1/maintenance/state", want: false},
+		{name: "unsupported breaker suffix", path: "/api/admin/tenants/t1/breaker/open", want: false},
+		{name: "missing tenant id", path: "/api/admin/tenants//maintenance", want: false},
+		{name: "insufficient segments", path: "/api/admin/tenants", want: false},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			testutil.Equal(t, tc.want, isTenantRecoveryEndpoint(tc.path))
+		})
+	}
+}
+
 func TestTenantIDFromContextOrRequestAPIHeaderFallbackWithoutAuth(t *testing.T) {
 	t.Parallel()
 

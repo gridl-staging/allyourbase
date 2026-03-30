@@ -1,4 +1,3 @@
-// Package storage Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/storage/handler_cdn.go.
 package storage
 
 import (
@@ -16,14 +15,13 @@ type handlerMutations struct {
 	upload                  func(context.Context, string, string, string, *string, io.Reader) (*Object, error)
 	getObject               func(context.Context, string, string) (*Object, error)
 	deleteObject            func(context.Context, string, string) error
+	createResumableUpload   func(context.Context, string, string, string, *string, int64) (*ResumableUpload, error)
 	appendResumableUpload   func(context.Context, string, int64, *string, io.Reader) (*ResumableUpload, bool, error)
 	finalizeResumableUpload func(context.Context, string, *string) (*Object, error)
 	reserveQuota            func(context.Context, string, int64) error
-	incrementUsage          func(context.Context, string, int64) error
 	decrementUsage          func(context.Context, string, int64) error
 }
 
-// TODO: Document newHandlerMutations.
 func newHandlerMutations(svc *Service) handlerMutations {
 	if svc == nil {
 		return handlerMutations{
@@ -36,6 +34,9 @@ func newHandlerMutations(svc *Service) handlerMutations {
 			deleteObject: func(_ context.Context, _, _ string) error {
 				return fmt.Errorf("storage service is not configured")
 			},
+			createResumableUpload: func(_ context.Context, _, _, _ string, _ *string, _ int64) (*ResumableUpload, error) {
+				return nil, fmt.Errorf("storage service is not configured")
+			},
 			appendResumableUpload: func(_ context.Context, _ string, _ int64, _ *string, _ io.Reader) (*ResumableUpload, bool, error) {
 				return nil, false, fmt.Errorf("storage service is not configured")
 			},
@@ -43,9 +44,6 @@ func newHandlerMutations(svc *Service) handlerMutations {
 				return nil, fmt.Errorf("storage service is not configured")
 			},
 			reserveQuota: func(_ context.Context, _ string, _ int64) error {
-				return fmt.Errorf("storage service is not configured")
-			},
-			incrementUsage: func(_ context.Context, _ string, _ int64) error {
 				return fmt.Errorf("storage service is not configured")
 			},
 			decrementUsage: func(_ context.Context, _ string, _ int64) error {
@@ -58,10 +56,10 @@ func newHandlerMutations(svc *Service) handlerMutations {
 		upload:                  svc.Upload,
 		getObject:               svc.GetObject,
 		deleteObject:            svc.DeleteObject,
+		createResumableUpload:   svc.CreateResumableUpload,
 		appendResumableUpload:   svc.AppendResumableUpload,
 		finalizeResumableUpload: svc.FinalizeResumableUpload,
 		reserveQuota:            svc.ReserveQuota,
-		incrementUsage:          svc.IncrementUsage,
 		decrementUsage:          svc.DecrementUsage,
 	}
 }

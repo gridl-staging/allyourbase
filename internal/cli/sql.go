@@ -39,7 +39,7 @@ func init() {
 	sqlCmd.Flags().String("url", "", "Server URL (default http://127.0.0.1:8090)")
 }
 
-// TODO: Document runSQL.
+// runSQL executes a SQL query against the running AYB server's admin API and displays results as JSON, CSV, or a formatted table.
 func runSQL(cmd *cobra.Command, args []string) error {
 	token, _ := cmd.Flags().GetString("admin-token")
 	baseURL, _ := cmd.Flags().GetString("url")
@@ -151,7 +151,7 @@ func readSQLQuery(args []string, stdin io.Reader) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// TODO: Document stringifySQLRows.
+// stringifySQLRows converts raw JSON row values to display strings, rendering nulls as "NULL" (or empty for CSV).
 func stringifySQLRows(rows [][]json.RawMessage, outFmt string) [][]string {
 	strRows := make([][]string, len(rows))
 	for i, row := range rows {
@@ -177,13 +177,12 @@ func stringifySQLRows(rows [][]json.RawMessage, outFmt string) [][]string {
 	return strRows
 }
 
-// adminLogin exchanges an admin password for a bearer token via /api/admin/auth.
 func adminLogin(baseURL, password string) (string, error) {
 	body, err := json.Marshal(map[string]string{"password": password})
 	if err != nil {
 		return "", fmt.Errorf("encoding login request: %w", err)
 	}
-	resp, err := http.Post(baseURL+"/api/admin/auth", "application/json", bytes.NewReader(body))
+	resp, err := cliHTTPClient.Post(baseURL+"/api/admin/auth", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

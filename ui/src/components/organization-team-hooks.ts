@@ -32,9 +32,6 @@ type TeamMembershipArgs = Pick<UseOrgManagementArgs, "selectedId" | "selectedTea
 type TeamCreateArgs = Pick<UseOrgManagementArgs, "selectedId" | "setDetail">;
 type TeamInfoArgs = Pick<UseOrgManagementArgs, "selectedId" | "selectedTeamId" | "detail" | "setDetail" | "onTeamDeleted">;
 
-/**
- * TODO: Document useTeamCreateControls.
- */
 function useTeamCreateControls({ selectedId, setDetail }: TeamCreateArgs) {
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamSlug, setNewTeamSlug] = useState("");
@@ -81,9 +78,6 @@ function useTeamCreateControls({ selectedId, setDetail }: TeamCreateArgs) {
   };
 }
 
-/**
- * TODO: Document useTeamInfoControls.
- */
 function useTeamInfoControls({ selectedId, selectedTeamId, detail, setDetail, onTeamDeleted }: TeamInfoArgs) {
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [teamSlugDraft, setTeamSlugDraft] = useState("");
@@ -159,9 +153,6 @@ export function useTeamControls({ selectedId, selectedTeamId, detail, setDetail,
   };
 }
 
-/**
- * TODO: Document useTeamMembershipDraftControls.
- */
 function useTeamMembershipDraftControls(selectedId: string | null, selectedTeamId: string | null) {
   const [teamRoleDraftsByMemberKey, setTeamRoleDraftsByMemberKey] =
     useState<Partial<Record<string, TeamMemberRole>>>({});
@@ -210,9 +201,6 @@ function useTeamMembershipDraftControls(selectedId: string | null, selectedTeamI
 type TeamMembershipDraftControls = ReturnType<typeof useTeamMembershipDraftControls>;
 type TeamMembershipActionArgs = TeamMembershipArgs & { draftControls: TeamMembershipDraftControls };
 
-/**
- * TODO: Document useTeamMembershipActionHandlers.
- */
 function useTeamMembershipActionHandlers({
   selectedId,
   selectedTeamId,
@@ -297,9 +285,6 @@ function useTeamMembershipActionHandlers({
   };
 }
 
-/**
- * TODO: Document useTeamMembershipControls.
- */
 export function useTeamMembershipControls({ selectedId, selectedTeamId, detail, setDetail }: TeamMembershipArgs) {
   const draftControls = useTeamMembershipDraftControls(selectedId, selectedTeamId);
   const handlers = useTeamMembershipActionHandlers({

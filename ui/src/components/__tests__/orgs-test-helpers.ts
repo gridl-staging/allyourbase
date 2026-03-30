@@ -189,9 +189,6 @@ export function makeTeamMemberList(overrides: Partial<TeamMemberListResponse> = 
   };
 }
 
-/**
- * TODO: Document makeTenantForOrg.
- */
 export function makeTenantForOrg(overrides: Partial<Tenant> = {}): Tenant {
   return {
     id: "t-1",
@@ -210,9 +207,6 @@ export function makeTenantForOrg(overrides: Partial<Tenant> = {}): Tenant {
   };
 }
 
-/**
- * TODO: Document makeUsageSummary.
- */
 export function makeUsageSummary(overrides: Partial<OrgUsageSummary> = {}): OrgUsageSummary {
   return {
     orgId: "org-1",
@@ -237,9 +231,6 @@ export function makeUsageSummary(overrides: Partial<OrgUsageSummary> = {}): OrgU
   };
 }
 
-/**
- * TODO: Document makeAuditResponse.
- */
 export function makeAuditResponse(overrides: Partial<OrgAuditResponse> = {}): OrgAuditResponse {
   return {
     items: [
@@ -261,9 +252,6 @@ export function makeAuditResponse(overrides: Partial<OrgAuditResponse> = {}): Or
   };
 }
 
-/**
- * TODO: Document setupOrgTestMocks.
- */
 export function setupOrgTestMocks() {
   mockFetchOrgList.mockResolvedValue(makeOrgListResponse());
   mockGetOrg.mockResolvedValue(makeOrgDetail());

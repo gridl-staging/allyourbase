@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { EdgeFunctions } from "../EdgeFunctions";
 import {
@@ -129,6 +129,19 @@ describe("EdgeFunctions", () => {
     await waitFor(() => {
       expect(screen.getByText("No edge functions deployed yet")).toBeInTheDocument();
     });
+  });
+
+  it("empty-state helper text uses WCAG AA compliant contrast token", async () => {
+    mockListEdgeFunctions.mockResolvedValueOnce([]);
+    renderWithProviders(<EdgeFunctions />);
+
+    const helperText = "Deploy your first edge function to get started.";
+    await waitFor(() => {
+      expect(screen.getByText(helperText)).toBeInTheDocument();
+    });
+
+    const className = screen.getByText(helperText).className;
+    expectWcagContrastToken(className);
   });
 
   it("shows error state on API failure", async () => {

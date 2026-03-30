@@ -62,7 +62,7 @@ export function Extensions() {
           <button
             onClick={() => setDisableTarget(row.name)}
             disabled={actionLoading}
-            className="text-xs text-red-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Disable
           </button>
@@ -70,7 +70,7 @@ export function Extensions() {
           <button
             onClick={() => handleEnable(row.name)}
             disabled={actionLoading}
-            className="text-xs text-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Enable
           </button>
@@ -96,7 +96,7 @@ export function Extensions() {
       </h2>
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-300">Loading...</p>
       ) : (
         <AdminTable
           columns={columns}

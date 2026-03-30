@@ -230,6 +230,9 @@ func (h *Handler) handleWebSocketUpgrade(w http.ResponseWriter, r *http.Request)
 }
 
 func decodeGraphQLRequest(w http.ResponseWriter, r *http.Request) (graphQLRequest, bool) {
+	// Cap request body at 1 MB to prevent memory-exhaustion attacks.
+	// GraphQL queries exceeding this are almost certainly adversarial.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req graphQLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")

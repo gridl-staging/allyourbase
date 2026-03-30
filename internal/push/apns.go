@@ -112,7 +112,6 @@ func (p *APNSProvider) Send(ctx context.Context, token string, msg *Message) (*R
 	return p.sendOnce(ctx, token, msg)
 }
 
-// sendOnce sends a push notification to a device via the APNS HTTP API. It constructs the payload from the message, validates that the "aps" key is not used in custom data, and returns the message ID on success.
 func (p *APNSProvider) sendOnce(ctx context.Context, deviceToken string, msg *Message) (*Result, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("%w: message is required", ErrProviderError)
@@ -161,7 +160,7 @@ func (p *APNSProvider) sendOnce(ctx context.Context, deviceToken string, msg *Me
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read response: %v", ErrProviderError, err)
 	}

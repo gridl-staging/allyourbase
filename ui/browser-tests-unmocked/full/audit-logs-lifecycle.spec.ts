@@ -98,7 +98,6 @@ test.describe("Audit Logs Lifecycle (Full E2E)", () => {
     await expect(nextPage).toBeVisible({ timeout: 5000 });
     const paginationEnabled = await nextPage.isEnabled();
     if (paginationEnabled) {
-      // eslint-disable-next-line playwright/prefer-locator -- false positive on locator click for pagination control
       await nextPage.click();
       await expect(nextPage).toBeDisabled();
     } else {

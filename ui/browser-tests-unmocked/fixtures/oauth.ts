@@ -78,9 +78,6 @@ function toStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
-/**
- * TODO: Document decodeAuthorizeResult.
- */
 function decodeAuthorizeResult(body: unknown): OAuthAuthorizeResult {
   const responseBody = body as Record<string, unknown>;
   if (responseBody.requires_consent === true) {
@@ -120,9 +117,6 @@ function decodeAuthorizeResult(body: unknown): OAuthAuthorizeResult {
   };
 }
 
-/**
- * TODO: Document authorizeOAuthRequest.
- */
 export async function authorizeOAuthRequest(
   request: APIRequestContext,
   token: string,
@@ -155,9 +149,6 @@ export interface OAuthConsentRequestOptions extends OAuthAuthorizeRequestOptions
   decision: "approve" | "deny";
 }
 
-/**
- * TODO: Document submitOAuthConsent.
- */
 export async function submitOAuthConsent(
   request: APIRequestContext,
   token: string,
@@ -223,9 +214,6 @@ interface TokenRequestCommonOptions {
   clientAuth: OAuthClientAuth;
 }
 
-/**
- * TODO: Document applyOAuthClientAuth.
- */
 function applyOAuthClientAuth(
   form: URLSearchParams,
   headers: Record<string, string>,
@@ -246,9 +234,6 @@ function applyOAuthClientAuth(
   }
 }
 
-/**
- * TODO: Document decodeOAuthTokenResponse.
- */
 function decodeOAuthTokenResponse(body: unknown): OAuthTokenResponse {
   const responseBody = body as Record<string, unknown>;
   if (
@@ -268,9 +253,6 @@ function decodeOAuthTokenResponse(body: unknown): OAuthTokenResponse {
   return responseBody as OAuthTokenResponse;
 }
 
-/**
- * TODO: Document submitOAuthTokenForm.
- */
 async function submitOAuthTokenForm(
   request: APIRequestContext,
   form: URLSearchParams,

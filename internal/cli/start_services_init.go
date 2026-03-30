@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/cli/start_services_init.go.
 package cli
 
 import (
@@ -68,7 +67,6 @@ func initDatabaseSignalReceived(sigCh <-chan os.Signal) bool {
 	}
 }
 
-// TODO: Document startInitDatabaseManagedPostgres.
 func startInitDatabaseManagedPostgres(
 	ctx context.Context,
 	cfg *config.Config,
@@ -136,7 +134,7 @@ func applyInitDatabaseBranchURL(cfg *config.Config, branchName string, logger *s
 	return nil
 }
 
-// TODO: Document connectInitDatabasePool.
+// connectInitDatabasePool establishes a connection pool to the configured database URL and returns both the interface and concrete pool.
 func connectInitDatabasePool(
 	ctx context.Context,
 	cfg *config.Config,
@@ -163,7 +161,7 @@ func connectInitDatabasePool(
 	return initPool, pool, nil
 }
 
-// TODO: Document runInitDatabaseMigrations.
+// runInitDatabaseMigrations bootstraps and runs system migrations, applies any --from data import, and then runs user-defined SQL migrations if configured.
 func runInitDatabaseMigrations(
 	ctx context.Context,
 	initPool initDatabasePool,
@@ -208,7 +206,7 @@ func runInitDatabaseMigrations(
 	return nil
 }
 
-// TODO: Document startInitDatabaseSchemaWatcher.
+// startInitDatabaseSchemaWatcher creates a schema cache and starts a background watcher that keeps it up to date via database notifications.
 func startInitDatabaseSchemaWatcher(
 	ctx context.Context,
 	initPool initDatabasePool,

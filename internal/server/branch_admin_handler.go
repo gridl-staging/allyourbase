@@ -36,7 +36,6 @@ func (s *Server) handleAdminBranchList(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"branches": records})
 }
 
-// handleAdminBranchCreate is an HTTP handler that creates a new branch from a JSON request body containing name and from fields. It validates the branch name and returns the created branch record with a 201 Created status. Returns 409 Conflict if the branch already exists.
 func (s *Server) handleAdminBranchCreate(w http.ResponseWriter, r *http.Request) {
 	if s.branchService == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "branch service not configured")
@@ -47,6 +46,8 @@ func (s *Server) handleAdminBranchCreate(w http.ResponseWriter, r *http.Request)
 		Name string `json:"name"`
 		From string `json:"from"`
 	}
+	// Cap request body at 1 MB to prevent memory-exhaustion attacks.
+	r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return

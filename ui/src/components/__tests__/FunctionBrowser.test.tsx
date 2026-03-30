@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FunctionBrowser } from "../FunctionBrowser";
@@ -224,5 +225,11 @@ describe("FunctionBrowser", () => {
       // Duration is dynamic but should contain "ms"
       expect(screen.getByText(/\d+ms/)).toBeDefined();
     });
+  });
+
+  it("schema prefix uses WCAG AA compliant contrast token", () => {
+    render(<FunctionBrowser functions={sampleFunctions} />);
+    const className = screen.getByText("stats.").className;
+    expectWcagContrastToken(className);
   });
 });

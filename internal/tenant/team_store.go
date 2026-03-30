@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/team_store.go.
 package tenant
 
 import (
@@ -45,7 +44,7 @@ func scanTeam(row pgx.Row) (*Team, error) {
 	return &team, nil
 }
 
-// TODO: Document scanTeams.
+// scanTeams collects all rows from a team query into a slice, returning an empty (non-nil) slice when no rows match.
 func scanTeams(rows pgx.Rows) ([]Team, error) {
 	var items []Team
 	for rows.Next() {
@@ -64,7 +63,7 @@ func scanTeams(rows pgx.Rows) ([]Team, error) {
 	return items, nil
 }
 
-// TODO: Document PostgresTeamStore.CreateTeam.
+// CreateTeam inserts a new team under the given org, acquiring an org-level lock to prevent concurrent slug conflicts. Returns ErrTeamSlugTaken on duplicate slug or ErrOrgNotFound if the org does not exist.
 func (s *PostgresTeamStore) CreateTeam(ctx context.Context, orgID, name, slug string) (*Team, error) {
 	if !IsValidSlug(slug) {
 		return nil, ErrInvalidSlug
@@ -118,7 +117,7 @@ func (s *PostgresTeamStore) GetTeam(ctx context.Context, id string) (*Team, erro
 	return team, nil
 }
 
-// TODO: Document PostgresTeamStore.ListTeams.
+// ListTeams returns all teams belonging to the given org, ordered by name. It acquires an org-level lock to ensure a consistent snapshot.
 func (s *PostgresTeamStore) ListTeams(ctx context.Context, orgID string) ([]Team, error) {
 	tx, err := s.beginOrgScopedTeamTx(ctx, orgID, "list")
 	if err != nil {
@@ -144,7 +143,7 @@ func (s *PostgresTeamStore) ListTeams(ctx context.Context, orgID string) ([]Team
 	return teams, nil
 }
 
-// TODO: Document PostgresTeamStore.UpdateTeam.
+// UpdateTeam applies a partial update to the team identified by id, using COALESCE so nil fields in TeamUpdate are left unchanged. Returns ErrTeamNotFound or ErrTeamSlugTaken as appropriate.
 func (s *PostgresTeamStore) UpdateTeam(ctx context.Context, id string, update TeamUpdate) (*Team, error) {
 	if update.Slug != nil && !IsValidSlug(*update.Slug) {
 		return nil, ErrInvalidSlug
@@ -201,7 +200,7 @@ func (s *PostgresTeamStore) beginOrgScopedTeamTx(ctx context.Context, orgID, ope
 	return tx, nil
 }
 
-// TODO: Document lockTeamOrg.
+// lockTeamOrg acquires a FOR KEY SHARE lock on the org row within the transaction, preventing the org from being deleted while team mutations are in flight. Returns ErrOrgNotFound if the org does not exist.
 func lockTeamOrg(ctx context.Context, tx pgx.Tx, orgID string) error {
 	var lockedOrgID string
 	err := tx.QueryRow(ctx,

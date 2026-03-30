@@ -1,4 +1,3 @@
-// Package edgefunc Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/edgefunc/query_executor_postgres_rawsql.go.
 package edgefunc
 
 import (
@@ -48,7 +47,7 @@ var sqlTableReferenceRules = []sqlTableReferenceRule{
 	},
 }
 
-// TODO: Document extractReferencedTablesFromSQL.
+// extractReferencedTablesFromSQL scans raw SQL to collect all directly-referenced table names, rejecting multiple statements, WITH clauses, and derived sources that cannot be safely validated.
 func extractReferencedTablesFromSQL(sql string) ([]string, error) {
 	lowerSQL := strings.ToLower(sql)
 	tables := make([]string, 0, 2)
@@ -104,7 +103,7 @@ func extractReferencedTablesFromSQL(sql string) ([]string, error) {
 	return tables, nil
 }
 
-// TODO: Document scanSQLTableReference.
+// scanSQLTableReference tries each table-reference rule at the current position and returns the table name and advanced index if a rule matches.
 func scanSQLTableReference(sql, lowerSQL string, idx int) (string, int, error) {
 	for _, rule := range sqlTableReferenceRules {
 		var (
@@ -140,7 +139,7 @@ func scanSQLTableReference(sql, lowerSQL string, idx int) (string, int, error) {
 	return "", idx, nil
 }
 
-// TODO: Document extractTableAfterKeyword.
+// extractTableAfterKeyword checks for a SQL keyword at idx and reads the table identifier that follows it, skipping optional LATERAL/ONLY modifiers and rejecting derived or function table sources when configured.
 func extractTableAfterKeyword(sql, lowerSQL string, idx int, keyword string, opts sqlTableReferenceOptions) (string, int, bool, error) {
 	if !sqlKeywordAt(lowerSQL, idx, keyword) {
 		return "", idx, false, nil
@@ -211,7 +210,7 @@ func readQualifiedSQLIdentifier(sql string, idx int) (string, int, bool) {
 	return firstPart + "." + secondPart, endIdx, true
 }
 
-// TODO: Document readSQLIdentifierPart.
+// readSQLIdentifierPart reads a single SQL identifier (unquoted or double-quoted with escaped-quote support) at the given index and returns the identifier text and the position after it.
 func readSQLIdentifierPart(sql string, idx int) (string, int, bool) {
 	if idx >= len(sql) {
 		return "", idx, false
@@ -295,7 +294,7 @@ func skipSQLLineComment(sql string, idx int) int {
 	return len(sql)
 }
 
-// TODO: Document skipSQLBlockComment.
+// skipSQLBlockComment advances past a /* ... */ block comment, correctly handling nested block comments by tracking depth.
 func skipSQLBlockComment(sql string, idx int) int {
 	depth := 1
 	for pos := idx + 2; pos < len(sql); pos++ {
@@ -317,7 +316,7 @@ func skipSQLBlockComment(sql string, idx int) int {
 	return len(sql)
 }
 
-// TODO: Document readDollarQuoteTag.
+// readDollarQuoteTag reads a PostgreSQL dollar-quote tag (e.g. $$ or $tag$) starting at idx, returning the full tag string including both dollar signs.
 func readDollarQuoteTag(sql string, idx int) (string, bool) {
 	if idx >= len(sql) || sql[idx] != '$' {
 		return "", false

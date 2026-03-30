@@ -1,4 +1,3 @@
-// Package replica Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/replica/store_promote.go.
 package replica
 
 import (
@@ -15,7 +14,7 @@ type replicaRoleStateRow struct {
 	state string
 }
 
-// TODO: Document PostgresReplicaStore.PromoteNode.
+// PromoteNode atomically promotes a replica to primary in the topology store, marking the old primary as removed within a transaction.
 func (s *PostgresReplicaStore) PromoteNode(ctx context.Context, targetName string) error {
 	targetName = strings.TrimSpace(targetName)
 	if targetName == "" {
@@ -49,7 +48,7 @@ func (s *PostgresReplicaStore) PromoteNode(ctx context.Context, targetName strin
 	return nil
 }
 
-// TODO: Document PostgresReplicaStore.promoteNodeWithExecQuerier.
+// promoteNodeWithExecQuerier performs the promotion logic: validates the target is an active replica, marks the current primary as removed, and sets the target's role to primary.
 func (s *PostgresReplicaStore) promoteNodeWithExecQuerier(ctx context.Context, q replicaExecQuerier, targetName string) error {
 	targetRoleState, err := loadReplicaRoleState(ctx, q, targetName)
 	if err != nil {

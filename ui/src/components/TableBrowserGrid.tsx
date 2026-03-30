@@ -90,7 +90,7 @@ export function TableBrowserGrid({
                   <span className="inline-flex items-center gap-1">
                     {col.name}
                     {col.isPrimaryKey && (
-                      <span className="text-blue-500 text-xs">PK</span>
+                      <span className="text-blue-600 text-xs">PK</span>
                     )}
                     <SortIcon sort={sort} col={col.name} />
                   </span>
@@ -117,7 +117,7 @@ export function TableBrowserGrid({
               <tr>
                 <td
                   colSpan={columns.length + extraColCount}
-                  className="px-4 py-8 text-center text-gray-400 dark:text-gray-500"
+                  className="px-4 py-8 text-center text-gray-500 dark:text-gray-400"
                 >
                   Loading...
                 </td>
@@ -127,7 +127,7 @@ export function TableBrowserGrid({
               <tr>
                 <td
                   colSpan={columns.length + extraColCount}
-                  className="px-4 py-8 text-center text-gray-400 dark:text-gray-500"
+                  className="px-4 py-8 text-center text-gray-500 dark:text-gray-400"
                 >
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
@@ -222,6 +222,7 @@ export function TableBrowserGrid({
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
+              aria-label="Previous page"
               className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -232,6 +233,7 @@ export function TableBrowserGrid({
             <button
               onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
               disabled={page >= data.totalPages}
+              aria-label="Next page"
               className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30"
             >
               <ChevronRight className="w-4 h-4" />

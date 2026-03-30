@@ -64,9 +64,6 @@ export function sendAssistantQuery(req: AssistantRequest): Promise<AssistantResp
   });
 }
 
-/**
- * TODO: Document streamAssistant.
- */
 export async function streamAssistant(
   req: AssistantRequest,
   onChunk: (text: string) => void,

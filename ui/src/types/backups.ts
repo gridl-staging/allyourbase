@@ -1,9 +1,6 @@
 /**
  * @module Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/ui/src/types/backups.ts.
  */
-/**
- * TODO: Document BackupRecord.
- */
 export interface BackupRecord {
   id: string;
   db_name: string;
@@ -33,9 +30,6 @@ export interface BackupTriggerResponse {
   status: string;
 }
 
-/**
- * TODO: Document RestoreJob.
- */
 export interface RestoreJob {
   id: string;
   project_id: string;

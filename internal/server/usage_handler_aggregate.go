@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/usage_handler_aggregate.go.
 package server
 
 import (
@@ -63,7 +62,7 @@ func resolveUsageDateRangeFromQuery(query url.Values, defaultPeriod string, now 
 	return period, from, to, nil
 }
 
-// TODO: Document parseUsageIntQuery.
+// parseUsageIntQuery parses a query string value as a non-negative integer, applying default and maximum bounds.
 func parseUsageIntQuery(raw, field string, defaultValue, maxValue int) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -98,7 +97,7 @@ func writeUsageLimitsResponse(w http.ResponseWriter, r *http.Request, aggregate 
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
-// TODO: Document handleAdminUsageList.
+// handleAdminUsageList returns an HTTP handler that lists paginated tenant usage summaries with optional sorting and date range filtering.
 func handleAdminUsageList(aggregate usageAggregateService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if aggregate == nil {
@@ -155,7 +154,7 @@ func handleAdminUsageList(aggregate usageAggregateService) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminUsageTrends.
+// handleAdminUsageTrends returns an HTTP handler that retrieves time-series usage trend data for a given metric and granularity.
 func handleAdminUsageTrends(aggregate usageAggregateService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if aggregate == nil {
@@ -208,7 +207,7 @@ func handleAdminUsageTrends(aggregate usageAggregateService) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminUsageBreakdown.
+// handleAdminUsageBreakdown returns an HTTP handler that retrieves usage data broken down by a grouping dimension (e.g., tenant) for a given metric.
 func handleAdminUsageBreakdown(aggregate usageAggregateService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if aggregate == nil {
@@ -272,7 +271,7 @@ func handleAdminUsageBreakdown(aggregate usageAggregateService) http.HandlerFunc
 	}
 }
 
-// TODO: Document handleAdminUsageLimits.
+// handleAdminUsageLimits returns an HTTP handler that retrieves usage limits for a specific tenant identified by URL path parameter.
 func handleAdminUsageLimits(src usageDataSource, aggregate usageAggregateService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if src == nil || aggregate == nil {

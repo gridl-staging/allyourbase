@@ -41,9 +41,6 @@ function asBreakerState(value: unknown): BreakerStateResponse["state"] {
 // Single-object normalizers
 // ---------------------------------------------------------------------------
 
-/**
- * TODO: Document normalizeTenant.
- */
 export function normalizeTenant(raw: unknown): Tenant {
   const r = asRecord(raw);
   return {

@@ -102,9 +102,6 @@ function normalizeScopes(scopes: string): string[] {
     .filter((value) => value.length > 0);
 }
 
-/**
- * TODO: Document createProviderForm.
- */
 export function createProviderForm({
   enabled,
 }: OAuthProviderInfo): ProviderFormState {

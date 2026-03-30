@@ -1,4 +1,3 @@
-// Package replica Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/replica/store.go.
 package replica
 
 import (
@@ -134,7 +133,7 @@ func NewPostgresReplicaStoreWithDB(db replicaStoreDB) *PostgresReplicaStore {
 	return &PostgresReplicaStore{db: db}
 }
 
-// TODO: Document PostgresReplicaStore.List.
+// List returns all topology node records ordered by name.
 func (s *PostgresReplicaStore) List(ctx context.Context) ([]TopologyNodeRecord, error) {
 	rows, err := s.db.Query(ctx, `SELECT `+topologyColumns+` FROM _ayb_replicas ORDER BY name ASC`)
 	if err != nil {
@@ -216,7 +215,7 @@ func (s *PostgresReplicaStore) Add(ctx context.Context, record TopologyNodeRecor
 	return nil
 }
 
-// TODO: Document PostgresReplicaStore.insertTopologyNodeRecord.
+// insertTopologyNodeRecord inserts a topology node record, optionally ignoring conflicts for idempotent bootstrap operations.
 func (s *PostgresReplicaStore) insertTopologyNodeRecord(ctx context.Context, record TopologyNodeRecord, ignoreConflicts bool) error {
 	query := `
 		INSERT INTO _ayb_replicas (
@@ -254,7 +253,7 @@ func (s *PostgresReplicaStore) insertTopologyNodeRecord(ctx context.Context, rec
 	return err
 }
 
-// TODO: Document normalizeTopologyNodeRecord.
+// normalizeTopologyNodeRecord trims whitespace, applies defaults for port/weight/lag, sanitizes the DSN query, and validates required fields.
 func normalizeTopologyNodeRecord(record TopologyNodeRecord) (TopologyNodeRecord, error) {
 	record.Name = strings.TrimSpace(record.Name)
 	record.Host = strings.TrimSpace(record.Host)
@@ -311,7 +310,7 @@ func normalizeTopologyState(state string) (string, error) {
 	}
 }
 
-// TODO: Document scanTopologyNodeRecord.
+// scanTopologyNodeRecord scans a database row into a TopologyNodeRecord, stripping sensitive DSN query parameters from legacy records.
 func scanTopologyNodeRecord(scanner interface{ Scan(dest ...any) error }) (TopologyNodeRecord, error) {
 	var record TopologyNodeRecord
 	if err := scanner.Scan(
@@ -344,7 +343,7 @@ func scanTopologyNodeRecord(scanner interface{ Scan(dest ...any) error }) (Topol
 	return record, nil
 }
 
-// TODO: Document sanitizeTopologyQuery.
+// sanitizeTopologyQuery removes sensitive keys (password, user, etc.) from a DSN query string and extracts the sslmode into a separate return value.
 func sanitizeTopologyQuery(rawQuery, sslMode string) (string, string, error) {
 	rawQuery = strings.TrimPrefix(strings.TrimSpace(rawQuery), "?")
 	sslMode = strings.TrimSpace(sslMode)

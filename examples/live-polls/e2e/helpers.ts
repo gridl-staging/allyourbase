@@ -83,7 +83,7 @@ export async function openCreatePoll(page: Page): Promise<void> {
  * This helper exists to test server-side RLS enforcement — specifically the
  * votes_insert policy that rejects writes to closed polls. The test cannot
  * be written with UI interactions alone because the UI prevents the action
- * before it reaches the server. Per BROWSER_TESTING_STANDARDS_2.md, API
+ * before it reaches the server. Per BROWSER_TESTING_STANDARDS_3.md, API
  * shortcuts belong here in helpers.ts, never in spec files.
  *
  * Returns 0 on any setup failure (token missing, poll not found, etc.) so
@@ -157,7 +157,7 @@ export async function attemptDirectVoteOnClosedPoll(
  * This helper exists to test server-side RLS enforcement — specifically the
  * polls_update policy that only allows the poll owner to update their poll.
  * The test cannot be written with UI interactions alone because the UI never
- * renders the "Close poll" button for non-owners. Per BROWSER_TESTING_STANDARDS_2.md,
+ * renders the "Close poll" button for non-owners. Per BROWSER_TESTING_STANDARDS_3.md,
  * API shortcuts belong here in helpers.ts, never in spec files.
  *
  * Returns 0 on any setup failure (token missing, poll not found, etc.) so that
@@ -206,7 +206,7 @@ export async function attemptDirectClosePoll(
  * polls_insert WITH CHECK policy that rejects inserts where user_id ≠ the
  * authenticated user's ID. The test cannot be written with UI interactions alone
  * because the frontend always sends the correct user_id from the JWT. Per
- * BROWSER_TESTING_STANDARDS_2.md, API shortcuts belong here in helpers.ts, never
+ * BROWSER_TESTING_STANDARDS_3.md, API shortcuts belong here in helpers.ts, never
  * in spec files.
  *
  * Returns 0 on any setup failure (token missing, owner poll not found) so that

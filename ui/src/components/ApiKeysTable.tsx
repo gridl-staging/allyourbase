@@ -43,10 +43,10 @@ export function ApiKeysTable({
           </thead>
           <tbody>
             {data.items.map((apiKey) => (
-              <tr key={apiKey.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
+              <tr key={apiKey.id} className="border-b last:border-0 hover:bg-gray-50 dark:bg-gray-800">
                 <td className="px-4 py-2.5">
                   <span className="font-medium">{apiKey.name}</span>
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{apiKey.id}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">{apiKey.id}</div>
                 </td>
                 <td className="px-4 py-2.5">
                   <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">
@@ -67,32 +67,32 @@ export function ApiKeysTable({
                     {apiKey.scope === "*" ? "full access" : apiKey.scope}
                   </span>
                   {apiKey.allowedTables && apiKey.allowedTables.length > 0 && (
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                    <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                       {apiKey.allowedTables.join(", ")}
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-300">
                   {userEmails[apiKey.userId] || apiKey.userId}
                 </td>
-                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-300">
                   {apiKey.appId ? (
                     <>
                       <div className="text-gray-700 dark:text-gray-200">
                         {appsById[apiKey.appId]?.name || apiKey.appId}
                       </div>
-                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                         {formatAppRateLimit(appsById[apiKey.appId])}
                       </div>
                     </>
                   ) : (
-                    <span className="text-gray-400 dark:text-gray-500">User-scoped</span>
+                    <span className="text-gray-500 dark:text-gray-300">User-scoped</span>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-300">
                   {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleDateString() : "Never"}
                 </td>
-                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
+                <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-300">
                   {new Date(apiKey.createdAt).toLocaleDateString()}
                 </td>
                 <td className="px-4 py-2.5 text-center">
@@ -110,7 +110,7 @@ export function ApiKeysTable({
                     {!apiKey.revokedAt && (
                       <button
                         onClick={() => onRevoke(apiKey)}
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                        className="p-1 text-gray-500 dark:text-gray-300 hover:text-red-500 rounded hover:bg-gray-100 dark:bg-gray-700"
                         title="Revoke key"
                         aria-label="Revoke key"
                       >
@@ -125,7 +125,7 @@ export function ApiKeysTable({
         </table>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+      <div className="mt-3 flex items-center justify-between text-sm text-gray-500 dark:text-gray-300">
         <span>
           {data.totalItems} key{data.totalItems !== 1 ? "s" : ""}
         </span>
@@ -133,7 +133,8 @@ export function ApiKeysTable({
           <button
             onClick={() => onPageChange(Math.max(1, page - 1))}
             disabled={page <= 1}
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
+            aria-label="Previous page"
+            className="p-1 rounded hover:bg-gray-200 dark:bg-gray-700 disabled:opacity-30"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -143,7 +144,8 @@ export function ApiKeysTable({
           <button
             onClick={() => onPageChange(Math.min(data.totalPages, page + 1))}
             disabled={page >= data.totalPages}
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 dark:bg-gray-700 disabled:opacity-30"
+            aria-label="Next page"
+            className="p-1 rounded hover:bg-gray-200 dark:bg-gray-700 disabled:opacity-30"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

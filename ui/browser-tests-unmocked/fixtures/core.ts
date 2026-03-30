@@ -7,9 +7,6 @@ export function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
 
-/**
- * TODO: Document validateResponse.
- */
 export async function validateResponse(
   res: Awaited<ReturnType<APIRequestContext["post"]>>,
   context: string,
@@ -44,9 +41,6 @@ export async function checkAuthEnabled(
   return { auth: !!body.auth };
 }
 
-/**
- * TODO: Document execSQL.
- */
 export async function execSQL(
   request: APIRequestContext,
   token: string,
@@ -75,9 +69,6 @@ export async function execSQL(
   return lastResult;
 }
 
-/**
- * TODO: Document probeEndpoint.
- */
 export async function probeEndpoint(
   request: APIRequestContext,
   token: string,
@@ -148,9 +139,6 @@ export async function waitForDashboard(page: Page): Promise<void> {
   await sidebar.waitFor({ state: "visible", timeout: 1000 });
 }
 
-/**
- * TODO: Document expectRlsPolicyCard.
- */
 export async function expectRlsPolicyCard(
   page: Page,
   params: {
@@ -177,9 +165,6 @@ export async function expectRlsPolicyCard(
   expect(policyBlock).toContain(usingExpression);
 }
 
-/**
- * TODO: Document getStoredAdminToken.
- */
 export async function getStoredAdminToken(): Promise<string> {
   const fs = await import("fs/promises");
   const path = await import("path");

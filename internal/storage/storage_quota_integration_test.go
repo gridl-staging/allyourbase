@@ -263,6 +263,95 @@ func TestStorageResumableCreateQuotaExceeded(t *testing.T) {
 	testutil.Contains(t, msg, "quota")
 }
 
+func TestStorageResumableCreateReservesQuotaImmediately(t *testing.T) {
+	ts, storageSvc, authSvc, tenantID := setupServerWithQuota(t, 10*1024)
+	defer ts.Close()
+	clearQuotaData(t)
+
+	userID := "abababab-abab-abab-abab-abababababab"
+	token := userToken(t, authSvc, userID, "tus-reserve-create@example.com")
+	ensureStorageTestUser(t, userID, "tus-reserve-create@example.com")
+	addStorageTestMembership(t, tenantID, userID)
+	bucket := fmt.Sprintf("tus-reserve-create-%d", time.Now().UnixNano())
+	_, err := storageSvc.CreateBucket(context.Background(), bucket, false)
+	testutil.NoError(t, err)
+
+	uploadLength := int64(256)
+	_, _ = createResumableSessionWithHeaders(t, ts.URL, bucket, "reserve-at-create.bin", uploadLength, requestHeaders{token: token, tenantID: tenantID})
+
+	info, err := storageSvc.GetUsage(context.Background(), userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, uploadLength, info.BytesUsed)
+}
+
+func TestStorageResumableCreateConcurrentRequestsDenyOversubscription(t *testing.T) {
+	ts, storageSvc, authSvc, tenantID := setupServerWithQuota(t, 100)
+	defer ts.Close()
+	clearQuotaData(t)
+
+	userID := "cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd"
+	token := userToken(t, authSvc, userID, "tus-concurrent-create@example.com")
+	ensureStorageTestUser(t, userID, "tus-concurrent-create@example.com")
+	addStorageTestMembership(t, tenantID, userID)
+	bucket := fmt.Sprintf("tus-concurrent-create-%d", time.Now().UnixNano())
+	_, err := storageSvc.CreateBucket(context.Background(), bucket, false)
+	testutil.NoError(t, err)
+
+	type createResult struct {
+		status int
+		err    error
+	}
+
+	const uploadLength = int64(80)
+	start := make(chan struct{})
+	results := make(chan createResult, 2)
+
+	createReq := func(name string) {
+		<-start
+		req, err := http.NewRequest(http.MethodPost,
+			fmt.Sprintf("%s/api/storage/upload/resumable?bucket=%s&name=%s", ts.URL, bucket, name), nil)
+		if err != nil {
+			results <- createResult{err: err}
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Tenant-ID", tenantID)
+		req.Header.Set("Tus-Resumable", "1.0.0")
+		req.Header.Set("Upload-Length", fmt.Sprintf("%d", uploadLength))
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			results <- createResult{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		results <- createResult{status: resp.StatusCode}
+	}
+
+	go createReq("parallel-a.bin")
+	go createReq("parallel-b.bin")
+	close(start)
+
+	successes := 0
+	quotaDenied := 0
+	for i := 0; i < 2; i++ {
+		result := <-results
+		testutil.NoError(t, result.err)
+		switch result.status {
+		case http.StatusCreated:
+			successes++
+		case http.StatusRequestEntityTooLarge:
+			quotaDenied++
+		}
+	}
+	testutil.Equal(t, 1, successes)
+	testutil.Equal(t, 1, quotaDenied)
+
+	info, err := storageSvc.GetUsage(context.Background(), userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, uploadLength, info.BytesUsed)
+}
+
 func TestStorageDeleteReclaimsQuota(t *testing.T) {
 	ts, storageSvc, authSvc, tenantID := setupServerWithQuota(t, 10*1024)
 	defer ts.Close()
@@ -372,7 +461,7 @@ func TestStorageAdminQuotaGetSet(t *testing.T) {
 	testutil.Equal(t, int64(5*1024*1024), info2.QuotaBytes)
 }
 
-func TestStorageResumableFinalizeIncrementsUsage(t *testing.T) {
+func TestStorageResumablePatchFinalizeIsQuotaNoOpAfterCreateReservation(t *testing.T) {
 	ts, storageSvc, authSvc, tenantID := setupServerWithQuota(t, 10*1024)
 	defer ts.Close()
 	clearQuotaData(t)
@@ -388,13 +477,55 @@ func TestStorageResumableFinalizeIncrementsUsage(t *testing.T) {
 	data := []byte(strings.Repeat("t", 100))
 	_, id := createResumableSessionWithHeaders(t, ts.URL, bucket, "tus-file.bin", int64(len(data)), requestHeaders{token: token, tenantID: tenantID})
 
+	infoAfterCreate, err := storageSvc.GetUsage(context.Background(), userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, int64(len(data)), infoAfterCreate.BytesUsed)
+
 	patchResp := patchResumableChunkWithHeaders(t, ts.URL, id, 0, data, requestHeaders{token: token, tenantID: tenantID})
 	testutil.StatusCode(t, http.StatusNoContent, patchResp.StatusCode)
 	patchResp.Body.Close()
 
-	info, err := storageSvc.GetUsage(context.Background(), userID)
+	infoAfterFinalize, err := storageSvc.GetUsage(context.Background(), userID)
 	testutil.NoError(t, err)
-	testutil.Equal(t, int64(len(data)), info.BytesUsed)
+	testutil.Equal(t, infoAfterCreate.BytesUsed, infoAfterFinalize.BytesUsed)
+}
+
+func TestStorageResumableCreateFailureRollsBackReservation(t *testing.T) {
+	ts, storageSvc, authSvc, tenantID := setupServerWithQuota(t, 10*1024)
+	defer ts.Close()
+	clearQuotaData(t)
+
+	userID := "12121212-1212-1212-1212-121212121212"
+	token := userToken(t, authSvc, userID, "tus-rollback-create@example.com")
+	ensureStorageTestUser(t, userID, "tus-rollback-create@example.com")
+	addStorageTestMembership(t, tenantID, userID)
+	bucket := fmt.Sprintf("tus-rollback-create-%d", time.Now().UnixNano())
+	_, err := storageSvc.CreateBucket(context.Background(), bucket, false)
+	testutil.NoError(t, err)
+
+	reservedBytes := int64(128)
+	_, _ = createResumableSessionWithHeaders(t, ts.URL, bucket, "good.bin", reservedBytes, requestHeaders{token: token, tenantID: tenantID})
+
+	infoBeforeFailure, err := storageSvc.GetUsage(context.Background(), userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, reservedBytes, infoBeforeFailure.BytesUsed)
+
+	req, err := http.NewRequest(http.MethodPost,
+		fmt.Sprintf("%s/api/storage/upload/resumable?bucket=%s&name=bad..name", ts.URL, bucket), nil)
+	testutil.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Tenant-ID", tenantID)
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	req.Header.Set("Upload-Length", "64")
+
+	resp, err := http.DefaultClient.Do(req)
+	testutil.NoError(t, err)
+	defer resp.Body.Close()
+	testutil.StatusCode(t, http.StatusBadRequest, resp.StatusCode)
+
+	infoAfterFailure, err := storageSvc.GetUsage(context.Background(), userID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, infoBeforeFailure.BytesUsed, infoAfterFailure.BytesUsed)
 }
 
 func TestStorageQuotaConcurrentReservations(t *testing.T) {

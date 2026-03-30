@@ -1,4 +1,3 @@
-// Package realtime Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/realtime/handler.go.
 package realtime
 
 import (
@@ -46,12 +45,6 @@ func NewHandler(hub *Hub, pool *pgxpool.Pool, authSvc *auth.Service, schemaCache
 	}
 }
 
-// ServeHTTP handles GET /api/realtime with Server-Sent Events.
-//
-// Query parameters:
-//   - tables: comma-separated table names to subscribe to (required unless oauth=true)
-//   - token: JWT token (alternative to Authorization header for EventSource compatibility)
-//   - oauth: when "true", creates an OAuth SSE channel (no auth required, no tables needed)
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -90,14 +83,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.applySSEHeaders(w)
 
 	// Send initial connected event.
-	fmt.Fprintf(w, "event: connected\ndata: {\"clientId\":%q}\n\n", client.ID)
+	_, _ = fmt.Fprintf(w, "event: connected\ndata: {\"clientId\":%q}\n\n", client.ID)
 	flusher.Flush()
 
 	h.logger.Info("realtime client connected", "clientID", client.ID, "tables", tablesParam)
 	h.streamRealtimeSSEEvents(w, flusher, ctx, claims, client)
 }
 
-// TODO: Document Handler.authenticateRealtimeRequest.
+// authenticateRealtimeRequest validates the bearer token or API key from the request, returning the authenticated claims or writing an error response if authentication fails.
 func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Request) (*auth.Claims, bool) {
 	if h.authSvc == nil {
 		return nil, true
@@ -129,7 +122,7 @@ func (h *Handler) authenticateRealtimeRequest(w http.ResponseWriter, r *http.Req
 	return claims, true
 }
 
-// TODO: Document Handler.parseRealtimeTableSubscriptions.
+// parseRealtimeTableSubscriptions splits the comma-separated tables parameter, validates each table name against the schema cache, and returns the subscription set.
 func (h *Handler) parseRealtimeTableSubscriptions(w http.ResponseWriter, tablesParam string) (map[string]bool, bool) {
 	if tablesParam == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "tables parameter is required",
@@ -170,7 +163,7 @@ func (h *Handler) parseRealtimeFilters(w http.ResponseWriter, filterParam string
 	return filters, true
 }
 
-// TODO: Document Handler.setupRealtimeSSEClient.
+// setupRealtimeSSEClient subscribes a new client to the realtime hub with the requested table filters, registers it with the connection manager if configured, and returns the client with a cleanup function.
 func (h *Handler) setupRealtimeSSEClient(w http.ResponseWriter, r *http.Request, claims *auth.Claims, tables map[string]bool, filters Filters) (*Client, context.Context, func(), bool) {
 	client := h.hub.SubscribeWithFilter(tables, filters)
 	ctx, cancel := context.WithCancel(r.Context())
@@ -217,7 +210,6 @@ func (h *Handler) applySSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 }
 
-// TODO: Document Handler.streamRealtimeSSEEvents.
 func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Flusher, ctx context.Context, claims *auth.Claims, client *Client) {
 	for {
 		select {
@@ -240,15 +232,12 @@ func (h *Handler) streamRealtimeSSEEvents(w http.ResponseWriter, flusher http.Fl
 				h.logger.Error("failed to marshal event", "error", err, "clientID", client.ID)
 				continue
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
 	}
 }
 
-// serveOAuthSSE handles the OAuth-specific SSE endpoint.
-// No authentication is required (the user hasn't logged in yet).
-// The client's ID is used as the CSRF state for the OAuth popup flow.
 func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher) {
 	client := h.hub.SubscribeOAuth()
 	defer h.hub.Unsubscribe(client.ID)
@@ -259,7 +248,7 @@ func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher 
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Send clientId — the SDK uses this as the OAuth state parameter.
-	fmt.Fprintf(w, "event: connected\ndata: {\"clientId\":%q}\n\n", client.ID)
+	_, _ = fmt.Fprintf(w, "event: connected\ndata: {\"clientId\":%q}\n\n", client.ID)
 	flusher.Flush()
 
 	h.logger.Info("oauth SSE client connected", "clientID", client.ID)
@@ -278,7 +267,7 @@ func (h *Handler) serveOAuthSSE(w http.ResponseWriter, r *http.Request, flusher 
 				h.logger.Error("failed to marshal oauth event", "error", err, "clientID", client.ID)
 				continue
 			}
-			fmt.Fprintf(w, "event: oauth\ndata: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "event: oauth\ndata: %s\n\n", data)
 			flusher.Flush()
 			return // OAuth flow is one-shot; close after delivering the result.
 		}

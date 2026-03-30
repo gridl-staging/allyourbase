@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/handler_aggregate.go.
 package api
 
 import (
@@ -99,7 +98,7 @@ func (h *Handler) handleAggregate(w http.ResponseWriter, r *http.Request, tbl *s
 	writeJSON(w, http.StatusOK, AggregateResponse{Results: results})
 }
 
-// TODO: Document Handler.validateAggregateEncryptionConstraints.
+// validateAggregateEncryptionConstraints rejects aggregate or group-by operations that reference encrypted columns, since aggregation on ciphertext produces meaningless results.
 func (h *Handler) validateAggregateEncryptionConstraints(tbl *schema.Table, exprs []AggregateExpr, groupCols []string) error {
 	if h.fieldEncryptor == nil {
 		return nil

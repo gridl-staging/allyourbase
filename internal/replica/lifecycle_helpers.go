@@ -1,4 +1,3 @@
-// Package replica Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/replica/lifecycle_helpers.go.
 package replica
 
 import (
@@ -43,7 +42,7 @@ func (s *LifecycleService) verifyIsReplica(ctx context.Context, pool *pgxpool.Po
 	return nil
 }
 
-// TODO: Document LifecycleService.waitForPromotion.
+// waitForPromotion polls pg_is_in_recovery until the target exits standby mode or the timeout expires.
 func (s *LifecycleService) waitForPromotion(ctx context.Context, pool *pgxpool.Pool, timeout time.Duration) error {
 	if pool == nil {
 		return errors.New("promotion pool is nil")

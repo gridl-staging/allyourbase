@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/org.go.
 package cli
 
 import (
@@ -105,7 +104,7 @@ func init() {
 	orgTeamsCmd.AddCommand(orgTeamsCreateCmd)
 }
 
-// TODO: Document runOrgCreate.
+// runOrgCreate creates a new organization via the admin API using the provided name, slug, and optional parent/plan flags.
 func runOrgCreate(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	slug, _ := cmd.Flags().GetString("slug")
@@ -145,7 +144,7 @@ func runOrgCreate(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// TODO: Document runOrgList.
+// runOrgList fetches all organizations from the admin API and displays them as JSON, CSV, or a formatted table.
 func runOrgList(cmd *cobra.Command, _ []string) error {
 	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs", nil)
 	if err != nil {
@@ -196,7 +195,7 @@ func runOrgList(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// TODO: Document runOrgMembersList.
+// runOrgMembersList resolves an organization by slug and lists its members with their roles.
 func runOrgMembersList(cmd *cobra.Command, args []string) error {
 	org, err := resolveOrgBySlug(cmd, args[0])
 	if err != nil {
@@ -250,7 +249,7 @@ func runOrgMembersList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: Document runOrgMembersAdd.
+// runOrgMembersAdd adds a user to an organization with the specified role via the admin API.
 func runOrgMembersAdd(cmd *cobra.Command, args []string) error {
 	org, err := resolveOrgBySlug(cmd, args[0])
 	if err != nil {
@@ -279,7 +278,7 @@ func runOrgMembersAdd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: Document runOrgTeamsList.
+// runOrgTeamsList resolves an organization by slug and lists its teams as JSON, CSV, or a formatted table.
 func runOrgTeamsList(cmd *cobra.Command, args []string) error {
 	org, err := resolveOrgBySlug(cmd, args[0])
 	if err != nil {
@@ -333,7 +332,7 @@ func runOrgTeamsList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: Document runOrgTeamsCreate.
+// runOrgTeamsCreate creates a new team within an organization via the admin API using the provided name and slug.
 func runOrgTeamsCreate(cmd *cobra.Command, args []string) error {
 	org, err := resolveOrgBySlug(cmd, args[0])
 	if err != nil {
@@ -363,7 +362,7 @@ func runOrgTeamsCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: Document resolveOrgBySlug.
+// resolveOrgBySlug fetches the organization list from the admin API and returns the record matching the given slug.
 func resolveOrgBySlug(cmd *cobra.Command, slug string) (*orgCLIRecord, error) {
 	resp, body, err := adminRequest(cmd, http.MethodGet, "/api/admin/orgs", nil)
 	if err != nil {

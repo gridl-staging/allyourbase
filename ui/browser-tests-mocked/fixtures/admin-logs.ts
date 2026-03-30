@@ -22,9 +22,6 @@ export interface AdminLogsMockState {
   logsCalls: number;
 }
 
-/**
- * TODO: Document mockAdminLogsApis.
- */
 export async function mockAdminLogsApis(
   page: Page,
   options: AdminLogsMockOptions = {},

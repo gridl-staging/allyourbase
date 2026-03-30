@@ -134,9 +134,6 @@ export interface TenantAuditQuery {
   actorId?: string;
 }
 
-/**
- * TODO: Document TenantPageState.
- */
 export interface TenantPageState {
   selectedTenantId: string | null;
   activeDetailTab: DetailTab;

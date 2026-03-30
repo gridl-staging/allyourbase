@@ -29,7 +29,6 @@ func init() {
 	uninstallCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 }
 
-// runUninstall removes AYB from the system, deleting the binary, cached Postgres binaries, runtime directory, and shell PATH entries. It requires the server to be stopped and prompts for confirmation when the --purge flag is specified to delete the data directory. By default the data directory is preserved. Output is formatted as JSON when the --json flag is provided.
 func runUninstall(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	purge, _ := cmd.Flags().GetBool("purge")
@@ -42,28 +41,35 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	aybDir := filepath.Join(home, ".ayb")
 	binPath := filepath.Join(aybDir, "bin", "ayb")
+	proceed, err := uninstallPreflight(aybDir, jsonOut, purge, yes)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return nil
+	}
 
+	removed, dataPreserved := executeRemovals(aybDir, binPath, purge)
+	profilesCleaned := cleanShellProfiles(home, filepath.Join(aybDir, "bin"))
+	return renderUninstallResult(jsonOut, removed, profilesCleaned, dataPreserved, aybDir)
+}
+
+func uninstallPreflight(aybDir string, jsonOut, purge, yes bool) (bool, error) {
 	// Check if server is running.
 	if isServerRunning() {
 		if jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{
-				"status":  "error",
-				"message": "AYB server is running — stop it first with: ayb stop",
-			})
+			return false, writeUninstallStatus("error", "AYB server is running — stop it first with: ayb stop")
 		}
-		return fmt.Errorf("AYB server is running — stop it first with: ayb stop")
+		return false, fmt.Errorf("AYB server is running — stop it first with: ayb stop")
 	}
 
 	// Check if there's anything to uninstall.
-	if _, err := os.Stat(aybDir); os.IsNotExist(err) {
+	if !pathExists(aybDir) {
 		if jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{
-				"status":  "not_installed",
-				"message": "nothing to uninstall",
-			})
+			return false, writeUninstallStatus("not_installed", "nothing to uninstall")
 		}
 		fmt.Println("Nothing to uninstall (~/.ayb does not exist).")
-		return nil
+		return false, nil
 	}
 
 	// Confirm purge if requested.
@@ -75,17 +81,17 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "y" && answer != "yes" {
 			fmt.Println("Aborted.")
-			return nil
+			return false, nil
 		}
 	}
+	return true, nil
+}
 
+func executeRemovals(aybDir, binPath string, purge bool) ([]string, bool) {
 	var removed []string
 
 	// Remove binary.
-	if _, err := os.Stat(binPath); err == nil {
-		os.Remove(binPath)
-		removed = append(removed, binPath)
-	}
+	removeFileIfExists(binPath, &removed)
 
 	// Remove bin dir if empty.
 	binDir := filepath.Join(aybDir, "bin")
@@ -95,51 +101,36 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	// Remove cached Postgres binaries (~/.ayb/pg).
 	pgDir := filepath.Join(aybDir, "pg")
-	if _, err := os.Stat(pgDir); err == nil {
-		os.RemoveAll(pgDir)
-		removed = append(removed, pgDir)
-	}
+	removeDirIfExists(pgDir, &removed)
 
 	// Remove runtime dir (~/.ayb/run).
 	runDir := filepath.Join(aybDir, "run")
-	if _, err := os.Stat(runDir); err == nil {
-		os.RemoveAll(runDir)
-		removed = append(removed, runDir)
-	}
+	removeDirIfExists(runDir, &removed)
 
 	// Remove stale PID file.
 	pidPath := filepath.Join(aybDir, "ayb.pid")
-	if _, err := os.Stat(pidPath); err == nil {
-		os.Remove(pidPath)
-		removed = append(removed, pidPath)
-	}
+	removeFileIfExists(pidPath, &removed)
 
 	// Purge: remove data directory and the entire ~/.ayb.
 	dataPreserved := false
+	dataDir := filepath.Join(aybDir, "data")
 	if purge {
-		dataDir := filepath.Join(aybDir, "data")
-		if _, err := os.Stat(dataDir); err == nil {
-			os.RemoveAll(dataDir)
-			removed = append(removed, dataDir)
-		}
+		removeDirIfExists(dataDir, &removed)
 		// Remove the entire ~/.ayb if it's now empty (or purge was requested).
 		os.RemoveAll(aybDir)
 		removed = append(removed, aybDir)
 	} else {
 		// Check if data dir exists to notify user.
-		dataDir := filepath.Join(aybDir, "data")
-		if _, err := os.Stat(dataDir); err == nil {
-			dataPreserved = true
-		}
+		dataPreserved = pathExists(dataDir)
 		// Try to remove ~/.ayb if it's empty.
 		if isEmpty(aybDir) {
 			os.Remove(aybDir)
 		}
 	}
+	return removed, dataPreserved
+}
 
-	// Clean up PATH entries from shell profiles.
-	profilesCleaned := cleanShellProfiles(home, filepath.Join(aybDir, "bin"))
-
+func renderUninstallResult(jsonOut bool, removed, profilesCleaned []string, dataPreserved bool, aybDir string) error {
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"status":           "uninstalled",
@@ -166,7 +157,6 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\nYour data directory was preserved: %s\n", filepath.Join(aybDir, "data"))
 		fmt.Println("To remove it: rm -rf ~/.ayb")
 	}
-
 	return nil
 }
 
@@ -259,4 +249,32 @@ func isEmpty(dir string) bool {
 		return false
 	}
 	return len(entries) == 0
+}
+
+func writeUninstallStatus(status, message string) error {
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"status":  status,
+		"message": message,
+	})
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func removeFileIfExists(path string, removed *[]string) {
+	if !pathExists(path) {
+		return
+	}
+	os.Remove(path)
+	*removed = append(*removed, path)
+}
+
+func removeDirIfExists(path string, removed *[]string) {
+	if !pathExists(path) {
+		return
+	}
+	os.RemoveAll(path)
+	*removed = append(*removed, path)
 }

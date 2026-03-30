@@ -1,4 +1,3 @@
-// Package replica Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/replica/lifecycle.go.
 package replica
 
 import (
@@ -48,7 +47,7 @@ type LifecycleService struct {
 	queryRow func(ctx context.Context, pool *pgxpool.Pool, sql string) pgx.Row
 }
 
-// TODO: Document NewLifecycleService.
+// NewLifecycleService creates a LifecycleService that manages replica topology operations, wiring the store, router, health checker, audit logger, and initial pool map.
 func NewLifecycleService(store ReplicaStore, router lifecycleRouter, checker lifecycleChecker, auditLogger *audit.AuditLogger, logger *slog.Logger, initialPools map[string]*pgxpool.Pool) *LifecycleService {
 	if logger == nil {
 		logger = slog.Default()
@@ -78,7 +77,7 @@ func NewLifecycleService(store ReplicaStore, router lifecycleRouter, checker lif
 	return service
 }
 
-// TODO: Document LifecycleService.AddReplica.
+// AddReplica validates connectivity to a new replica, verifies it is in standby mode, persists the topology record, and registers the pool with the router and health checker.
 func (s *LifecycleService) AddReplica(ctx context.Context, record TopologyNodeRecord) (createdRecord TopologyNodeRecord, err error) {
 	normalizedRecord, err := s.normalizeReplicaRecordForAdd(record)
 	if err != nil {
@@ -166,7 +165,7 @@ func (s *LifecycleService) AddReplica(ctx context.Context, record TopologyNodeRe
 	return normalizedRecord, nil
 }
 
-// TODO: Document LifecycleService.RemoveReplica.
+// RemoveReplica drains and removes a replica from the topology, closing its pool and deregistering it from routing and health checks. It refuses to remove the last active replica unless force is true.
 func (s *LifecycleService) RemoveReplica(ctx context.Context, name string, force bool) error {
 	record, err := s.store.Get(ctx, name)
 	if err != nil {
@@ -213,7 +212,7 @@ func (s *LifecycleService) RemoveReplica(ctx context.Context, name string, force
 	return nil
 }
 
-// TODO: Document LifecycleService.PromoteReplica.
+// PromoteReplica issues pg_promote on a healthy active replica, waits for it to exit recovery, updates the topology store, and swaps the runtime primary pool.
 func (s *LifecycleService) PromoteReplica(ctx context.Context, name string) (TopologyNodeRecord, error) {
 	record, err := s.store.Get(ctx, name)
 	if err != nil {
@@ -272,7 +271,7 @@ func (s *LifecycleService) PromoteReplica(ctx context.Context, name string) (Top
 	return record, nil
 }
 
-// TODO: Document LifecycleService.InitiateFailover.
+// InitiateFailover promotes a replica to primary, auto-selecting the lowest-lag healthy candidate if no target is specified. It requires force=true when the current primary is still reachable.
 func (s *LifecycleService) InitiateFailover(ctx context.Context, target string, force bool) error {
 	selectedTarget := target
 	reason := "explicit-target"
@@ -342,7 +341,7 @@ func (s *LifecycleService) issuePromotionCommand(ctx context.Context, pool *pgxp
 	return nil
 }
 
-// TODO: Document LifecycleService.promoteRuntimeTarget.
+// promoteRuntimeTarget switches the router's primary pool to the promoted replica, opening a fresh connection pool if possible and closing the old replica pool.
 func (s *LifecycleService) promoteRuntimeTarget(ctx context.Context, name string, targetPool *pgxpool.Pool, dialURL string) {
 	primaryPool := targetPool
 	replacementPool, err := s.dialPool(ctx, dialURL)
@@ -394,7 +393,7 @@ func (s *LifecycleService) activeReplicaCount(ctx context.Context) (int, error) 
 	return activeReplicas, nil
 }
 
-// TODO: Document LifecycleService.selectFailoverCandidate.
+// selectFailoverCandidate returns the name of the healthy replica with the lowest replication lag.
 func (s *LifecycleService) selectFailoverCandidate() (string, error) {
 	statuses := s.checker.Statuses()
 	var (

@@ -25,3 +25,8 @@ type Config struct {
 	AllowedCountries []string
 	TestPhoneNumbers map[string]string // phone → predetermined code (skip provider send)
 }
+
+// maxResponseSize caps how many bytes we read from an SMS provider's HTTP
+// response.  These are small JSON status payloads — anything larger signals
+// a misbehaving or compromised upstream and should not be buffered.
+const maxResponseSize = 64 << 10 // 64 KB

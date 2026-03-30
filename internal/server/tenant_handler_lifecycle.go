@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/tenant_handler_lifecycle.go.
 package server
 
 import (
@@ -28,7 +27,7 @@ type updateTenantRequest struct {
 	OrgMetadata json.RawMessage `json:"orgMetadata"`
 }
 
-// TODO: Document validateCreateTenantRequest.
+// validateCreateTenantRequest checks that the tenant creation request has a valid name, slug, isolation mode, and plan tier, writing an HTTP error and returning false on failure.
 func validateCreateTenantRequest(w http.ResponseWriter, req createTenantRequest) bool {
 	switch {
 	case req.Name == "":

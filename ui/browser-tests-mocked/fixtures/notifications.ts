@@ -8,9 +8,6 @@ export interface NotificationsMockOptions {
   sendResponder?: (body: Record<string, unknown>) => MockApiResponse;
 }
 
-/**
- * TODO: Document mockAdminNotificationApis.
- */
 export async function mockAdminNotificationApis(
   page: Page,
   options: NotificationsMockOptions = {},

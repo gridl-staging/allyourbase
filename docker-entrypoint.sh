@@ -36,7 +36,6 @@ ensure_runtime_group() {
   printf '%s\n' "$name"
 }
 
-# TODO: Document ensure_runtime_user.
 ensure_runtime_user() {
   uid="$1"
   gid="$2"
@@ -82,7 +81,6 @@ run_as_runtime() {
   su-exec "$AYB_RUNTIME_USER" "$@"
 }
 
-# TODO: Document ensure_writable_dir.
 ensure_writable_dir() {
   dir="$1"
   if [ -z "$dir" ]; then

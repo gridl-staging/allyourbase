@@ -9,10 +9,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// maxResponseSize caps how many bytes we read from the MCP upstream API.
+const maxResponseSize = 1 << 20 // 1 MB
 
 // Config holds the connection parameters for the MCP server.
 type Config struct {
@@ -37,11 +41,10 @@ func newClient(cfg Config) *apiClient {
 		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
 		adminToken: cfg.AdminToken,
 		userToken:  cfg.UserToken,
-		http:       &http.Client{},
+		http:       &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// doJSON makes an HTTP request and returns the parsed JSON response.
 func (c *apiClient) doJSON(ctx context.Context, method, path string, body any, admin bool) (map[string]any, int, error) {
 	var bodyReader io.Reader
 	if body != nil {
@@ -74,7 +77,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, body any, a
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read response: %w", err)
 	}
@@ -221,7 +224,7 @@ type SpatialColumnInfo = schema.SpatialInfoColumn
 type SpatialTableInfo = schema.SpatialInfoTable
 type SpatialInfoOutput = schema.SpatialInfoSummary
 
-// TODO: Document SpatialQueryInput.
+// SpatialQueryInput holds the parameters for a spatial query tool call, including the target table, spatial filter type (near/within/intersects/bbox), and optional pagination.
 type SpatialQueryInput struct {
 	Table      string   `json:"table" jsonschema:"Table name"`
 	Column     string   `json:"column" jsonschema:"Spatial column name"`

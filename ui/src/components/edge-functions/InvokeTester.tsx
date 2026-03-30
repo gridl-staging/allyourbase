@@ -147,7 +147,7 @@ export function InvokeTester({ fn, onLogsUpdate, addToast }: InvokeTesterProps) 
             />
             <button
               onClick={() => removeHeader(idx)}
-              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500"
+              className="p-1.5 text-gray-500 dark:text-gray-300 hover:text-red-500"
             >
               <X className="w-4 h-4" />
             </button>
@@ -199,14 +199,14 @@ export function InvokeTester({ fn, onLogsUpdate, addToast }: InvokeTesterProps) 
               {response.statusCode}
             </span>
             {duration !== null && (
-              <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="invoke-duration">
+              <span className="text-xs text-gray-500 dark:text-gray-300" data-testid="invoke-duration">
                 {duration}ms
               </span>
             )}
           </div>
           {response.headers && Object.keys(response.headers).length > 0 && (
             <div className="mb-3" data-testid="invoke-response-headers">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Headers</span>
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-300">Headers</span>
               <div className="text-xs font-mono bg-white dark:bg-gray-800 border rounded p-2 mt-1">
                 {Object.entries(response.headers).map(([k, v]) => (
                   <div key={k}>

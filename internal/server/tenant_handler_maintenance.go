@@ -16,7 +16,6 @@ type maintenanceStateResponse struct {
 	*tenant.TenantMaintenanceState
 }
 
-// Enables maintenance mode for a tenant with a specified reason and actor ID for auditing purposes. Emits a maintenance enabled audit event if an emitter is configured.
 func handleAdminEnableMaintenance(svc tenantAdmin, emitter *tenant.AuditEmitter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, ok := tenantIDFromURL(r, w)
@@ -24,6 +23,8 @@ func handleAdminEnableMaintenance(svc tenantAdmin, emitter *tenant.AuditEmitter)
 			return
 		}
 
+		// Cap request body at 1 MB to prevent memory-exhaustion attacks.
+		r.Body = http.MaxBytesReader(w, r.Body, httputil.MaxBodySize)
 		var req enableMaintenanceRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "invalid request body")

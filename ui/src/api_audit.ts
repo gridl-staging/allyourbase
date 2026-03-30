@@ -14,9 +14,6 @@ interface ListAuditLogsParams {
   offset?: number;
 }
 
-/**
- * TODO: Document listAuditLogs.
- */
 export function listAuditLogs(
   params?: ListAuditLogsParams,
 ): Promise<AuditLogListResponse> {

@@ -68,7 +68,7 @@ func handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
-	w.Write(openapi.Spec)
+	_, _ = w.Write(openapi.Spec)
 }
 
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {

@@ -16,7 +16,6 @@ if [[ ! -f "$LAYOUT_TYPES_PATH" ]]; then
   exit 1
 fi
 
-# TODO: Document extract_metric_count.
 extract_metric_count() {
   local metric_name="$1"
 

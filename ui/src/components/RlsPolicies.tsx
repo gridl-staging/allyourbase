@@ -211,7 +211,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
     <div className="flex h-full">
       <div className="w-56 border-r bg-gray-50 dark:bg-gray-800 overflow-y-auto">
         <div className="px-3 py-2 border-b">
-          <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+          <h2 className="text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
             Tables
           </h2>
         </div>
@@ -226,13 +226,13 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
               key={tableKey}
               onClick={() => setSelectedTable(table)}
               className={cn(
-                "w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700",
+                "w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-100 dark:bg-gray-700",
                 isSelectedTable && "bg-white dark:bg-gray-800 font-medium border-l-2 border-blue-500",
               )}
             >
               <span className="truncate">
                 {table.schema !== "public" && (
-                  <span className="text-gray-400 dark:text-gray-500">{table.schema}.</span>
+                  <span className="text-gray-500 dark:text-gray-300">{table.schema}.</span>
                 )}
                 {table.name}
               </span>
@@ -241,7 +241,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
         })}
 
         {tables.length === 0 && (
-          <p className="px-3 py-4 text-xs text-gray-400 dark:text-gray-500 text-center">
+          <p className="px-3 py-4 text-xs text-gray-500 dark:text-gray-300 text-center">
             No tables found
           </p>
         )}
@@ -249,11 +249,11 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
 
       <div className="flex-1 overflow-auto">
         {!selectedTable ? (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500 text-sm">
+          <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-300 text-sm">
             Select a table to manage RLS policies
           </div>
         ) : loading ? (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500 text-sm gap-2">
+          <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-300 text-sm gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
             Loading policies...
           </div>
@@ -276,7 +276,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
               <div className="flex items-center gap-3">
                 <h1 className="text-lg font-semibold">
                   {selectedTable.schema !== "public" && (
-                    <span className="text-gray-400 dark:text-gray-500">{selectedTable.schema}.</span>
+                    <span className="text-gray-500 dark:text-gray-300">{selectedTable.schema}.</span>
                   )}
                   {selectedTable.name}
                 </h1>
@@ -287,7 +287,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                       "flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium",
                       rlsStatus.rlsEnabled
                         ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400",
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300",
                     )}
                   >
                     {rlsStatus.rlsEnabled ? (
@@ -326,7 +326,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
             </div>
 
             {policies.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+              <div className="text-center py-12 text-gray-500 dark:text-gray-300">
                 <Shield className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No policies on this table</p>
                 <button
@@ -379,7 +379,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                           onClick={() =>
                             setActionModal({ kind: "sql-preview", sql: generatePolicySql(policy) })
                           }
-                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded"
+                          className="p-1 text-gray-500 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-200 rounded"
                           title="View SQL"
                           aria-label="View SQL"
                         >
@@ -387,7 +387,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                         </button>
                         <button
                           onClick={() => setActionModal({ kind: "delete", policy })}
-                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded"
+                          className="p-1 text-gray-500 dark:text-gray-300 hover:text-red-500 rounded"
                           title="Delete policy"
                           aria-label="Delete policy"
                         >
@@ -397,14 +397,14 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                     </div>
 
                     {policy.roles.length > 0 && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <div className="text-xs text-gray-500 dark:text-gray-300 mb-1">
                         Roles: {policy.roles.join(", ")}
                       </div>
                     )}
 
                     {policy.usingExpr && (
                       <div className="text-xs mb-1">
-                        <span className="text-gray-400 dark:text-gray-500">USING:</span>{" "}
+                        <span className="text-gray-500 dark:text-gray-300">USING:</span>{" "}
                         <code className="font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-1 rounded">
                           {policy.usingExpr}
                         </code>
@@ -413,7 +413,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
 
                     {policy.withCheckExpr && (
                       <div className="text-xs">
-                        <span className="text-gray-400 dark:text-gray-500">WITH CHECK:</span>{" "}
+                        <span className="text-gray-500 dark:text-gray-300">WITH CHECK:</span>{" "}
                         <code className="font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-1 rounded">
                           {policy.withCheckExpr}
                         </code>

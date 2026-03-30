@@ -1,6 +1,7 @@
 import Foundation
 
-public struct AYBError: Error, LocalizedError {
+// AYBError is immutable after init; unchecked is required because data payload can contain Any.
+public struct AYBError: Error, LocalizedError, @unchecked Sendable {
     public let status: Int
     public let message: String
     public let code: String?

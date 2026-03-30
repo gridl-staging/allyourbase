@@ -46,7 +46,7 @@ test.describe("Smoke: Performance Advisor", () => {
     if (report.queries.length === 0) {
       await expect(emptyState).toBeVisible();
     } else {
-      await expect(emptyState).not.toBeVisible();
+      await expect(emptyState).toBeHidden();
     }
   });
 });

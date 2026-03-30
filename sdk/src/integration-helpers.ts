@@ -174,9 +174,6 @@ export async function expectAYBError(
   );
 }
 
-/**
- * TODO: Document getAdminToken.
- */
 export async function getAdminToken(): Promise<string> {
   if (cachedAdminToken && cachedAdminToken.trim() !== "") {
     return cachedAdminToken;
@@ -270,9 +267,6 @@ export function expectRealtimeEventShape(events: RealtimeEvent[]): void {
   }
 }
 
-/**
- * TODO: Document waitForCollectionSchemaCache.
- */
 export async function waitForCollectionSchemaCache(
   client: AYBClient,
   tableName: string,

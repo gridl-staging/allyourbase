@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { AuthHooks } from "../AuthHooks";
 
 vi.mock("../../api_auth_hooks", () => ({
@@ -34,6 +34,16 @@ describe("AuthHooks", () => {
     // 3 empty slots should show "Not configured"
     const notConfigured = screen.getAllByText("Not configured");
     expect(notConfigured.length).toBe(3);
+  });
+
+  it("unconfigured hook text uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<AuthHooks />);
+    await waitFor(() => {
+      expect(screen.getByText("validate_email")).toBeInTheDocument();
+    });
+
+    const className = screen.getAllByText("Not configured")[0].className;
+    expectWcagContrastToken(className);
   });
 
   it("shows error state on fetch failure", async () => {

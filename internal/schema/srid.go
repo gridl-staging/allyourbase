@@ -1,4 +1,3 @@
-// Package schema Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/schema/srid.go.
 package schema
 
 import (
@@ -26,7 +25,7 @@ type SRIDInfo struct {
 	Description string
 }
 
-// TODO: Document LookupSRID.
+// LookupSRID resolves a spatial reference system ID to its authority name, code, and human-readable description from the spatial_ref_sys table, caching results per pool.
 func LookupSRID(ctx context.Context, pool *pgxpool.Pool, srid int) (*SRIDInfo, error) {
 	cacheKey := newSRIDLookupCacheKey(pool, srid)
 	if cached, ok := sridLookupCache.Load(cacheKey); ok {

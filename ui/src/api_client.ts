@@ -88,9 +88,6 @@ function fetchWithToken(path: string, init: RequestInit | undefined, token: stri
   });
 }
 
-/**
- * TODO: Document throwResponseError.
- */
 async function throwResponseError(
   res: Response,
   onUnauthorized?: () => void,

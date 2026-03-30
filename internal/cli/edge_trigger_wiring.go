@@ -1,4 +1,3 @@
-// Package cli This file wires the edge trigger runtime and provides scheduler adapters for cron and database-backed job scheduling.
 package cli
 
 import (
@@ -57,7 +56,6 @@ var newCronFallbackScheduler = func(dbPool *pgxpool.Pool) edgefunc.JobsScheduler
 	return &storeBackedCronScheduler{store: jobs.NewStore(dbPool)}
 }
 
-// wireEdgeTriggerRuntime initializes and wires the edge trigger runtime, setting up database, cron, and storage trigger services, registering event handlers, and starting a background worker for database triggers.
 func wireEdgeTriggerRuntime(
 	ctx context.Context,
 	dbPool *pgxpool.Pool,
@@ -111,6 +109,11 @@ func wireEdgeTriggerRuntime(
 		logger,
 	)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("db trigger worker panic recovered", "panic", r)
+			}
+		}()
 		if err := worker.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("db trigger worker stopped", "error", err)
 		}

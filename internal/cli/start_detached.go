@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/cli/start_detached.go.
 package cli
 
 import (
@@ -18,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TODO: Document runStartDetached.
+// runStartDetached launches the AYB server as a background process, polling for readiness before printing the startup banner and returning.
 func runStartDetached(cmd *cobra.Command, _ []string) error {
 	// --- 1. Preflight existing PID state ---
 	if handled, err := preflightDetachedStart(); handled || err != nil {
@@ -133,7 +132,7 @@ func runStartDetached(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// TODO: Document preflightDetachedStart.
+// preflightDetachedStart checks for an existing PID file and running server, returning early if a healthy server is already active or cleaning up stale state.
 func preflightDetachedStart() (bool, error) {
 	pid, port, err := readAYBPID()
 	if err != nil {
@@ -160,7 +159,7 @@ func preflightDetachedStart() (bool, error) {
 	return false, nil
 }
 
-// TODO: Document buildDetachedChildCommand.
+// buildDetachedChildCommand constructs an exec.Cmd that re-executes the current binary in foreground mode with stdout/stderr redirected to a log file.
 func buildDetachedChildCommand() (*exec.Cmd, string, *os.File, error) {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -203,7 +202,7 @@ type detachedReadinessPollOptions struct {
 	terminateChild func()
 }
 
-// TODO: Document waitForDetachedReadiness.
+// waitForDetachedReadiness polls the health endpoint and optionally the admin token file until the detached server is ready or the timeout expires.
 func waitForDetachedReadiness(opts detachedReadinessPollOptions) error {
 	deadline := time.Now().Add(opts.timeout)
 	ticker := time.NewTicker(opts.pollInterval)

@@ -29,6 +29,15 @@ func TestQuoteIdent(t *testing.T) {
 		{name: "dot in identifier", input: "with.dot", want: `"with.dot"`},
 		{name: "dollar in identifier", input: "with$dollar", want: `"with$dollar"`},
 		{name: "schema name with quote", input: `schema"name`, want: `"schema""name"`},
+		{name: "unicode identifier", input: "tëst_tàblé", want: `"tëst_tàblé"`},
+		{name: "reserved word SELECT", input: "SELECT", want: `"SELECT"`},
+		{name: "reserved word user", input: "user", want: `"user"`},
+		{name: "backslash in identifier", input: `back\slash`, want: `"back\slash"`},
+		{name: "semicolon in identifier", input: "semi;colon", want: `"semi;colon"`},
+		{name: "newline in identifier", input: "new\nline", want: "\"new\nline\""},
+		{name: "tab in identifier", input: "tab\there", want: "\"tab\there\""},
+		{name: "single char", input: "x", want: `"x"`},
+		{name: "double quote only", input: `"`, want: `""""` /* opening " + escaped "" + closing " */},
 	}
 
 	for _, tt := range tests {

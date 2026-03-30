@@ -1,4 +1,3 @@
-// Package auth Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/auth/handler_oauth.go.
 package auth
 
 import (
@@ -58,7 +57,6 @@ func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-// handleSAMLLogin initiates SAML authentication by creating an authentication request and redirecting to the identity provider.
 func (h *Handler) handleSAMLLogin(w http.ResponseWriter, r *http.Request) {
 	if h.samlSvc == nil {
 		httputil.WriteError(w, http.StatusNotFound, "SAML is not configured")
@@ -94,6 +92,7 @@ func (h *Handler) handleSAMLLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/auth/saml/" + provider + "/acs",
 		MaxAge:   int((5 * time.Minute).Seconds()),
 		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, redirectURL.String(), http.StatusTemporaryRedirect)
@@ -191,7 +190,7 @@ type oauthCallbackRequest struct {
 	isSSEClient bool
 }
 
-// TODO: Document Handler.handleOAuthCallback.
+// handleOAuthCallback processes the OAuth provider callback by validating the request, exchanging the authorization code for tokens, persisting the user session, and dispatching the response.
 func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	callbackReq, ok := h.normalizeOAuthCallbackRequest(w, r)
 	if !ok {
@@ -211,7 +210,7 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	h.dispatchOAuthCallbackResponse(w, r, callbackReq, user, accessToken, refreshToken)
 }
 
-// TODO: Document Handler.normalizeOAuthCallbackRequest.
+// normalizeOAuthCallbackRequest extracts and validates the OAuth callback parameters (provider, state, code), checks for provider-reported errors, and verifies the CSRF state token.
 func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.Request) (*oauthCallbackRequest, bool) {
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
@@ -264,7 +263,7 @@ func (h *Handler) normalizeOAuthCallbackRequest(w http.ResponseWriter, r *http.R
 	return req, true
 }
 
-// TODO: Document Handler.exchangeAndEnrichOAuthCallbackUser.
+// exchangeAndEnrichOAuthCallbackUser exchanges the authorization code for access and refresh tokens, fetches the user's profile from the OAuth provider, and enriches Apple Sign In responses with the first-login user payload.
 func (h *Handler) exchangeAndEnrichOAuthCallbackUser(w http.ResponseWriter, r *http.Request, callbackReq *oauthCallbackRequest) (*OAuthUserInfo, oauthTokenResponse, bool) {
 	callbackURL := oauthCallbackURL(r, callbackReq.provider)
 	pc, ok := h.getOAuthProviderConfig(callbackReq.provider)
@@ -305,7 +304,7 @@ func (h *Handler) exchangeAndEnrichOAuthCallbackUser(w http.ResponseWriter, r *h
 	return info, tokenResp, true
 }
 
-// TODO: Document Handler.loginAndPersistOAuthCallback.
+// loginAndPersistOAuthCallback creates or updates the local user account from OAuth profile data, issues AYB session tokens, and optionally stores the provider's refresh token for later API access.
 func (h *Handler) loginAndPersistOAuthCallback(w http.ResponseWriter, r *http.Request, callbackReq *oauthCallbackRequest, info *OAuthUserInfo, tokenResp oauthTokenResponse) (*User, string, string, bool) {
 	user, accessToken, refreshToken, err := h.oauthLogin(r.Context(), callbackReq.provider, info)
 	if err != nil {
@@ -344,7 +343,7 @@ func (h *Handler) loginAndPersistOAuthCallback(w http.ResponseWriter, r *http.Re
 	return user, accessToken, refreshToken, true
 }
 
-// TODO: Document Handler.dispatchOAuthCallbackResponse.
+// dispatchOAuthCallbackResponse delivers the authentication result to the client via SSE event, redirect with URL fragment tokens, or direct JSON response depending on the callback context.
 func (h *Handler) dispatchOAuthCallbackResponse(w http.ResponseWriter, r *http.Request, callbackReq *oauthCallbackRequest, user *User, accessToken, refreshToken string) {
 	isMFAPending := refreshToken == ""
 
@@ -420,7 +419,7 @@ func oauthCallbackURL(r *http.Request, provider string) string {
 	return fmt.Sprintf("%s://%s/api/auth/oauth/%s/callback", scheme, r.Host, provider)
 }
 
-// TODO: Document validatedSAMLRelayRedirect.
+// validatedSAMLRelayRedirect validates a SAML relay state as a safe redirect URL, ensuring it is same-origin with the base redirect URL and stripping any fragment.
 func validatedSAMLRelayRedirect(baseRedirectURL, relayState string) (string, bool) {
 	baseRaw := strings.TrimSpace(baseRedirectURL)
 	if baseRaw == "" {

@@ -95,7 +95,6 @@ func (s *Service) GetDeploy(ctx context.Context, siteID, deployID string) (*Depl
 	return &d, nil
 }
 
-// ListDeploys returns a paginated list of deploys for a site.
 func (s *Service) ListDeploys(ctx context.Context, siteID string, page, perPage int) (*DeployListResult, error) {
 	page, perPage = clampPagination(page, perPage)
 	offset := (page - 1) * perPage
@@ -131,6 +130,9 @@ func (s *Service) ListDeploys(ctx context.Context, siteID string, page, perPage 
 			return nil, fmt.Errorf("scan deploy: %w", err)
 		}
 		deploys = append(deploys, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list deploys: rows iteration: %w", err)
 	}
 	if deploys == nil {
 		deploys = []Deploy{}

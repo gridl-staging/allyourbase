@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/storage.go.
 package cli
 
 import (
@@ -258,7 +257,7 @@ func formatBytes(b int64) string {
 	}
 }
 
-// TODO: Document streamingMultipartFileBody.
+// streamingMultipartFileBody constructs a streaming multipart/form-data request body with form fields and a file part, returning the body reader and content type.
 func streamingMultipartFileBody(fileFieldName, fileName string, file io.Reader, formValues map[string]string) (io.Reader, string) {
 	bodyReader, bodyWriter := io.Pipe()
 	multipartWriter := multipart.NewWriter(bodyWriter)

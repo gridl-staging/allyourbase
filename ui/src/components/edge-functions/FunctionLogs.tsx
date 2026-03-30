@@ -121,7 +121,7 @@ export function FunctionLogs({ functionId, logs, onLogsUpdate, addToast }: Funct
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4" data-testid="log-filters">
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-gray-500 dark:text-gray-400">Status:</label>
+          <label className="text-xs text-gray-500 dark:text-gray-300">Status:</label>
           <select
             value={statusFilter}
             onChange={(e) => handleStatusChange(e.target.value)}
@@ -135,7 +135,7 @@ export function FunctionLogs({ functionId, logs, onLogsUpdate, addToast }: Funct
           </select>
         </div>
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-gray-500 dark:text-gray-400">Trigger:</label>
+          <label className="text-xs text-gray-500 dark:text-gray-300">Trigger:</label>
           <select
             value={triggerFilter}
             onChange={(e) => handleTriggerChange(e.target.value)}
@@ -148,15 +148,15 @@ export function FunctionLogs({ functionId, logs, onLogsUpdate, addToast }: Funct
             ))}
           </select>
         </div>
-        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400 dark:text-gray-500" />}
+        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500 dark:text-gray-300" />}
       </div>
 
       {logs.length === 0 && !filteredEmpty ? (
-        <p className="text-gray-400 dark:text-gray-500 text-sm py-6 text-center" data-testid="logs-empty">
+        <p className="text-gray-500 dark:text-gray-300 text-sm py-6 text-center" data-testid="logs-empty">
           No execution logs yet.
         </p>
       ) : logs.length === 0 && filteredEmpty ? (
-        <p className="text-gray-400 dark:text-gray-500 text-sm py-6 text-center" data-testid="logs-no-match">
+        <p className="text-gray-500 dark:text-gray-300 text-sm py-6 text-center" data-testid="logs-no-match">
           No matching logs for the selected filters.
         </p>
       ) : (
@@ -192,7 +192,7 @@ export function FunctionLogs({ functionId, logs, onLogsUpdate, addToast }: Funct
             >
               Previous
             </button>
-            <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="log-page-info">
+            <span className="text-xs text-gray-500 dark:text-gray-300" data-testid="log-page-info">
               Page {page}
             </span>
             <button
@@ -224,7 +224,7 @@ function LogRow({ log }: { log: EdgeFunctionLogEntry }) {
         onClick={() => hasOutput && setExpanded(!expanded)}
         data-testid={`log-row-${log.id}`}
       >
-        <td className="px-2 py-2 text-gray-400 dark:text-gray-500">
+        <td className="px-2 py-2 text-gray-500 dark:text-gray-300">
           {hasOutput && (
             expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />
           )}
@@ -248,10 +248,10 @@ function LogRow({ log }: { log: EdgeFunctionLogEntry }) {
               {log.triggerType}
             </span>
           ) : (
-            <span className="text-gray-400 dark:text-gray-500">-</span>
+            <span className="text-gray-500 dark:text-gray-300">-</span>
           )}
         </td>
-        <td className="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs">
+        <td className="px-4 py-2 text-gray-500 dark:text-gray-300 text-xs">
           {new Date(log.createdAt).toLocaleString()}
         </td>
       </tr>
@@ -260,7 +260,7 @@ function LogRow({ log }: { log: EdgeFunctionLogEntry }) {
           <td colSpan={7} className="px-4 py-3">
             {log.stdout && (
               <div className="mb-2">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">stdout:</span>
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-300">stdout:</span>
                 <pre className="text-xs font-mono bg-white dark:bg-gray-800 border rounded p-2 mt-1 whitespace-pre-wrap">
                   {log.stdout}
                 </pre>
@@ -275,7 +275,7 @@ function LogRow({ log }: { log: EdgeFunctionLogEntry }) {
               </div>
             )}
             {log.triggerType && log.triggerId && (
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              <div className="mt-2 text-xs text-gray-500 dark:text-gray-300">
                 Trigger: {log.triggerType} ({log.triggerId})
                 {log.parentInvocationId && (
                   <span className="ml-2">Parent: {log.parentInvocationId}</span>

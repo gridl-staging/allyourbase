@@ -96,7 +96,7 @@ export function OrgTeamsSection({
 
       {/* Team list */}
       {teams.length === 0 ? (
-        <div className="text-sm text-gray-400 py-2">No teams found</div>
+        <div className="text-sm text-gray-500 py-2">No teams found</div>
       ) : (
         <div className="space-y-1">
           {teams.map((team) => (
@@ -110,7 +110,7 @@ export function OrgTeamsSection({
               }`}
             >
               <div className="font-medium text-gray-900 dark:text-gray-100">{team.name}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">{team.slug}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-300">{team.slug}</div>
             </button>
           ))}
         </div>
@@ -246,7 +246,7 @@ function TeamMembersPanel({
       </div>
       {actionError && <div className="text-sm text-red-600">{actionError}</div>}
       {members.length === 0 ? (
-        <div className="text-sm text-gray-400 py-2">No team members</div>
+        <div className="text-sm text-gray-500 py-2">No team members</div>
       ) : (
         <table className="w-full text-sm">
           <thead>

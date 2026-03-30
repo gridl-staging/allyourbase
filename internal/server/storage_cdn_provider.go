@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/storage_cdn_provider.go.
 package server
 
 import (
@@ -16,7 +15,7 @@ const cloudFrontDefaultRegion = "us-east-1"
 
 var newStorageCDNProvider = buildStorageCDNProvider
 
-// TODO: Document buildStorageCDNProvider.
+// buildStorageCDNProvider creates a storage.CDNProvider based on the configured provider name (cloudflare, cloudfront, or webhook), falling back to a no-op provider for unknown or empty values.
 func buildStorageCDNProvider(cfg config.CDNConfig, logger *slog.Logger) storage.CDNProvider {
 	switch cfg.NormalizedProvider() {
 	case "":

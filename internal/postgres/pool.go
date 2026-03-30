@@ -1,4 +1,3 @@
-// Package postgres Pool wraps a pgx connection pool with periodic health checking and graceful lifecycle management.
 package postgres
 
 import (
@@ -99,11 +98,15 @@ func (p *Pool) Close() {
 	})
 }
 
-// startHealthCheck launches a goroutine that periodically pings the database at the specified interval, with a 5-second timeout per ping. Failed pings are logged as warnings. The goroutine terminates when healthCheckStop is closed.
 func (p *Pool) startHealthCheck(interval time.Duration) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				p.logger.Error("database health check panic recovered", "panic", r)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 

@@ -1,4 +1,3 @@
-// Package billing Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/billing/usage_aggregate.go.
 package billing
 
 import (
@@ -346,7 +345,7 @@ func (a *UsageAggregator) GetUsageTrends(ctx context.Context, opts TrendOpts) ([
 	return points, nil
 }
 
-// TODO: Document buildUsageBreakdownQuery.
+// buildUsageBreakdownQuery constructs a SQL query for top-N grouped usage data, routing to the tenant usage or request log table based on the group_by dimension.
 func buildUsageBreakdownQuery(opts normalizedBreakdownOpts) (string, []any, error) {
 	switch opts.GroupBy {
 	case "tenant":

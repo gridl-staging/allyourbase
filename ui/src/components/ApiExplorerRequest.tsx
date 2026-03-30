@@ -140,7 +140,7 @@ export function ApiExplorerRequest({
           );
         })}
         {tables.length > 12 && (
-          <span className="px-2 py-0.5 text-xs text-gray-400 dark:text-gray-500">
+          <span className="px-2 py-0.5 text-xs text-gray-500 dark:text-gray-300">
             +{tables.length - 12} more
           </span>
         )}
@@ -161,7 +161,7 @@ export function ApiExplorerRequest({
       {showParams && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">filter</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">filter</label>
             <input
               aria-label="filter"
               type="text"
@@ -172,7 +172,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">sort</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">sort</label>
             <input
               aria-label="sort"
               type="text"
@@ -183,7 +183,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">page</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">page</label>
             <input
               aria-label="page"
               type="text"
@@ -194,7 +194,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">perPage</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">perPage</label>
             <input
               aria-label="perPage"
               type="text"
@@ -205,7 +205,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">fields</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">fields</label>
             <input
               aria-label="fields"
               type="text"
@@ -216,7 +216,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">expand</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">expand</label>
             <input
               aria-label="expand"
               type="text"
@@ -230,7 +230,7 @@ export function ApiExplorerRequest({
             />
           </div>
           <div className="col-span-2">
-            <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">search</label>
+            <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">search</label>
             <input
               aria-label="search"
               type="text"
@@ -245,7 +245,7 @@ export function ApiExplorerRequest({
 
       {showBodyEditor && (
         <div className="mt-3">
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">
+          <label className="text-xs text-gray-500 dark:text-gray-300 block mb-0.5">
             Request Body (JSON)
           </label>
           <textarea
@@ -259,7 +259,7 @@ export function ApiExplorerRequest({
         </div>
       )}
 
-      <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+      <div className="mt-2 text-xs text-gray-500 dark:text-gray-300">
         {navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter to send
       </div>
     </div>

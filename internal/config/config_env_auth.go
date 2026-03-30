@@ -5,8 +5,25 @@ import (
 	"strings"
 )
 
-// applyAuthEnv applies AYB_AUTH_* environment variable overrides to the config.
 func applyAuthEnv(cfg *Config) error {
+	if err := applyAuthCoreEnv(cfg); err != nil {
+		return err
+	}
+	if err := applyAuthOAuthProviderModeEnv(cfg); err != nil {
+		return err
+	}
+	applyAuthSMSCredentialsEnv(cfg)
+
+	applyOAuthEnv(cfg, "google")
+	applyOAuthEnv(cfg, "github")
+	applyOAuthEnv(cfg, "microsoft")
+	applyOAuthEnv(cfg, "apple")
+
+	return nil
+}
+
+// applyAuthCoreEnv applies core auth, rate-limit, and feature-flag environment overrides.
+func applyAuthCoreEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_AUTH_ENABLED"); v != "" {
 		cfg.Auth.Enabled = v == "true" || v == "1"
 	}
@@ -31,18 +48,6 @@ func applyAuthEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_AUTH_OAUTH_REDIRECT_URL"); v != "" {
 		cfg.Auth.OAuthRedirectURL = v
 	}
-	if v := os.Getenv("AYB_AUTH_OAUTH_PROVIDER_ENABLED"); v != "" {
-		cfg.Auth.OAuthProviderMode.Enabled = v == "true" || v == "1"
-	}
-	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION", &cfg.Auth.OAuthProviderMode.AccessTokenDuration); err != nil {
-		return err
-	}
-	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_REFRESH_TOKEN_DURATION", &cfg.Auth.OAuthProviderMode.RefreshTokenDuration); err != nil {
-		return err
-	}
-	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_AUTH_CODE_DURATION", &cfg.Auth.OAuthProviderMode.AuthCodeDuration); err != nil {
-		return err
-	}
 	if v := os.Getenv("AYB_AUTH_MAGIC_LINK_ENABLED"); v != "" {
 		cfg.Auth.MagicLinkEnabled = v == "true" || v == "1"
 	}
@@ -61,13 +66,35 @@ func applyAuthEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_AUTH_ENCRYPTION_KEY"); v != "" {
 		cfg.Auth.EncryptionKey = v
 	}
-	// SMS config.
+	return nil
+}
+
+// applyAuthOAuthProviderModeEnv applies OAuth provider-mode environment overrides.
+func applyAuthOAuthProviderModeEnv(cfg *Config) error {
+	if v := os.Getenv("AYB_AUTH_OAUTH_PROVIDER_ENABLED"); v != "" {
+		cfg.Auth.OAuthProviderMode.Enabled = v == "true" || v == "1"
+	}
+	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_ACCESS_TOKEN_DURATION", &cfg.Auth.OAuthProviderMode.AccessTokenDuration); err != nil {
+		return err
+	}
+	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_REFRESH_TOKEN_DURATION", &cfg.Auth.OAuthProviderMode.RefreshTokenDuration); err != nil {
+		return err
+	}
+	if err := envInt("AYB_AUTH_OAUTH_PROVIDER_AUTH_CODE_DURATION", &cfg.Auth.OAuthProviderMode.AuthCodeDuration); err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyAuthSMSCredentialsEnv applies SMS provider credential environment overrides.
+func applyAuthSMSCredentialsEnv(cfg *Config) {
 	if v := os.Getenv("AYB_AUTH_SMS_ENABLED"); v != "" {
 		cfg.Auth.SMSEnabled = v == "true" || v == "1"
 	}
 	if v := os.Getenv("AYB_AUTH_SMS_PROVIDER"); v != "" {
 		cfg.Auth.SMSProvider = v
 	}
+	// Twilio
 	if v := os.Getenv("AYB_AUTH_TWILIO_SID"); v != "" {
 		cfg.Auth.TwilioSID = v
 	}
@@ -122,13 +149,6 @@ func applyAuthEnv(cfg *Config) error {
 	if v := os.Getenv("AYB_AUTH_SMS_WEBHOOK_SECRET"); v != "" {
 		cfg.Auth.SMSWebhookSecret = v
 	}
-
-	applyOAuthEnv(cfg, "google")
-	applyOAuthEnv(cfg, "github")
-	applyOAuthEnv(cfg, "microsoft")
-	applyOAuthEnv(cfg, "apple")
-
-	return nil
 }
 
 // applyOAuthEnv reads environment variables for the specified OAuth provider and applies them to the config. The provider name is used to form the environment variable prefix, for example AYB_AUTH_OAUTH_GOOGLE_CLIENT_ID for the google provider.

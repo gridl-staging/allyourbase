@@ -450,9 +450,6 @@ interface RawRealtimeSnapshot {
   counters: { dropped_messages: number; heartbeat_failures: number };
 }
 
-/**
- * TODO: Document normalizeRealtimeSnapshot.
- */
 function normalizeRealtimeSnapshot(raw: RawRealtimeSnapshot): RealtimeInspectorSnapshot {
   const rows: RealtimeSubscriptionRow[] = [];
   for (const [name, count] of Object.entries(raw.subscriptions.tables)) {

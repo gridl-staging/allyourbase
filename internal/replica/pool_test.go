@@ -1,8 +1,10 @@
 package replica
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +134,30 @@ func TestReadPoolFallsBackToPrimaryWhenAllReplicasUnhealthy(t *testing.T) {
 
 	router.SetHealthy(nil)
 	testutil.Equal(t, primary, router.ReadPool())
+}
+
+func TestSetHealthyLogsWarnWhenAllReplicasDown(t *testing.T) {
+	t.Parallel()
+	primary := newTestPool(t)
+	defer primary.Close()
+
+	r1 := newTestPool(t)
+	defer r1.Close()
+
+	// Capture log output so we can verify the warning fires.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	router := NewPoolRouter(primary, []ReplicaPool{
+		{Pool: r1, Config: config.ReplicaConfig{URL: "postgresql://replica-1/db", Weight: 1, MaxLagBytes: 1}},
+	}, logger)
+
+	// First call with all healthy — no warning expected.
+	router.SetHealthy([]*pgxpool.Pool{r1})
+	testutil.Equal(t, "", buf.String())
+
+	// Now mark all unhealthy — should log a warning.
+	router.SetHealthy(nil)
+	testutil.Contains(t, buf.String(), "all replicas unhealthy")
 }
 
 func TestReadPoolReAddReplicaAfterHealthyUpdate(t *testing.T) {

@@ -70,7 +70,6 @@ func (d *HookDispatcher) BeforeSignUp(ctx context.Context, email string, metadat
 	return nil
 }
 
-// AfterSignUp fires the after_sign_up hook asynchronously (fire-and-forget).
 func (d *HookDispatcher) AfterSignUp(ctx context.Context, userID, email string, metadata map[string]any) {
 	if d.hooks.AfterSignUp == "" || d.inv == nil {
 		return
@@ -81,6 +80,11 @@ func (d *HookDispatcher) AfterSignUp(ctx context.Context, userID, email string, 
 		"metadata": metadata,
 	})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				d.logger.Error("after_sign_up hook panic recovered", "panic", r)
+			}
+		}()
 		hookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := d.inv.InvokeHook(hookCtx, d.hooks.AfterSignUp, payload); err != nil {

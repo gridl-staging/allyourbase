@@ -98,9 +98,6 @@ const defaultSendResponse = {
   ],
 };
 
-/**
- * TODO: Document mockAdminPushApis.
- */
 export async function mockAdminPushApis(
   page: Page,
   options: PushMockOptions = {},

@@ -16,7 +16,7 @@ final class MockWebSocketConnection: WebSocketConnection, @unchecked Sendable {
     }
 
     func send(text: String) async throws {
-        _ = withLock {
+        withLock {
             sentMessages.append(text)
         }
     }
@@ -36,7 +36,7 @@ final class MockWebSocketConnection: WebSocketConnection, @unchecked Sendable {
     }
 
     func ping() async throws {
-        _ = withLock {
+        withLock {
             pingCount += 1
         }
     }

@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { RlsPolicies } from "../RlsPolicies";
 import {
@@ -37,11 +37,11 @@ const mockDeletePolicy = vi.mocked(deleteRlsPolicy);
 const mockEnableRls = vi.mocked(enableRls);
 const mockDisableRls = vi.mocked(disableRls);
 
-function makeSchema(tableNames: string[] = ["posts", "comments"]): SchemaCache {
+function makeSchema(tableNames: string[] = ["posts", "comments"], schemaName = "public"): SchemaCache {
   const tables: SchemaCache["tables"] = {};
   for (const name of tableNames) {
-    tables[`public.${name}`] = {
-      schema: "public",
+    tables[`${schemaName}.${name}`] = {
+      schema: schemaName,
       name,
       kind: "table",
       columns: [
@@ -51,7 +51,7 @@ function makeSchema(tableNames: string[] = ["posts", "comments"]): SchemaCache {
       primaryKey: ["id"],
     };
   }
-  return { tables, schemas: ["public"], builtAt: "2026-02-10T12:00:00Z" };
+  return { tables, schemas: [schemaName], builtAt: "2026-02-10T12:00:00Z" };
 }
 
 function makeStatus(overrides: Partial<RlsTableStatus> = {}): RlsTableStatus {
@@ -79,6 +79,19 @@ describe("RlsPolicies", () => {
       expect(screen.getByText("posts")).toBeInTheDocument();
       expect(screen.getByText("comments")).toBeInTheDocument();
     });
+  });
+
+  it("table schema prefix uses WCAG AA compliant contrast token", async () => {
+    mockListPolicies.mockResolvedValueOnce([]);
+    mockGetStatus.mockResolvedValueOnce(makeStatus());
+    renderWithProviders(<RlsPolicies schema={makeSchema(["posts"], "analytics")} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("posts")).toBeInTheDocument();
+    });
+
+    const className = screen.getAllByText("analytics.")[0].className;
+    expectWcagContrastToken(className);
   });
 
   it("shows RLS enabled badge when RLS is on", async () => {

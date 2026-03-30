@@ -6,9 +6,6 @@ import { useTeamControls, useTeamMembershipControls } from "./organization-team-
 import { useTenantAssignmentControls } from "./organization-tenant-hooks";
 import type { UseOrgManagementArgs } from "./organization-management-shared";
 
-/**
- * TODO: Document useOrgManagementState.
- */
 export function useOrgManagementState({
   selectedId,
   selectedTeamId,

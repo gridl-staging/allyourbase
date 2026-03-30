@@ -1,5 +1,5 @@
 // ESLint config for Playwright e2e tests.
-// Enforces BROWSER_TESTING_STANDARDS_2.md — no shortcuts in spec files.
+// Enforces BROWSER_TESTING_STANDARDS_3.md — no shortcuts in spec files.
 import playwright from "eslint-plugin-playwright";
 import tseslint from "typescript-eslint";
 

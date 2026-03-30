@@ -13,9 +13,6 @@ const BASE_URLS = {
   staging: "https://staging.allyourbase.io",
 };
 
-/**
- * TODO: Document resolveBaseURL.
- */
 function resolveBaseURL(): string {
   const configuredBaseURL =
     process.env.PLAYWRIGHT_BASE_URL || BASE_URLS[ENV as keyof typeof BASE_URLS];

@@ -121,7 +121,7 @@ export function ApiKeys() {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-300">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading API keys...
       </div>
@@ -153,7 +153,7 @@ export function ApiKeys() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold">API Keys</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-0.5">
             Non-expiring keys for service-to-service authentication
           </p>
         </div>
@@ -169,8 +169,8 @@ export function ApiKeys() {
       {data && data.items.length === 0 ? (
         <div className="text-center py-16 border rounded-lg bg-gray-50 dark:bg-gray-800">
           <KeyRound className="w-10 h-10 text-gray-300 dark:text-gray-500 mx-auto mb-3" />
-          <p className="text-gray-500 dark:text-gray-400 text-sm">No API keys created yet</p>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+          <p className="text-gray-500 dark:text-gray-300 text-sm">No API keys created yet</p>
+          <p className="text-gray-500 dark:text-gray-300 text-sm mt-1">
             Use API keys for service-to-service authentication between backend systems.
           </p>
           <button

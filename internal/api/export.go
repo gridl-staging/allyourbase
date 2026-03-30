@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar24_pm_6_test_verification_and_lint/allyourbase_dev/internal/api/export.go.
 package api
 
 import (
@@ -141,7 +140,7 @@ func exportRLSRequest(r *http.Request, tbl *schema.Table) *http.Request {
 	return r
 }
 
-// TODO: Document Handler.queryExportRows.
+// queryExportRows parses export parameters, builds the query, sets up RLS, and returns an open pgx.Rows iterator with its transaction finalizer. The caller is responsible for closing rows and calling done.
 func (h *Handler) queryExportRows(w http.ResponseWriter, r *http.Request) (*schema.Table, listOpts, pgx.Rows, func(error) error, bool) {
 	tbl, opts, ok := h.parseExportParams(w, r)
 	if !ok {
@@ -246,7 +245,7 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// TODO: Document Handler.handleExportJSON.
+// handleExportJSON streams all matching rows as a JSON array, writing each record incrementally to avoid buffering the entire result set in memory.
 func (h *Handler) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	tbl, _, rows, done, ok := h.queryExportRows(w, r)
 	if !ok {

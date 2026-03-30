@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/admin_replicas.go.
 package server
 
 import (
@@ -108,7 +107,7 @@ func (s *Server) handleCheckReplicas(w http.ResponseWriter, r *http.Request) {
 
 // --- Lifecycle handlers ---
 
-// TODO: Document Server.handleAddReplica.
+// handleAddReplica handles POST requests to register a new read replica via the lifecycle service, returning the created topology record and current replica statuses.
 func (s *Server) handleAddReplica(w http.ResponseWriter, r *http.Request) {
 	if s.lifecycleService == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "replica lifecycle not available")
@@ -153,7 +152,7 @@ func (s *Server) handleRemoveReplica(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// TODO: Document Server.handlePromoteReplica.
+// handlePromoteReplica handles POST requests to promote a named replica to primary, returning the new primary record and updated replica statuses.
 func (s *Server) handlePromoteReplica(w http.ResponseWriter, r *http.Request) {
 	if s.lifecycleService == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "replica lifecycle not available")
@@ -172,7 +171,7 @@ func (s *Server) handlePromoteReplica(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TODO: Document Server.handleFailover.
+// handleFailover handles POST requests to initiate a failover to an optionally specified target replica, with an optional force flag to override safety checks.
 func (s *Server) handleFailover(w http.ResponseWriter, r *http.Request) {
 	if s.lifecycleService == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "replica lifecycle not available")
@@ -209,7 +208,7 @@ func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// TODO: Document writeLifecycleError.
+// writeLifecycleError maps replica lifecycle errors to appropriate HTTP status codes (404, 409, 400, 502) based on error type and message content, defaulting to 500.
 func writeLifecycleError(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	switch {
@@ -239,7 +238,7 @@ func writeLifecycleError(w http.ResponseWriter, err error) {
 
 // --- Response helpers ---
 
-// TODO: Document buildReplicaStatusResponses.
+// buildReplicaStatusResponses converts a slice of internal ReplicaStatus values into JSON-serializable response structs, including sanitized URLs, connection pool stats, and formatted timestamps.
 func buildReplicaStatusResponses(statuses []replica.ReplicaStatus) []replicaStatusResponse {
 	resp := make([]replicaStatusResponse, 0, len(statuses))
 	for _, status := range statuses {

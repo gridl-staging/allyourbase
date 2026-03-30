@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/server/routes_admin.go.
 package server
 
 import (
@@ -105,7 +104,7 @@ func (s *Server) registerAdminCoreRoutes(r chi.Router) {
 	s.registerAdminAuthConfigRoutes(r)
 }
 
-// TODO: Document Server.registerAdminAuthConfigRoutes.
+// registerAdminAuthConfigRoutes mounts admin-gated routes for auth settings, auth provider configuration, auth hooks, and SAML identity provider management.
 func (s *Server) registerAdminAuthConfigRoutes(r chi.Router) {
 	// Admin auth settings (admin-auth gated).
 	r.Route("/admin/auth-settings", func(r chi.Router) {

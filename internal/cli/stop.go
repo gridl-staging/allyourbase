@@ -63,7 +63,7 @@ func reportStalePIDFile(out io.Writer, jsonOut bool) error {
 	return reportStopNotRunning(out, jsonOut, "stale PID file cleaned up", "No AYB server is running (stale PID file cleaned up).")
 }
 
-// TODO: Document reportStopWithoutPID.
+// reportStopWithoutPID handles the case where no PID file exists by checking for orphan processes on the configured port and reporting actionable guidance.
 func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) error {
 	// No PID file — check if something is actually listening on the configured
 	// port. This catches orphan processes (e.g. foreground mode killed
@@ -86,7 +86,7 @@ func reportStopWithoutPID(out io.Writer, jsonOut bool, orphanCheckPort int) erro
 	return reportStopNotRunning(out, jsonOut, "no AYB server is running", "No AYB server is running (no PID file found).")
 }
 
-// TODO: Document runStop.
+// runStop sends SIGTERM to the running AYB server process, waits up to 10 seconds for graceful shutdown, and escalates to SIGKILL if needed.
 func runStop(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	portFlag, _ := cmd.Flags().GetInt("port")

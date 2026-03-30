@@ -1,4 +1,3 @@
-// Package ws implements WebSocket message handling for real-time subscriptions, channel broadcasting, and presence state tracking.
 package ws
 
 import (
@@ -82,8 +81,6 @@ func (h *Handler) pingIntervalDuration() time.Duration {
 	return pingInterval
 }
 
-// ServeHTTP upgrades the HTTP connection to WebSocket and starts the
-// connection lifecycle.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -145,10 +142,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				h.logger.Error("websocket read loop panic recovered", "conn", c.ID(), "panic", r)
+			}
+		}()
 		h.readLoop(ctx, c, authTimer)
 	}()
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				h.logger.Error("websocket write loop panic recovered", "conn", c.ID(), "panic", r)
+			}
+		}()
 		h.writeLoop(c)
 	}()
 	wg.Wait()

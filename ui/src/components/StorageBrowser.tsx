@@ -180,7 +180,7 @@ export function StorageBrowser() {
             className="px-2 py-1 text-sm border rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <span className="text-xs text-gray-400 dark:text-gray-500">{totalItems} {totalItems === 1 ? "file" : "files"}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{totalItems} {totalItems === 1 ? "file" : "files"}</span>
         <div className="ml-auto flex gap-2">
           <input
             ref={fileInput}
@@ -287,7 +287,7 @@ export function StorageBrowser() {
             </thead>
             <tbody>
               {files.map((f) => (
-                <tr key={f.id} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800">
+                <tr key={f.id} className="border-t hover:bg-gray-50 dark:bg-gray-800">
                   <td className="px-6 py-2">
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-xs truncate max-w-xs">
@@ -297,7 +297,7 @@ export function StorageBrowser() {
                         onClick={() =>
                           copyToClipboard(f.name, "File name")
                         }
-                        className="shrink-0 p-0.5 text-gray-300 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-300 dark:text-gray-400"
+                        className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500 dark:text-gray-400 dark:hover:text-gray-300"
                         title="Copy name"
                         aria-label="Copy name"
                       >
@@ -321,7 +321,7 @@ export function StorageBrowser() {
                           onClick={() =>
                             setModal({ kind: "preview", file: f })
                           }
-                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                          className="p-1 text-gray-500 hover:text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:bg-gray-700"
                           title="Preview"
                           aria-label="Preview"
                         >
@@ -332,7 +332,7 @@ export function StorageBrowser() {
                         href={storageDownloadURL(f.bucket, f.name)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 inline-block"
+                        className="p-1 text-gray-500 hover:text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:bg-gray-700 inline-block"
                         title="Download"
                         aria-label="Download"
                       >
@@ -340,7 +340,7 @@ export function StorageBrowser() {
                       </a>
                       <button
                         onClick={() => handleSignedURL(f)}
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                        className="p-1 text-gray-500 hover:text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:bg-gray-700"
                         title="Copy signed URL"
                         aria-label="Copy signed URL"
                       >
@@ -353,7 +353,7 @@ export function StorageBrowser() {
                             "Download URL",
                           )
                         }
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                        className="p-1 text-gray-500 hover:text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:bg-gray-700"
                         title="Copy download URL"
                         aria-label="Copy download URL"
                       >
@@ -361,7 +361,7 @@ export function StorageBrowser() {
                       </button>
                       <button
                         onClick={() => setModal({ kind: "delete", file: f })}
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                        className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-600 rounded hover:bg-gray-100 dark:bg-gray-700"
                         title="Delete"
                         aria-label="Delete"
                       >
@@ -386,7 +386,7 @@ export function StorageBrowser() {
               <h3 className="font-semibold text-sm truncate">{modal.file.name}</h3>
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700"
+                className="p-1 text-gray-500 hover:text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:bg-gray-700"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -422,7 +422,7 @@ export function StorageBrowser() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setModal({ kind: "none" })}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded border"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:bg-gray-700 rounded border"
               >
                 Cancel
               </button>

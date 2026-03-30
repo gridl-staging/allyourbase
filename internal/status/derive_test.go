@@ -60,4 +60,41 @@ func TestDeriveStatus(t *testing.T) {
 			t.Fatalf("DeriveStatus() = %q, want %q", got, Operational)
 		}
 	})
+
+	t.Run("single unhealthy is major outage", func(t *testing.T) {
+		// When there's exactly one probe and it's unhealthy, unhealthy (1) > healthy (0)
+		// so the result should be major outage.
+		results := []ProbeResult{
+			{Service: Database, Healthy: false},
+		}
+		if got := DeriveStatus(results); got != MajorOutage {
+			t.Fatalf("DeriveStatus(single unhealthy) = %q, want %q", got, MajorOutage)
+		}
+	})
+
+	t.Run("equal split is partial outage", func(t *testing.T) {
+		// When unhealthy == healthy (e.g., 2 unhealthy, 2 healthy), the code checks
+		// unhealthy > healthy. With equality, it falls through to PartialOutage.
+		results := []ProbeResult{
+			{Service: Database, Healthy: true},
+			{Service: Storage, Healthy: true},
+			{Service: Auth, Healthy: false},
+			{Service: Realtime, Healthy: false},
+		}
+		if got := DeriveStatus(results); got != PartialOutage {
+			t.Fatalf("DeriveStatus(2 healthy, 2 unhealthy) = %q, want %q", got, PartialOutage)
+		}
+	})
+
+	t.Run("slow unhealthy ignores latency", func(t *testing.T) {
+		// A slow but unhealthy probe should not trigger "degraded" — latency only
+		// matters for healthy probes.
+		results := []ProbeResult{
+			{Service: Database, Healthy: true, Latency: 50 * time.Millisecond},
+			{Service: Storage, Healthy: false, Latency: 5 * time.Second},
+		}
+		if got := DeriveStatus(results); got != PartialOutage {
+			t.Fatalf("DeriveStatus(one healthy, one slow+unhealthy) = %q, want %q", got, PartialOutage)
+		}
+	})
 }

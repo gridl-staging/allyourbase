@@ -195,7 +195,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
             <Play className="w-3.5 h-3.5" />
             {loading ? "Running..." : "Execute"}
           </button>
-          <span className="text-xs text-gray-400 dark:text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter to run
           </span>
           {feedbackMessage && feedbackMessage.icon === "clock" && (
@@ -228,14 +228,14 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
               <button
                 onClick={() => copyToClipboard("csv")}
                 title="Copy as CSV"
-                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
                 <FileSpreadsheet className="w-4 h-4" />
               </button>
               <button
                 onClick={() => copyToClipboard("json")}
                 title="Copy as JSON"
-                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
                 <FileJson className="w-4 h-4" />
               </button>
@@ -287,7 +287,7 @@ export function SqlEditor({ onSchemaChange }: SqlEditorProps = {}) {
         )}
 
         {!result && !error && (
-          <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm h-48">
+          <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm h-48">
             Run a query to see results
           </div>
         )}

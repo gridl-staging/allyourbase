@@ -38,7 +38,6 @@ func init() {
 	queryCmd.Flags().String("url", "", "Server URL (default http://127.0.0.1:8090)")
 }
 
-// runQuery is the handler for the query command that fetches records from a table on the running AYB server via REST API. It supports filtering, sorting, field selection, pagination, and outputs results in JSON, CSV, or table format based on the output format flag.
 func runQuery(cmd *cobra.Command, args []string) error {
 	table := args[0]
 	token, _ := cmd.Flags().GetString("admin-token")
@@ -57,29 +56,19 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		baseURL = serverURL()
 	}
 
-	qs := url.Values{}
-	if filter != "" {
-		qs.Set("filter", filter)
-	}
-	if sort != "" {
-		qs.Set("sort", sort)
-	}
-	if fields != "" {
-		qs.Set("fields", fields)
-	}
-	if expand != "" {
-		qs.Set("expand", expand)
-	}
-	qs.Set("page", fmt.Sprintf("%d", page))
-	qs.Set("perPage", fmt.Sprintf("%d", limit))
-
-	reqURL := fmt.Sprintf("%s/api/collections/%s?%s", baseURL, table, qs.Encode())
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := buildQueryRequest(queryRequestConfig{
+		table:   table,
+		token:   token,
+		baseURL: baseURL,
+		filter:  filter,
+		sort:    sort,
+		fields:  fields,
+		expand:  expand,
+		page:    page,
+		limit:   limit,
+	})
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := cliHTTPClient.Do(req)
@@ -103,6 +92,50 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	outFmt := outputFormat(cmd)
+	return renderQueryResults(respBody, outFmt, fields)
+}
+
+type queryRequestConfig struct {
+	table   string
+	token   string
+	baseURL string
+	filter  string
+	sort    string
+	fields  string
+	expand  string
+	page    int
+	limit   int
+}
+
+func buildQueryRequest(cfg queryRequestConfig) (*http.Request, error) {
+	qs := url.Values{}
+	if cfg.filter != "" {
+		qs.Set("filter", cfg.filter)
+	}
+	if cfg.sort != "" {
+		qs.Set("sort", cfg.sort)
+	}
+	if cfg.fields != "" {
+		qs.Set("fields", cfg.fields)
+	}
+	if cfg.expand != "" {
+		qs.Set("expand", cfg.expand)
+	}
+	qs.Set("page", fmt.Sprintf("%d", cfg.page))
+	qs.Set("perPage", fmt.Sprintf("%d", cfg.limit))
+
+	reqURL := fmt.Sprintf("%s/api/collections/%s?%s", cfg.baseURL, cfg.table, qs.Encode())
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.token != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.token)
+	}
+	return req, nil
+}
+
+func renderQueryResults(respBody []byte, outFmt, fields string) error {
 	if outFmt == "json" {
 		os.Stdout.Write(respBody)
 		fmt.Println()
@@ -110,13 +143,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse list response and display as table.
-	var result struct {
-		Items      []map[string]any `json:"items"`
-		Page       int              `json:"page"`
-		PerPage    int              `json:"perPage"`
-		TotalItems int              `json:"totalItems"`
-		TotalPages int              `json:"totalPages"`
-	}
+	var result queryResultPayload
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return fmt.Errorf("parsing response: %w", err)
 	}
@@ -126,30 +153,12 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Determine columns from first row (or from --fields).
-	var cols []string
-	if fields != "" {
-		cols = strings.Split(fields, ",")
-	} else {
-		// Use keys from first item, preserving a reasonable order.
-		for k := range result.Items[0] {
-			cols = append(cols, k)
-		}
-	}
+	cols := queryColumns(fields, result.Items[0])
 
 	if outFmt == "csv" {
 		rows := make([][]string, len(result.Items))
 		for i, item := range result.Items {
-			vals := make([]string, len(cols))
-			for j, col := range cols {
-				v := item[col]
-				if v == nil {
-					vals[j] = ""
-				} else {
-					vals[j] = fmt.Sprint(v)
-				}
-			}
-			rows[i] = vals
+			rows[i] = queryRowValues(item, cols, "")
 		}
 		return writeCSVStdout(cols, rows)
 	}
@@ -158,18 +167,41 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w, strings.Join(cols, "\t"))
 	fmt.Fprintln(w, strings.Repeat("---\t", len(cols)))
 	for _, item := range result.Items {
-		vals := make([]string, len(cols))
-		for i, col := range cols {
-			v := item[col]
-			if v == nil {
-				vals[i] = "NULL"
-			} else {
-				vals[i] = fmt.Sprint(v)
-			}
-		}
-		fmt.Fprintln(w, strings.Join(vals, "\t"))
+		fmt.Fprintln(w, strings.Join(queryRowValues(item, cols, "NULL"), "\t"))
 	}
 	w.Flush()
 	fmt.Printf("\nPage %d/%d (%d total records)\n", result.Page, result.TotalPages, result.TotalItems)
 	return nil
+}
+
+func queryColumns(fields string, firstItem map[string]any) []string {
+	if fields != "" {
+		return strings.Split(fields, ",")
+	}
+
+	cols := make([]string, 0, len(firstItem))
+	for column := range firstItem {
+		cols = append(cols, column)
+	}
+	return cols
+}
+
+func queryRowValues(item map[string]any, cols []string, nilValue string) []string {
+	values := make([]string, len(cols))
+	for i, col := range cols {
+		if item[col] == nil {
+			values[i] = nilValue
+			continue
+		}
+		values[i] = fmt.Sprint(item[col])
+	}
+	return values
+}
+
+type queryResultPayload struct {
+	Items      []map[string]any `json:"items"`
+	Page       int              `json:"page"`
+	PerPage    int              `json:"perPage"`
+	TotalItems int              `json:"totalItems"`
+	TotalPages int              `json:"totalPages"`
 }

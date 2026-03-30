@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/server/routes_auth.go.
 package server
 
 import (
@@ -40,7 +39,7 @@ func (s *Server) removeUnconfiguredOIDCProviders(authHandler *auth.Handler) {
 	}
 }
 
-// TODO: Document Server.registerConfiguredOIDCProviders.
+// registerConfiguredOIDCProviders iterates the OIDC providers in config, registers enabled ones with the auth handler's discovery cache, and returns a map of successfully enabled providers.
 func (s *Server) registerConfiguredOIDCProviders(authHandler *auth.Handler) map[string]config.OIDCProvider {
 	oidcEnabled := make(map[string]config.OIDCProvider)
 	if len(s.cfg.Auth.OIDC) == 0 {
@@ -76,7 +75,7 @@ func (s *Server) registerConfiguredOIDCProviders(authHandler *auth.Handler) map[
 	return oidcEnabled
 }
 
-// TODO: Document Server.configureSAMLProviders.
+// configureSAMLProviders initializes the SAML service and upserts all enabled SAML identity providers from config into the auth handler.
 func (s *Server) configureSAMLProviders(authHandler *auth.Handler) {
 	samlSvc, samlErr := auth.NewSAMLService(s.cfg.PublicBaseURL(), auth.DefaultSAMLDataDir(), s.authSvc, s.logger)
 	if samlErr != nil {
@@ -96,7 +95,7 @@ func (s *Server) configureSAMLProviders(authHandler *auth.Handler) {
 	s.samlSvc = samlSvc
 }
 
-// TODO: Document Server.configureOAuthProviders.
+// configureOAuthProviders wires built-in and OIDC OAuth providers into the auth handler, sets the redirect URL and realtime publisher, and attaches the metrics recorder if available.
 func (s *Server) configureOAuthProviders(authHandler *auth.Handler, oidcEnabled map[string]config.OIDCProvider) {
 	// Configure OAuth providers from config.
 	for name, providerConfig := range s.cfg.Auth.OAuth {
@@ -122,7 +121,7 @@ func (s *Server) configureOAuthProviders(authHandler *auth.Handler, oidcEnabled 
 	}
 }
 
-// TODO: Document Server.configureAuthCapabilities.
+// configureAuthCapabilities enables optional auth features (magic link, SMS, email MFA, anonymous auth, TOTP) on the auth handler based on config flags.
 func (s *Server) configureAuthCapabilities(authHandler *auth.Handler) {
 	if s.cfg.Auth.MagicLinkEnabled {
 		authHandler.SetMagicLinkEnabled(true)

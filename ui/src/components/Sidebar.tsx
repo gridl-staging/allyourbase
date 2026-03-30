@@ -60,7 +60,7 @@ const SIDEBAR_ICON_CLASS = "w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-
 const SIDEBAR_ITEM_BASE_CLASS = "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 rounded text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800";
 const SIDEBAR_ITEM_ACTIVE_CLASS = "bg-gray-100 dark:bg-gray-800 font-medium text-gray-900 dark:text-gray-100";
 const SIDEBAR_SECTION_CLASS = "mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 mx-3";
-const SIDEBAR_SECTION_TITLE_CLASS = "px-1 pb-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider";
+const SIDEBAR_SECTION_TITLE_CLASS = "px-1 pb-1 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider";
 const SIDEBAR_ACTION_BUTTON_CLASS = "p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60";
 
 function sidebarItemClass(active: boolean) {
@@ -107,7 +107,7 @@ export function Sidebar({
 
       <nav className="flex-1 overflow-y-auto py-2">
         <div className="px-4 pb-1 flex items-center justify-between">
-          <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+          <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             Tables
           </p>
           <button

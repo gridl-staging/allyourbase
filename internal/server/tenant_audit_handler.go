@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/tenant_audit_handler.go.
 package server
 
 import (
@@ -52,7 +51,7 @@ func parseAuditFilters(r *http.Request) (*auditFilterParseResult, error) {
 	return &auditFilterParseResult{tenantID: tenantID, sharedAuditFilters: filters}, nil
 }
 
-// TODO: Document parseSharedAuditFilters.
+// parseSharedAuditFilters extracts common audit log query parameters (action, result, date range, pagination, and actor) from the request URL.
 func parseSharedAuditFilters(r *http.Request) (sharedAuditFilters, error) {
 	result := sharedAuditFilters{
 		limit:  50,

@@ -83,6 +83,33 @@ describe("browser-unmocked test hygiene", () => {
     expect(barrel).toMatch(/export \*.*core/);
   });
 
+  it("accessibility smoke waits for sidebar admin navigation to activate before scanning", () => {
+    const accessibilitySmoke = readProjectFile("browser-tests-unmocked/smoke/accessibility.spec.ts");
+
+    expect(accessibilitySmoke).toContain('getByRole("button", { name: buttonName })');
+    expect(accessibilitySmoke).toContain("Expected sidebar target");
+    expect(accessibilitySmoke).toContain('await expect(button).toHaveClass(/font-medium/');
+  });
+
+  it("Stage 5 accessibility smoke covers the expanded dashboard suite", () => {
+    const accessibilitySmoke = readProjectFile("browser-tests-unmocked/smoke/accessibility.spec.ts");
+
+    const testCount = accessibilitySmoke.match(/\btest\(/g)?.length ?? 0;
+
+    expect(testCount).toBe(50);
+    expect(accessibilitySmoke).toContain("buildParallelSafeRunID");
+    expect(accessibilitySmoke).toContain("dropTableIfExists");
+    expect(accessibilitySmoke).toContain('test("table browser page is accessible"');
+    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Storage$/i, "Storage")');
+    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^SQL Editor$/i, "SQL Editor")');
+    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^API Keys$/i, "API Keys")');
+    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Organizations$/i, "Organizations")');
+    expect(accessibilitySmoke).toContain('navigateAndScan(page, /^Auth Settings$/i, "Auth Settings")');
+    expect(accessibilitySmoke).not.toContain('/Table Editor/i');
+    expect(accessibilitySmoke).not.toContain('test("settings page is accessible"');
+    expect(accessibilitySmoke).not.toContain('navigateAndScan(page, /SQL Editor/i, "SQL Editor")');
+  });
+
   it("run-with-ayb script sets high default API/auth limits for parallel browser suites", () => {
     const runner = readProjectFile("../scripts/run-with-ayb.sh");
 

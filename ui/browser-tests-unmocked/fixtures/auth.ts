@@ -5,9 +5,6 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { createHmac } from "crypto";
 import { execSQL, probeEndpoint, sqlLiteral, validateResponse } from "./core";
 
-/**
- * TODO: Document base32Decode.
- */
 function base32Decode(encoded: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
@@ -38,9 +35,6 @@ export function generateTOTPCode(base32Secret: string): string {
   return code.toString().padStart(6, "0");
 }
 
-/**
- * TODO: Document promoteSessionToAAL2WithTOTP.
- */
 export async function promoteSessionToAAL2WithTOTP(
   request: APIRequestContext,
   page: Page,
@@ -129,9 +123,6 @@ export async function createAnonymousAuthSessionToken(
   return body.token;
 }
 
-/**
- * TODO: Document createLinkedEmailAuthSessionToken.
- */
 export async function createLinkedEmailAuthSessionToken(
   request: APIRequestContext,
   email: string,
@@ -209,9 +200,6 @@ export async function resolveAuthUserIdByEmail(
   return userId;
 }
 
-/**
- * TODO: Document ensureAuthSettings.
- */
 export async function ensureAuthSettings(
   request: APIRequestContext,
   token: string,
@@ -230,9 +218,6 @@ export async function ensureAuthSettings(
   await validateResponse(putRes, "Update auth settings");
 }
 
-/**
- * TODO: Document getAuthSettingsUnavailableSkipReason.
- */
 export async function getAuthSettingsUnavailableSkipReason(
   request: APIRequestContext,
   token: string,
@@ -249,9 +234,6 @@ export async function getAuthSettingsUnavailableSkipReason(
   return null;
 }
 
-/**
- * TODO: Document overrideEmailMFACode.
- */
 export async function overrideEmailMFACode(
   request: APIRequestContext,
   token: string,
@@ -273,9 +255,6 @@ export async function overrideEmailMFACode(
   );
 }
 
-/**
- * TODO: Document cleanupAuthUser.
- */
 export async function cleanupAuthUser(
   request: APIRequestContext,
   token: string,
@@ -328,9 +307,6 @@ export async function listAuthProviders(
   return body.providers ?? [];
 }
 
-/**
- * TODO: Document updateAuthProvider.
- */
 export async function updateAuthProvider(
   request: APIRequestContext,
   token: string,

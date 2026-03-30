@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/server/admin_audit.go.
 package server
 
 import (
@@ -120,7 +119,7 @@ func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TODO: Document parseAdminAuditFilters.
+// parseAdminAuditFilters extracts audit log query filters (table, user_id, operation, pagination, time range) from URL query parameters, returning a validation error message if any value is invalid.
 func parseAdminAuditFilters(query url.Values) (adminAuditFilters, string) {
 	filters := adminAuditFilters{
 		tableName: strings.TrimSpace(query.Get("table")),
@@ -160,7 +159,7 @@ func parseAdminAuditFilters(query url.Values) (adminAuditFilters, string) {
 	return filters, ""
 }
 
-// TODO: Document buildAdminAuditQuery.
+// buildAdminAuditQuery constructs a parameterized SQL query against _ayb_audit_log with optional WHERE clauses for each non-zero filter field, ordered by timestamp descending with LIMIT/OFFSET.
 func buildAdminAuditQuery(filters adminAuditFilters) (string, []any) {
 	sql := `
 		SELECT id::text, timestamp, user_id::text, api_key_id::text, table_name,
@@ -224,7 +223,7 @@ func parseAuditTimeFilter(raw string) (time.Time, bool, error) {
 	return parsedTime.UTC(), false, nil
 }
 
-// TODO: Document parseAdminListPagination.
+// parseAdminListPagination extracts and validates limit and offset pagination parameters from URL query values, clamping to the configured default and maximum bounds.
 func parseAdminListPagination(query url.Values) (int, int, string) {
 	limit := defaultAdminListLimit
 	offset := 0
@@ -257,7 +256,7 @@ func parseAdminListPagination(query url.Values) (int, int, string) {
 	return limit, offset, ""
 }
 
-// TODO: Document parseAdminTimeRange.
+// parseAdminTimeRange parses the "from" and "to" query parameters as RFC3339 timestamps or YYYY-MM-DD dates, validates that "to" is not before "from", and returns the parsed range.
 func parseAdminTimeRange(query url.Values) (adminTimeRange, string) {
 	fromTime, _, err := parseAuditTimeFilter(query.Get("from"))
 	if err != nil {

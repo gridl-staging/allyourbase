@@ -1,4 +1,3 @@
-// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/rls.go.
 package pbmigrate
 
 import (
@@ -75,7 +74,7 @@ func buildRLSPolicy(tableName, action, expression string) string {
 		policyName, tableName, cmd, clause, expression)
 }
 
-// TODO: Document convertRuleExpression.
+// convertRuleExpression attempts to rewrite a PocketBase API rule into a PostgreSQL RLS expression, replacing @request.auth tokens and logical operators while rejecting unsupported syntax.
 func convertRuleExpression(rule string) RuleClassification {
 	// Nested traversals are ambiguous in PostgreSQL RLS and must be manually reviewed.
 	if token := findFirstUnquotedRuleMatch(rule, nestedAuthFieldRegex); token != "" {
@@ -211,7 +210,7 @@ func findUnsupportedPocketBaseToken(rule string) string {
 	return findFirstUnquotedRuleMatch(rule, unsupportedTokenRegex)
 }
 
-// TODO: Document GenerateRLSPolicies.
+// GenerateRLSPolicies generates PostgreSQL CREATE POLICY statements for a collection's API rules, returning diagnostics for any rules that cannot be converted.
 func GenerateRLSPolicies(coll PBCollection) ([]string, []RLSDiagnostic, error) {
 	var policies []string
 	var diags []RLSDiagnostic

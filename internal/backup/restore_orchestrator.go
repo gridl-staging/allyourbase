@@ -187,7 +187,7 @@ func (o *RestoreOrchestrator) failRestoreExecution(ctx context.Context, jobID, d
 	return runErr
 }
 
-// TODO: Document RestoreOrchestrator.runRestoreValidationPhase.
+// runRestoreValidationPhase validates that the target time falls within a recoverable window and records the base backup metadata before transitioning to the restoring phase.
 func (o *RestoreOrchestrator) runRestoreValidationPhase(
 	ctx context.Context,
 	jobID, projectID, databaseID string,
@@ -213,7 +213,7 @@ func (o *RestoreOrchestrator) runRestoreValidationPhase(
 	return plan, nil
 }
 
-// TODO: Document RestoreOrchestrator.runRestoreExecutionPhase.
+// runRestoreExecutionPhase extracts the base backup, downloads WAL segments, writes recovery configuration, and starts a temporary Postgres instance that replays WAL to the target time.
 func (o *RestoreOrchestrator) runRestoreExecutionPhase(
 	ctx context.Context,
 	state *restoreExecutionState,
@@ -261,7 +261,7 @@ func (o *RestoreOrchestrator) runRestoreExecutionPhase(
 	return nil
 }
 
-// TODO: Document RestoreOrchestrator.runRestoreVerificationPhase.
+// runRestoreVerificationPhase compares the recovery instance against the primary database to verify data integrity, then transitions to the ready-for-cutover state on success.
 func (o *RestoreOrchestrator) runRestoreVerificationPhase(ctx context.Context, jobID string, recoveryInstance *RecoveryInstance) error {
 	if err := o.jobRepo.UpdatePhase(ctx, jobID, RestorePhaseVerifying, RestoreStatusRunning); err != nil {
 		return fmt.Errorf("updating phase to verifying: %w", err)

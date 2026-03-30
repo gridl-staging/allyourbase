@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
 import { Users } from "../Users";
 import { listUsers, deleteUser } from "../../api";
@@ -64,6 +64,14 @@ describe("Users", () => {
     mockListUsers.mockReturnValue(new Promise(() => {})); // never resolves
     renderWithProviders(<Users />);
     expect(screen.getByText("Loading users...")).toBeInTheDocument();
+  });
+
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    mockListUsers.mockReturnValue(new Promise(() => {})); // never resolves
+    renderWithProviders(<Users />);
+
+    const className = screen.getByText("Loading users...").className;
+    expectWcagContrastToken(className);
   });
 
   it("renders user list", async () => {

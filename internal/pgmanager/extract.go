@@ -164,8 +164,6 @@ type ensureBinaryOpts struct {
 	legacyBaseURL string // test hook for legacy fallback source (empty = Maven Central)
 }
 
-// ensureBinary ensures the PG binary is downloaded, verified, and extracted.
-// It checks the cache and bin directory to skip unnecessary work.
 func ensureBinary(ctx context.Context, opts ensureBinaryOpts) (bool, error) {
 	// Check if binaries are already extracted with correct version.
 	if binariesReady(opts.binDir, opts.version) {

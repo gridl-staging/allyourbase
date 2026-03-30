@@ -59,9 +59,6 @@ const appInvite = {
   variables: ["ClubName", "Inviter"],
 };
 
-/**
- * TODO: Document defaultPreviewResponder.
- */
 function defaultPreviewResponder(request: MockEmailPreviewRequest): MockApiResponse {
   if (!request.variables.ActionURL) {
     return {
@@ -80,9 +77,6 @@ function defaultPreviewResponder(request: MockEmailPreviewRequest): MockApiRespo
   };
 }
 
-/**
- * TODO: Document mockAdminEmailTemplateApis.
- */
 export async function mockAdminEmailTemplateApis(
   page: Page,
   options: EmailTemplateMockOptions = {},

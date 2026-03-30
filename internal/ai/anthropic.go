@@ -1,4 +1,3 @@
-// Package ai AnthropicProvider implements the Provider interface for Anthropic's Claude API.
 package ai
 
 import (
@@ -8,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const (
@@ -30,11 +30,10 @@ func NewAnthropicProvider(apiKey, baseURL string) *AnthropicProvider {
 	return &AnthropicProvider{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-// GenerateText makes a request to the Anthropic Messages API and returns the generated text response. It defaults MaxTokens to 1024 if unspecified and concatenates multiple text blocks from the response.
 func (p *AnthropicProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	anthReq := anthropicRequest{
 		Model:    req.Model,
@@ -71,7 +70,7 @@ func (p *AnthropicProvider) GenerateText(ctx context.Context, req GenerateTextRe
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return GenerateTextResponse{}, fmt.Errorf("anthropic: read response: %w", err)
 	}

@@ -1,4 +1,3 @@
-// Package jobs defines job handlers and scheduling logic for background tasks including OAuth token refresh, usage aggregation, billing sync, and maintenance operations.
 package jobs
 
 import (
@@ -7,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/billing"
 	"github.com/allyourbase/ayb/internal/matview"
+	"github.com/allyourbase/ayb/internal/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -58,6 +57,27 @@ type billingUsageSyncDataSource interface {
 
 type billingUsageSyncStore struct {
 	pool *pgxpool.Pool
+}
+
+func hasJobPayload(payload json.RawMessage) bool {
+	return len(payload) > 0 && string(payload) != "{}"
+}
+
+func registerSchedule(ctx context.Context, svc *Service, schedule *Schedule) error {
+	if svc == nil {
+		return fmt.Errorf("job service is nil")
+	}
+
+	next, err := CronNextTime(schedule.CronExpr, schedule.Timezone, time.Now())
+	if err != nil {
+		return fmt.Errorf("compute next_run_at for %s: %w", schedule.Name, err)
+	}
+	schedule.NextRunAt = &next
+
+	if _, err := svc.store.UpsertSchedule(ctx, schedule); err != nil {
+		return fmt.Errorf("upsert schedule %s: %w", schedule.Name, err)
+	}
+	return nil
 }
 
 // ListBillableTenants queries the database for tenant IDs with active billing plans and Stripe customer IDs.
@@ -117,12 +137,12 @@ func (s billingUsageSyncStore) GetUsageReport(ctx context.Context, tenantID stri
 }
 
 // RegisterBuiltinHandlers registers all built-in job type handlers.
-func RegisterBuiltinHandlers(svc *Service, pool *pgxpool.Pool, logger *slog.Logger) {
+func RegisterBuiltinHandlers(svc *Service, pool *pgxpool.Pool, storageSvc *storage.Service, logger *slog.Logger) {
 	svc.RegisterHandler("stale_session_cleanup", StaleSessionCleanupHandler(pool, logger))
 	svc.RegisterHandler("webhook_delivery_prune", WebhookDeliveryPruneHandler(pool, logger))
 	svc.RegisterHandler("expired_oauth_cleanup", ExpiredOAuthCleanupHandler(pool, logger))
 	svc.RegisterHandler("expired_auth_cleanup", ExpiredAuthCleanupHandler(pool, logger))
-	svc.RegisterHandler(resumableUploadCleanupJobType, ResumableUploadCleanupHandler(pool, logger))
+	svc.RegisterHandler(resumableUploadCleanupJobType, ResumableUploadCleanupHandler(storageSvc, logger))
 	svc.RegisterHandler("audit_log_retention", AuditLogRetentionHandler(pool, auditLogRetentionDefaultDays, logger))
 	svc.RegisterHandler("request_log_retention", RequestLogRetentionHandler(pool, requestLogRetentionDefaultDays, logger))
 
@@ -155,13 +175,12 @@ func RegisterBillingUsageSyncHandler(svc *Service, billingSvc billing.BillingSer
 	svc.RegisterHandler(billingUsageSyncJobType, BillingUsageSyncJobHandler(billingSvc, billingUsageSyncStore{pool: pool}))
 }
 
-// AIUsageAggregationJobHandler aggregates AI usage for a UTC day.
 func AIUsageAggregationJobHandler(aggregator AIUsageAggregator) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		targetDay := time.Now().UTC().AddDate(0, 0, -1)
 		targetDay = time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 0, 0, 0, 0, time.UTC)
 
-		if len(payload) > 0 && string(payload) != "{}" {
+		if hasJobPayload(payload) {
 			var p aiUsageAggregationPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return fmt.Errorf("ai_usage_aggregate_daily: invalid payload: %w", err)
@@ -241,7 +260,7 @@ func BillingUsageSyncJobHandler(billingSvc billing.BillingService, ds billingUsa
 func ProviderTokenRefreshJobHandler(refresher ProviderTokenRefreshService) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		window := providerTokenRefreshDefaultWindow
-		if len(payload) > 0 && string(payload) != "{}" {
+		if hasJobPayload(payload) {
 			var p providerTokenRefreshPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return fmt.Errorf("oauth_provider_tokens_refresh: invalid payload: %w", err)
@@ -256,10 +275,6 @@ func ProviderTokenRefreshJobHandler(refresher ProviderTokenRefreshService) JobHa
 
 // RegisterProviderTokenRefreshSchedule registers a 5-minute schedule for proactive refresh.
 func RegisterProviderTokenRefreshSchedule(ctx context.Context, svc *Service) error {
-	if svc == nil {
-		return fmt.Errorf("job service is nil")
-	}
-
 	schedule := &Schedule{
 		Name:        providerTokenRefreshScheduleName,
 		JobType:     providerTokenRefreshJobType,
@@ -269,24 +284,11 @@ func RegisterProviderTokenRefreshSchedule(ctx context.Context, svc *Service) err
 		Enabled:     true,
 		MaxAttempts: 3,
 	}
-	next, err := CronNextTime(schedule.CronExpr, schedule.Timezone, time.Now())
-	if err != nil {
-		return fmt.Errorf("compute next_run_at for %s: %w", schedule.Name, err)
-	}
-	schedule.NextRunAt = &next
-
-	if _, err := svc.store.UpsertSchedule(ctx, schedule); err != nil {
-		return fmt.Errorf("upsert provider token refresh schedule %s: %w", schedule.Name, err)
-	}
-	return nil
+	return registerSchedule(ctx, svc, schedule)
 }
 
 // RegisterAIUsageAggregationSchedule registers a daily UTC schedule for AI usage rollups.
 func RegisterAIUsageAggregationSchedule(ctx context.Context, svc *Service) error {
-	if svc == nil {
-		return fmt.Errorf("job service is nil")
-	}
-
 	schedule := &Schedule{
 		Name:        aiUsageAggregationScheduleName,
 		JobType:     AIUsageAggregationJobType,
@@ -296,23 +298,10 @@ func RegisterAIUsageAggregationSchedule(ctx context.Context, svc *Service) error
 		Enabled:     true,
 		MaxAttempts: 3,
 	}
-	next, err := CronNextTime(schedule.CronExpr, schedule.Timezone, time.Now())
-	if err != nil {
-		return fmt.Errorf("compute next_run_at for %s: %w", schedule.Name, err)
-	}
-	schedule.NextRunAt = &next
-
-	if _, err := svc.store.UpsertSchedule(ctx, schedule); err != nil {
-		return fmt.Errorf("upsert ai usage aggregation schedule %s: %w", schedule.Name, err)
-	}
-	return nil
+	return registerSchedule(ctx, svc, schedule)
 }
 
-// RegisterBillingUsageSyncSchedule registers the recurring billing usage sync schedule.
 func RegisterBillingUsageSyncSchedule(ctx context.Context, svc *Service, usageSyncIntervalSecs int) error {
-	if svc == nil {
-		return fmt.Errorf("job service is nil")
-	}
 	cronExpr, err := usageSyncCronExpr(usageSyncIntervalSecs)
 	if err != nil {
 		return fmt.Errorf("compute billing usage sync cron expression: %w", err)
@@ -327,16 +316,7 @@ func RegisterBillingUsageSyncSchedule(ctx context.Context, svc *Service, usageSy
 		Enabled:     true,
 		MaxAttempts: 3,
 	}
-	next, err := CronNextTime(schedule.CronExpr, schedule.Timezone, time.Now())
-	if err != nil {
-		return fmt.Errorf("compute next_run_at for %s: %w", schedule.Name, err)
-	}
-	schedule.NextRunAt = &next
-
-	if _, err := svc.store.UpsertSchedule(ctx, schedule); err != nil {
-		return fmt.Errorf("upsert billing usage sync schedule %s: %w", schedule.Name, err)
-	}
-	return nil
+	return registerSchedule(ctx, svc, schedule)
 }
 
 // usageSyncCronExpr generates a cron expression for the given billing sync interval in seconds. The interval must be positive and a multiple of 60; the returned expression matches the appropriate schedule granularity.
@@ -390,11 +370,10 @@ type requestLogRetentionPayload struct {
 	RetentionDays int `json:"retention_days"`
 }
 
-// WebhookDeliveryPruneHandler deletes old webhook delivery logs.
 func WebhookDeliveryPruneHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		var p webhookPrunePayload
-		if len(payload) > 0 && string(payload) != "{}" {
+		if hasJobPayload(payload) {
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return fmt.Errorf("webhook_delivery_prune: invalid payload: %w", err)
 			}
@@ -466,48 +445,23 @@ func ExpiredAuthCleanupHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandl
 	}
 }
 
-// ResumableUploadCleanupHandler removes stale resumable uploads and temp files.
-func ResumableUploadCleanupHandler(pool *pgxpool.Pool, logger *slog.Logger) JobHandler {
+func ResumableUploadCleanupHandler(storageSvc *storage.Service, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, _ json.RawMessage) error {
-		rows, err := pool.Query(ctx, `SELECT path FROM _ayb_storage_uploads WHERE expires_at < NOW()`)
+		if storageSvc == nil {
+			return fmt.Errorf("cleanup resumable uploads: storage service is nil")
+		}
+		deleted, err := storageSvc.CleanupExpiredResumableUploads(ctx)
 		if err != nil {
-			return fmt.Errorf("cleanup resumable uploads: query paths: %w", err)
-		}
-		defer rows.Close()
-
-		var paths []string
-		for rows.Next() {
-			var path string
-			if err := rows.Scan(&path); err != nil {
-				return fmt.Errorf("cleanup resumable uploads: scan path: %w", err)
-			}
-			paths = append(paths, path)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("cleanup resumable uploads: read paths: %w", err)
-		}
-
-		tag, err := pool.Exec(ctx, `DELETE FROM _ayb_storage_uploads WHERE expires_at < NOW()`)
-		if err != nil {
-			return fmt.Errorf("cleanup resumable uploads: delete stale sessions: %w", err)
-		}
-
-		for _, path := range paths {
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				if logger != nil {
-					logger.Warn("failed to remove stale resumable file", "path", path, "error", err)
-				}
-			}
+			return fmt.Errorf("cleanup resumable uploads: %w", err)
 		}
 
 		if logger != nil {
-			logger.Info("cleanup resumable uploads completed", "deleted", tag.RowsAffected())
+			logger.Info("cleanup resumable uploads completed", "deleted", deleted)
 		}
 		return nil
 	}
 }
 
-// AuditLogRetentionHandler deletes audit log entries older than retention_days.
 func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		retentionDays := defaultRetentionDays
@@ -516,7 +470,7 @@ func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logg
 		}
 
 		var p auditRetentionPayload
-		if len(payload) > 0 && string(payload) != "{}" {
+		if hasJobPayload(payload) {
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return fmt.Errorf("audit_log_retention: invalid payload: %w", err)
 			}
@@ -541,7 +495,6 @@ func AuditLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logg
 	}
 }
 
-// RequestLogRetentionHandler deletes request logs older than retention_days.
 func RequestLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, logger *slog.Logger) JobHandler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		retentionDays := defaultRetentionDays
@@ -550,7 +503,7 @@ func RequestLogRetentionHandler(pool *pgxpool.Pool, defaultRetentionDays int, lo
 		}
 
 		var p requestLogRetentionPayload
-		if len(payload) > 0 && string(payload) != "{}" {
+		if hasJobPayload(payload) {
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return fmt.Errorf("request_log_retention: invalid payload: %w", err)
 			}

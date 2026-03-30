@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -56,7 +57,6 @@ func (c *Checker) RunOnce(ctx context.Context) StatusSnapshot {
 	return snapshot
 }
 
-// Start begins periodic probe execution on a ticker until context cancel or Stop().
 func (c *Checker) Start(ctx context.Context) {
 	c.mu.Lock()
 	if c.stopCh != nil {
@@ -71,6 +71,11 @@ func (c *Checker) Start(ctx context.Context) {
 
 	go func() {
 		defer close(doneCh)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("status checker panic recovered", "panic", r)
+			}
+		}()
 		c.RunOnce(ctx)
 
 		ticker := time.NewTicker(c.interval)

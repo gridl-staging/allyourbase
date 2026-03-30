@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// TODO: Document DeterministicHttpClient.
 class DeterministicHttpClient extends http.BaseClient {
   DeterministicHttpClient([Iterable<StubResponse> initialResponses = const []]) {
     _responses.addAll(initialResponses);
@@ -44,7 +43,6 @@ class DeterministicHttpClient extends http.BaseClient {
   }
 }
 
-/// TODO: Document RecordedRequest.
 class RecordedRequest {
   const RecordedRequest({
     required this.method,
@@ -68,7 +66,6 @@ class RecordedRequest {
   }
 }
 
-/// TODO: Document StubResponse.
 class StubResponse {
   const StubResponse({
     required this.statusCode,

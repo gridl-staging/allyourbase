@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -16,7 +17,7 @@ import (
 type GojaOption func(*GojaRuntime)
 
 // WithHTTPClient sets the HTTP client used for fetch() calls.
-// If not set, http.DefaultClient is used.
+// If not set, a default client with 30s timeout is used.
 func WithHTTPClient(c *http.Client) GojaOption {
 	return func(r *GojaRuntime) { r.httpClient = c }
 }
@@ -29,7 +30,8 @@ type GojaRuntime struct {
 
 // NewGojaRuntime returns a GojaRuntime that satisfies the Runtime interface.
 func NewGojaRuntime(opts ...GojaOption) *GojaRuntime {
-	r := &GojaRuntime{httpClient: http.DefaultClient}
+	// Default fetch() client with 30s timeout to prevent edge functions from hanging.
+	r := &GojaRuntime{httpClient: &http.Client{Timeout: 30 * time.Second}}
 	for _, o := range opts {
 		o(r)
 	}

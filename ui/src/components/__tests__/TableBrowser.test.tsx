@@ -354,8 +354,14 @@ describe("TableBrowser", () => {
     mockGetRows.mockResolvedValueOnce({ ...multiPageResponse, page: 2 });
     const user = userEvent.setup();
     const paginationBar = screen.getByText("1 / 3").parentElement!;
-    const navButtons = within(paginationBar).getAllByRole("button");
-    await user.click(navButtons[1]); // second is "next"
+    const previousButton = within(paginationBar).getByRole("button", {
+      name: "Previous page",
+    });
+    const nextButton = within(paginationBar).getByRole("button", {
+      name: "Next page",
+    });
+    expect(previousButton).toBeDisabled();
+    await user.click(nextButton);
 
     await waitFor(() => {
       expect(mockGetRows).toHaveBeenCalledWith(

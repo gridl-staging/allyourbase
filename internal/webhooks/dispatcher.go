@@ -1,4 +1,3 @@
-// Package webhooks Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar23_am_3_services_dx_audit/allyourbase_dev/internal/webhooks/dispatcher.go.
 package webhooks
 
 import (
@@ -144,7 +143,8 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-// TODO: Document Dispatcher.deliver.
+// deliver attempts to POST the webhook payload with exponential backoff retries,
+// signing the request with HMAC if the webhook has a secret configured.
 func (d *Dispatcher) deliver(hook *Webhook, event *realtime.Event, payload []byte) {
 	for attempt := 0; attempt < maxDeliveryAttempts; attempt++ {
 		if attempt > 0 {

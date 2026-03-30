@@ -125,7 +125,7 @@ function UsageTrendChart({
   points: UsageTrendPoint[];
 }) {
   if (points.length === 0) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">No trend data</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-300">No trend data</p>;
   }
 
   const values = points.map((point) => point.value);
@@ -172,7 +172,7 @@ function UsageTrendChart({
 
 function UsageBreakdownChart({ metric, entries }: { metric: UsageMetric; entries: UsageBreakdownEntry[] }) {
   if (entries.length === 0) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">No breakdown data</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-300">No breakdown data</p>;
   }
 
   const maxValue = Math.max(...entries.map((entry) => entry.value), 1);
@@ -187,7 +187,11 @@ function UsageBreakdownChart({ metric, entries }: { metric: UsageMetric; entries
               <span className="truncate pr-3">{entry.key || "(empty)"}</span>
               <span>{formatMetricValue(metric, entry.value)}</span>
             </div>
-            <div className="h-2 rounded bg-gray-200 dark:bg-gray-700 overflow-hidden" aria-label="Usage breakdown chart">
+            <div
+              className="h-2 rounded bg-gray-200 dark:bg-gray-700 overflow-hidden"
+              role="img"
+              aria-label="Usage breakdown chart"
+            >
               <div className="h-full bg-teal-500 dark:bg-teal-400" style={{ width: `${widthPercent}%` }} />
             </div>
           </div>
@@ -219,7 +223,7 @@ export function UsageHeader({ onRefresh }: UsageHeaderProps) {
     <header className="flex items-center justify-between gap-4">
       <div>
         <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Usage Metering</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+        <p className="text-sm text-gray-500 dark:text-gray-300 mt-0.5">
           Shared usage contract across aggregate list, trends, breakdown, and per-tenant limits.
         </p>
       </div>
@@ -327,13 +331,13 @@ export function UsageAggregateSection({
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Aggregate Usage</h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-gray-500 dark:text-gray-300">
           Showing {rows.length} of {formatUsageNumber(totalRows)} tenants
         </p>
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-4 py-8 text-sm text-gray-500 dark:text-gray-400 text-center">
+        <div className="rounded border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-4 py-8 text-sm text-gray-500 dark:text-gray-300 text-center">
           No tenant usage rows
         </div>
       ) : (
@@ -412,11 +416,11 @@ function TenantLimitsPanel({
   metricLimitRows,
 }: TenantLimitsPanelProps) {
   if (!query.selectedTenantId) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">Select a tenant to view limits</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-300">Select a tenant to view limits</p>;
   }
 
   if (isLimitsLoading && !limitsData) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">Loading tenant limits...</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-300">Loading tenant limits...</p>;
   }
 
   if (limitsError) {
@@ -424,7 +428,7 @@ function TenantLimitsPanel({
   }
 
   if (!limitsData) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400">No limits data</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-300">No limits data</p>;
   }
 
   return (
@@ -434,7 +438,7 @@ function TenantLimitsPanel({
         {metricLimitRows.map((row) => (
           <div key={row.key} className="rounded border border-gray-200 dark:border-gray-700 px-3 py-2">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{row.label}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-500 dark:text-gray-300">
               Used {row.used} of {row.limit} (remaining {row.remaining})
             </p>
           </div>

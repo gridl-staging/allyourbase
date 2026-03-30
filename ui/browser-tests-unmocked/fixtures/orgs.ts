@@ -10,9 +10,6 @@ export interface SeededOrganizationDashboardOrg {
   orgSlug: string;
 }
 
-/**
- * TODO: Document seedOrganizationDashboardSmokeOrg.
- */
 export async function seedOrganizationDashboardSmokeOrg(
   request: APIRequestContext,
   token: string,

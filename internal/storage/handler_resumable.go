@@ -24,7 +24,6 @@ type resumableCreateResponse struct {
 	UploadType string `json:"uploadType"`
 }
 
-// HandleResumableCreate creates a new TUS upload session.
 func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) {
 	if !requireTusVersion(w, r) {
 		return
@@ -63,22 +62,26 @@ func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) 
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
 		userID = &claims.Subject
 	}
+	trackedUser := userID != nil && !h.isAdminToken(r)
+	reservedBytes := int64(0)
 
-	// Enforce quota upfront based on declared Upload-Length (skip for admin and anonymous).
-	if userID != nil && !h.isAdminToken(r) {
-		if err := h.svc.CheckQuota(r.Context(), *userID, length); err != nil {
+	// Reserve quota upfront based on declared Upload-Length (skip for admin and anonymous).
+	if trackedUser {
+		if err := h.mutations.reserveQuota(r.Context(), *userID, length); err != nil {
 			if errors.Is(err, ErrQuotaExceeded) {
 				httputil.WriteError(w, http.StatusRequestEntityTooLarge, "storage quota exceeded")
 				return
 			}
-			h.logger.Error("quota check error", "error", err)
+			h.logger.Error("quota reservation error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+		reservedBytes = length
 	}
 
-	upload, err := h.svc.CreateResumableUpload(r.Context(), bucket, name, contentType, userID, length)
+	upload, err := h.mutations.createResumableUpload(r.Context(), bucket, name, contentType, userID, length)
 	if err != nil {
+		h.rollbackReservedQuota(r.Context(), userID, reservedBytes, trackedUser)
 		if errors.Is(err, ErrInvalidBucket) || errors.Is(err, ErrInvalidName) {
 			httputil.WriteError(w, http.StatusBadRequest, err.Error())
 			return
@@ -102,7 +105,6 @@ func (h *Handler) HandleResumableCreate(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// HandleResumablePatch appends chunk data to an active resumable upload session.
 func (h *Handler) HandleResumablePatch(w http.ResponseWriter, r *http.Request) {
 	if !requireTusVersion(w, r) {
 		return
@@ -132,13 +134,6 @@ func (h *Handler) HandleResumablePatch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			serveResumableError(w, err)
 			return
-		}
-		// Track usage after successful finalization.
-		if upload.UserID != nil {
-			if err := h.mutations.incrementUsage(r.Context(), *upload.UserID, upload.TotalSize); err != nil {
-				h.logger.Error("increment usage after TUS finalize", "error", err)
-				// Non-fatal: upload succeeded; log the accounting failure and continue.
-			}
 		}
 		if objectWasOverwritten(obj) {
 			h.enqueueObjectURLPurge(r, obj.Bucket, obj.Name)

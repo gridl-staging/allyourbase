@@ -11,9 +11,6 @@ export interface SupportTicketsMockOptions {
   replyResponder?: (id: string, body: Record<string, unknown>) => MockApiResponse;
 }
 
-/**
- * TODO: Document mockAdminSupportTicketApis.
- */
 export async function mockAdminSupportTicketApis(
   page: Page,
   options: SupportTicketsMockOptions = {},

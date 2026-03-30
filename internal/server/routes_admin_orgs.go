@@ -1,9 +1,8 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/routes_admin_orgs.go.
 package server
 
 import "github.com/go-chi/chi/v5"
 
-// TODO: Document Server.registerAdminOrgRoutes.
+// registerAdminOrgRoutes mounts admin-gated routes for organization CRUD, org membership, team management, team membership, org usage, audit logs, and tenant assignment.
 func (s *Server) registerAdminOrgRoutes(r chi.Router) {
 	r.Route("/admin/orgs", func(r chi.Router) {
 		r.Use(s.requireAdminToken)

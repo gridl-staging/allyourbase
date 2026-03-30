@@ -122,6 +122,21 @@ describe("StorageBrowser", () => {
     });
   });
 
+  it("file count uses WCAG AA compliant contrast token", async () => {
+    mockListFiles.mockResolvedValueOnce({
+      items: [makeFile()],
+      totalItems: 1,
+    });
+    renderWithProviders(<StorageBrowser />);
+    await waitFor(() => {
+      const fileCount = screen.getByText("1 file");
+      // text-gray-500 (#6b7280) passes 4.5:1; text-gray-400 (#9ca3af) fails at 2.42:1
+      const classes = fileCount.className.split(" ");
+      expect(classes).toContain("text-gray-500");
+      expect(classes).not.toContain("text-gray-400");
+    });
+  });
+
   it("formats file sizes", async () => {
     mockListFiles.mockResolvedValueOnce({
       items: [

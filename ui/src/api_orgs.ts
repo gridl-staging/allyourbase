@@ -292,9 +292,6 @@ export async function addTeamMember(
   return normalizeTeamMembership(payload);
 }
 
-/**
- * TODO: Document updateTeamMemberRole.
- */
 export async function updateTeamMemberRole(
   orgId: string,
   teamId: string,
@@ -318,9 +315,6 @@ export async function removeTeamMember(orgId: string, teamId: string, userId: st
   });
 }
 
-/**
- * TODO: Document fetchOrgUsage.
- */
 export async function fetchOrgUsage(orgId: string, query: OrgUsageQuery): Promise<OrgUsageSummary> {
   const params = new URLSearchParams();
   applyPeriodOrDateRange(params, query);
@@ -338,9 +332,6 @@ export async function fetchOrgUsage(orgId: string, query: OrgUsageQuery): Promis
   };
 }
 
-/**
- * TODO: Document fetchOrgAudit.
- */
 export async function fetchOrgAudit(orgId: string, query: OrgAuditQuery): Promise<OrgAuditResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(query.limit));

@@ -1,9 +1,9 @@
-// Package openapi Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/openapi/generator_geojson.go.
 package openapi
 
 import "github.com/allyourbase/ayb/internal/schema"
 
-// TODO: Document shouldEmitGeoJSONComponents.
+// shouldEmitGeoJSONComponents returns true if any user table has a PostGIS
+// geometry/geography column, indicating the spec needs GeoJSON component schemas.
 func shouldEmitGeoJSONComponents(cache *schema.SchemaCache, tables []*schema.Table) bool {
 	if cache == nil || !cache.HasPostGIS {
 		return false
@@ -22,7 +22,10 @@ func shouldEmitGeoJSONComponents(cache *schema.SchemaCache, tables []*schema.Tab
 	return false
 }
 
-// TODO: Document addGeoJSONComponentSchemas.
+// addGeoJSONComponentSchemas registers the full set of GeoJSON geometry type
+// schemas (Point, LineString, Polygon, Multi*, GeometryCollection, and the
+// union type GeoJSONGeometry) into the OpenAPI components map. No-ops if
+// already registered or if schemas is nil.
 func addGeoJSONComponentSchemas(schemas map[string]*schemaProperty) {
 	if schemas == nil {
 		return
@@ -60,7 +63,8 @@ func addGeoJSONComponentSchemas(schemas map[string]*schemaProperty) {
 	}
 }
 
-// TODO: Document geoJSONGeometryObjectSchema.
+// geoJSONGeometryObjectSchema builds a single GeoJSON geometry object schema
+// with the given type discriminator and either coordinates or geometries array.
 func geoJSONGeometryObjectSchema(typeValue string, coordinates *schemaProperty, geometries *schemaProperty) *schemaProperty {
 	properties := map[string]*schemaProperty{
 		"type": {Type: "string", Enum: []string{typeValue}},

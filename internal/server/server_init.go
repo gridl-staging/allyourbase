@@ -1,12 +1,9 @@
 package server
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/audit"
@@ -28,17 +25,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
-
-// Package-level test-seam variables for replica pool construction.
-var newReplicaPool = pgxpool.New
-
-var pingReplicaPool = func(ctx context.Context, pool *pgxpool.Pool) error {
-	return pool.Ping(ctx)
-}
-
-var newReplicaStore = func(pool *pgxpool.Pool) replica.ReplicaStore {
-	return replica.NewPostgresReplicaStore(pool)
-}
 
 var newWebhookDispatcher = func(store webhooks.WebhookLister, logger *slog.Logger) webhookDispatcher {
 	return webhooks.NewDispatcher(store, logger)
@@ -295,177 +281,6 @@ func initStatusSystem(cfg *config.Config, pool *pgxpool.Pool) (*status.StatusHis
 		time.Duration(cfg.Status.CheckIntervalSeconds)*time.Second,
 	)
 	return statusHistory, statusIncidentStore, statusChecker
-}
-
-// replicaRoutingResult holds the output of buildReplicaRouting so callers
-// can wire both the router/checker and pass the pool map to LifecycleService.
-type replicaRoutingResult struct {
-	router       *replica.PoolRouter
-	checker      *replica.HealthChecker
-	initialPools map[string]*pgxpool.Pool
-}
-
-// buildReplicaRouting creates a PoolRouter and HealthChecker from persisted
-// topology records, connecting to active replicas and skipping those that fail
-// to connect or ping. It always returns a usable router/checker when
-// store+primary are present, even with zero connected replicas (pass-through
-// mode), so that AddReplica works on a fresh or degraded system.
-func buildReplicaRouting(ctx context.Context, store replica.ReplicaStore, primary *pgxpool.Pool, logger *slog.Logger) replicaRoutingResult {
-	empty := replicaRoutingResult{}
-	if store == nil || primary == nil {
-		return empty
-	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	records, err := safeReplicaStoreList(ctx, store)
-	if err != nil {
-		logger.Warn("replica topology load failed; replica routing disabled", "error", err)
-		return empty
-	}
-
-	replicaPools := make([]replica.ReplicaPool, 0)
-	initialPools := make(map[string]*pgxpool.Pool)
-	for _, record := range records {
-		if record.Role != replica.TopologyRoleReplica || record.State != replica.TopologyStateActive {
-			continue
-		}
-		connectionURL := record.ConnectionURL()
-		sanitizedConnectionURL := replica.SanitizeReplicaURL(connectionURL)
-		dialURL := replica.DialURLWithPrimaryCredentials(connectionURL, primary)
-		pool, dialErr := newReplicaPool(ctx, dialURL)
-		if dialErr != nil {
-			logger.Warn("replica connection failed; skipping replica", "name", record.Name, "url", sanitizedConnectionURL, "error", dialErr)
-			continue
-		}
-
-		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		pingErr := pingReplicaPool(pingCtx, pool)
-		cancel()
-		if pingErr != nil {
-			pool.Close()
-			logger.Warn("replica ping failed; skipping replica", "name", record.Name, "url", sanitizedConnectionURL, "error", pingErr)
-			continue
-		}
-
-		replicaConfig := replica.NormalizeReplicaConfig(config.ReplicaConfig{
-			URL:         connectionURL,
-			Weight:      record.Weight,
-			MaxLagBytes: record.MaxLagBytes,
-		})
-		replicaPools = append(replicaPools, replica.ReplicaPool{
-			Name:   record.Name,
-			Pool:   pool,
-			Config: replicaConfig,
-		})
-		initialPools[record.Name] = pool
-	}
-
-	poolRouter := replica.NewPoolRouter(primary, replicaPools, logger)
-	healthChecker := replica.NewHealthChecker(poolRouter, 0, logger)
-	if len(replicaPools) > 0 {
-		logger.Info("replica routing enabled", "replicas", len(replicaPools))
-	} else {
-		logger.Info("replica routing enabled in pass-through mode; no active replicas connected")
-	}
-	return replicaRoutingResult{
-		router:       poolRouter,
-		checker:      healthChecker,
-		initialPools: initialPools,
-	}
-}
-
-// buildLifecycleService constructs the replica LifecycleService when
-// all required dependencies are available. Returns nil otherwise.
-func buildLifecycleService(cfg *config.Config, store replica.ReplicaStore, pool *pgxpool.Pool, routing replicaRoutingResult, logger *slog.Logger) replicaLifecycle {
-	if store == nil || pool == nil || routing.router == nil || routing.checker == nil {
-		return nil
-	}
-	auditLogger := audit.NewAuditLogger(cfg.Audit, pool)
-	return replica.NewLifecycleService(store, routing.router, routing.checker, auditLogger, logger, routing.initialPools)
-}
-
-// normalizeLogDrainConfig fills in default values for a LogDrainConfig.
-func normalizeLogDrainConfig(cfg config.LogDrainConfig, index int) config.LogDrainConfig {
-	if cfg.ID == "" {
-		cfg.ID = fmt.Sprintf("drain-%d", index)
-	}
-	if cfg.Enabled == nil {
-		enabled := true
-		cfg.Enabled = &enabled
-	}
-	if cfg.BatchSize == 0 {
-		cfg.BatchSize = 100
-	}
-	if cfg.FlushIntervalSecs == 0 {
-		cfg.FlushIntervalSecs = 5
-	}
-	if cfg.Headers == nil {
-		cfg.Headers = map[string]string{}
-	}
-	return cfg
-}
-
-// newLogDrainFromConfig creates a LogDrain from config, validating that type
-// and URL are set and that batch and flush parameters are non-negative.
-func newLogDrainFromConfig(cfg config.LogDrainConfig, transport http.RoundTripper) (logging.LogDrain, error) {
-	if cfg.Type == "" {
-		return nil, fmt.Errorf("type is required")
-	}
-	switch cfg.Type {
-	case "http", "datadog", "loki":
-	default:
-		return nil, fmt.Errorf("unsupported log drain type: %q", cfg.Type)
-	}
-	if strings.TrimSpace(cfg.URL) == "" {
-		return nil, fmt.Errorf("url is required")
-	}
-	if cfg.BatchSize < 0 {
-		return nil, fmt.Errorf("batch_size must be non-negative, got %d", cfg.BatchSize)
-	}
-	if cfg.FlushIntervalSecs < 0 {
-		return nil, fmt.Errorf("flush_interval_seconds must be non-negative, got %d", cfg.FlushIntervalSecs)
-	}
-	if cfg.Headers == nil {
-		cfg.Headers = map[string]string{}
-	}
-
-	drainCfg := logging.DrainConfig{
-		ID:                cfg.ID,
-		Type:              cfg.Type,
-		URL:               cfg.URL,
-		Headers:           cfg.Headers,
-		BatchSize:         cfg.BatchSize,
-		FlushIntervalSecs: cfg.FlushIntervalSecs,
-		Enabled:           cfg.Enabled != nil && *cfg.Enabled,
-	}
-
-	switch cfg.Type {
-	case "http":
-		drain := logging.NewHTTPDrain(drainCfg)
-		if transport != nil {
-			drain.SetHTTPTransport(transport)
-		}
-		return drain, nil
-	case "datadog":
-		drain := logging.NewDatadogDrain(drainCfg)
-		if transport != nil {
-			drain.SetHTTPTransport(transport)
-		}
-		return drain, nil
-	case "loki":
-		drain := logging.NewLokiDrain(drainCfg)
-		if transport != nil {
-			drain.SetHTTPTransport(transport)
-		}
-		return drain, nil
-	}
-
-	return nil, fmt.Errorf("unsupported log drain type: %q", cfg.Type)
 }
 
 // initDefaults wires post-construction defaults: pool-dependent stores, admin

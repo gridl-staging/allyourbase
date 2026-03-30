@@ -29,9 +29,6 @@ type OrgCreateArgs = Pick<UseOrgManagementArgs, "selectedId" | "refreshList" | "
 
 type OrgInfoArgs = Pick<UseOrgManagementArgs, "selectedId" | "detail" | "setDetail" | "refreshList" | "onOrgDeleted">;
 
-/**
- * TODO: Document useOrganizationCreateControls.
- */
 function useOrganizationCreateControls({ selectedId, refreshList, onOrgCreated }: OrgCreateArgs) {
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgSlug, setNewOrgSlug] = useState("");
@@ -91,9 +88,6 @@ function useOrganizationCreateControls({ selectedId, refreshList, onOrgCreated }
   };
 }
 
-/**
- * TODO: Document useOrganizationInfoControls.
- */
 function useOrganizationInfoControls({ selectedId, detail, setDetail, refreshList, onOrgDeleted }: OrgInfoArgs) {
   const [orgNameDraft, setOrgNameDraft] = useState("");
   const [orgSlugDraft, setOrgSlugDraft] = useState("");
@@ -189,9 +183,6 @@ function useOrganizationInfoControls({ selectedId, detail, setDetail, refreshLis
   };
 }
 
-/**
- * TODO: Document useOrganizationControls.
- */
 export function useOrganizationControls({
   selectedId,
   detail,
@@ -209,9 +200,6 @@ export function useOrganizationControls({
   };
 }
 
-/**
- * TODO: Document useOrgMembershipControls.
- */
 export function useOrgMembershipControls({ selectedId, detail, setDetail }: OrgMembershipArgs) {
   const [orgRoleDraftByUserId, setOrgRoleDraftByUserId] = useState<Partial<Record<string, OrgMemberRole>>>({});
   const [orgUpdatingUserId, setOrgUpdatingUserId] = useState<string | null>(null);

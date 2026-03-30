@@ -494,6 +494,27 @@ func TestRunCheckCycleUsesSnapshotDuringConcurrentRemove(t *testing.T) {
 	}
 }
 
+func TestHealthCheckIntervalHasJitter(t *testing.T) {
+	t.Parallel()
+	router, _, _ := newRouterWithReplicas(t, 1)
+	checker := NewHealthChecker(router, 10*time.Second, testLogger())
+
+	// The default jitter function should produce values within ±20% of the
+	// base interval: [8s, 12s] for a 10s interval.
+	seen := make(map[time.Duration]bool)
+	for range 100 {
+		d := checker.jitterFn(checker.interval)
+		if d < 8*time.Second || d > 12*time.Second {
+			t.Fatalf("jittered interval %v out of [8s, 12s] range", d)
+		}
+		seen[d] = true
+	}
+	// With 100 samples across a 4s range, we should see at least 2 distinct values.
+	if len(seen) < 2 {
+		t.Fatalf("jitter produced only %d distinct values; expected variation", len(seen))
+	}
+}
+
 func newTestCheckerWithOneReplica(t *testing.T) (*HealthChecker, *ReplicaStatus, *PoolRouter, *pgxpool.Pool) {
 	t.Helper()
 	router, primary, _ := newRouterWithReplicas(t, 1)

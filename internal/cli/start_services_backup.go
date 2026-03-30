@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/cli/start_services_backup.go.
 package cli
 
 import (
@@ -245,7 +244,7 @@ func startPhysicalBackupScheduler(schedulerCtx pitrSchedulerContext, physicalEng
 	schedulerCtx.state.physicalBackupSched = physicalSched
 }
 
-// TODO: Document startIntegrityBackupScheduler.
+// startIntegrityBackupScheduler creates and starts a periodic backup integrity verification scheduler that checks backup consistency and WAL lag.
 func startIntegrityBackupScheduler(
 	schedulerCtx pitrSchedulerContext,
 	integrityVerifier *backup.IntegrityVerifier,
@@ -267,7 +266,7 @@ func startIntegrityBackupScheduler(
 	schedulerCtx.state.integrityBackupSched = integritySched
 }
 
-// TODO: Document startPITRRetentionBackupScheduler.
+// startPITRRetentionBackupScheduler creates and starts a scheduler that enforces point-in-time recovery retention policies by pruning expired backups.
 func startPITRRetentionBackupScheduler(
 	schedulerCtx pitrSchedulerContext,
 	retentionJob *backup.PITRRetentionJob,
@@ -293,7 +292,7 @@ func startPITRRetentionBackupScheduler(
 	schedulerCtx.state.pitrRetentionSched = retentionSched
 }
 
-// TODO: Document startFireDrillBackupScheduler.
+// startFireDrillBackupScheduler creates and starts a scheduler that periodically runs backup restore fire drills to validate recoverability.
 func startFireDrillBackupScheduler(
 	schedulerCtx pitrSchedulerContext,
 	fireDrillRunner *backup.FireDrillRunner,

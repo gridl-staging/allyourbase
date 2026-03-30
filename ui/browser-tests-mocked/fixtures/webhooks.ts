@@ -23,9 +23,6 @@ const defaultWebhooks = [
   },
 ];
 
-/**
- * TODO: Document mockAdminWebhookApis.
- */
 export async function mockAdminWebhookApis(
   page: Page,
   options: WebhooksMockOptions = {},

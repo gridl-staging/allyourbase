@@ -28,7 +28,7 @@ const STATE_BADGE_COLORS: Record<string, string> = {
   suspended: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
   provisioning: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   deleting: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-  deleted: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  deleted: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
 };
 
 export function TenantListPanel({
@@ -66,9 +66,9 @@ export function TenantListPanel({
           >
             <div className="font-medium text-gray-900 dark:text-gray-100">{t.name}</div>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{t.slug}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-300">{t.slug}</span>
               <span
-                className={`text-xs px-1.5 py-0.5 rounded ${STATE_BADGE_COLORS[t.state] ?? "bg-gray-100 text-gray-500"}`}
+                className={`text-xs px-1.5 py-0.5 rounded ${STATE_BADGE_COLORS[t.state] ?? "bg-gray-100 text-gray-600"}`}
               >
                 {t.state}
               </span>
@@ -158,7 +158,7 @@ export function TenantDetailHeader({
             className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
               activeTab === tab
                 ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                : "text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
             {TAB_LABELS[tab]}
@@ -215,7 +215,7 @@ export function TenantMaintenanceSection({
             </div>
           </div>
         ) : (
-          <div className="text-sm text-gray-400">No maintenance state</div>
+          <div className="text-sm text-gray-500">No maintenance state</div>
         )}
       </div>
       <div>
@@ -235,7 +235,7 @@ export function TenantMaintenanceSection({
             )}
           </div>
         ) : (
-          <div className="text-sm text-gray-400">No breaker state</div>
+          <div className="text-sm text-gray-500">No breaker state</div>
         )}
       </div>
     </div>
@@ -275,7 +275,7 @@ export function TenantAuditSection({
 
   if (items.length === 0) {
     return (
-      <div data-testid="tenant-audit-section" className="text-sm text-gray-400 py-4">
+      <div data-testid="tenant-audit-section" className="text-sm text-gray-500 py-4">
         <FilterBar
           fields={AUDIT_FILTER_FIELDS}
           values={filterValues}
@@ -312,8 +312,8 @@ export function TenantAuditSection({
             <tr key={event.id} className="border-b border-gray-100 dark:border-gray-800">
               <td className="py-1.5 pr-4 text-gray-900 dark:text-gray-100">{event.action}</td>
               <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{event.result}</td>
-              <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-400">{event.actorId ?? "—"}</td>
-              <td className="py-1.5 text-gray-500 dark:text-gray-400">{event.createdAt}</td>
+              <td className="py-1.5 pr-4 text-gray-500 dark:text-gray-300">{event.actorId ?? "—"}</td>
+              <td className="py-1.5 text-gray-500 dark:text-gray-300">{event.createdAt}</td>
             </tr>
           ))}
         </tbody>

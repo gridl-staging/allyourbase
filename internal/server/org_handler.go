@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/org_handler.go.
 package server
 
 import (
@@ -86,7 +85,7 @@ func orgIDFromURL(r *http.Request, w http.ResponseWriter) (string, bool) {
 	return orgID, true
 }
 
-// TODO: Document lookupOrg.
+// lookupOrg extracts the org ID from the URL and fetches the organization from the store, writing an appropriate HTTP error if the ID is missing or the org is not found.
 func lookupOrg(r *http.Request, w http.ResponseWriter, store tenant.OrgStore) (*tenant.Organization, bool) {
 	orgID, ok := orgIDFromURL(r, w)
 	if !ok {
@@ -142,7 +141,7 @@ func (s *Server) orgAndTeamStoreHandler(handler func(tenant.OrgStore, tenant.Tea
 	}
 }
 
-// TODO: Document Server.orgTeamAndTenantAdminHandler.
+// orgTeamAndTenantAdminHandler wraps a handler that requires org, team, and tenant admin dependencies, returning 500 if any store is not configured.
 func (s *Server) orgTeamAndTenantAdminHandler(handler func(tenant.OrgStore, tenant.TeamStore, tenantAdmin) http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s == nil || s.orgStore == nil {
@@ -161,7 +160,7 @@ func (s *Server) orgTeamAndTenantAdminHandler(handler func(tenant.OrgStore, tena
 	}
 }
 
-// TODO: Document handleAdminCreateOrg.
+// handleAdminCreateOrg handles POST requests to create a new organization with a validated name, slug, optional parent org, and plan tier.
 func handleAdminCreateOrg(store tenant.OrgStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createOrgRequest
@@ -228,7 +227,7 @@ func handleAdminListOrgs(store tenant.OrgStore) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminGetOrg.
+// handleAdminGetOrg handles GET requests for a single organization, returning the org details along with child org, team, and tenant counts.
 func handleAdminGetOrg(orgStore tenant.OrgStore, teamStore tenant.TeamStore, svc tenantAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, ok := lookupOrg(r, w, orgStore)
@@ -265,7 +264,7 @@ func handleAdminGetOrg(orgStore tenant.OrgStore, teamStore tenant.TeamStore, svc
 	}
 }
 
-// TODO: Document handleAdminUpdateOrg.
+// handleAdminUpdateOrg handles PATCH requests to update an organization's name, slug, or parent org, with validation for slug format, parent existence, and cycle prevention.
 func handleAdminUpdateOrg(store tenant.OrgStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := orgIDFromURL(r, w)
@@ -333,7 +332,7 @@ func handleAdminUpdateOrg(store tenant.OrgStore) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminDeleteOrg.
+// handleAdminDeleteOrg handles DELETE requests to remove an organization, requiring confirm=true and refusing deletion if tenants are still assigned.
 func handleAdminDeleteOrg(store tenant.OrgStore, svc tenantAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := orgIDFromURL(r, w)
@@ -368,7 +367,7 @@ func handleAdminDeleteOrg(store tenant.OrgStore, svc tenantAdmin) http.HandlerFu
 	}
 }
 
-// TODO: Document handleAdminAssignTenantToOrg.
+// handleAdminAssignTenantToOrg handles POST requests to associate an existing tenant with an organization by tenant ID.
 func handleAdminAssignTenantToOrg(store tenant.OrgStore, svc tenantAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, ok := lookupOrg(r, w, store)
@@ -404,7 +403,7 @@ func handleAdminAssignTenantToOrg(store tenant.OrgStore, svc tenantAdmin) http.H
 	}
 }
 
-// TODO: Document handleAdminUnassignTenantFromOrg.
+// handleAdminUnassignTenantFromOrg handles DELETE requests to remove the association between a tenant and an organization.
 func handleAdminUnassignTenantFromOrg(store tenant.OrgStore, svc tenantAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, ok := lookupOrg(r, w, store)

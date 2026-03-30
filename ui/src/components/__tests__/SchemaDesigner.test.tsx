@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import type { SchemaCache } from "../../types";
 import { SchemaDesigner } from "../SchemaDesigner";
 
@@ -60,6 +61,15 @@ describe("SchemaDesigner", () => {
     expect(screen.getByRole("heading", { name: /posts/i })).toBeInTheDocument();
     expect(screen.getAllByText(/author_id/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Foreign Keys/i)).toBeInTheDocument();
+  });
+
+  it("column type hint uses WCAG AA compliant contrast token", async () => {
+    const user = userEvent.setup();
+    render(<SchemaDesigner schema={makeSchema()} />);
+    await user.click(screen.getByTestId("schema-node-public.posts"));
+
+    const className = screen.getAllByText("(uuid)")[0].className;
+    expectWcagContrastToken(className);
   });
 
   it("layout controls update zoom and call arrange", async () => {

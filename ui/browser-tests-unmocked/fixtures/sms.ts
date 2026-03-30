@@ -25,9 +25,6 @@ async function ensureSMSTestUser(
   );
 }
 
-/**
- * TODO: Document seedSMSMessage.
- */
 export async function seedSMSMessage(
   request: APIRequestContext,
   token: string,
@@ -78,9 +75,6 @@ export async function cleanupSMSMessages(
   );
 }
 
-/**
- * TODO: Document seedSMSDailyCounts.
- */
 export async function seedSMSDailyCounts(
   request: APIRequestContext,
   token: string,
@@ -127,9 +121,6 @@ export async function cleanupSMSDailyCountsAll(
   );
 }
 
-/**
- * TODO: Document seedSMSMessageBatch.
- */
 export async function seedSMSMessageBatch(
   request: APIRequestContext,
   token: string,

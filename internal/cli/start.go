@@ -85,7 +85,7 @@ func ensureConfiguredAdminPassword(cfg *config.Config) (string, error) {
 	return generatedPassword, nil
 }
 
-// TODO: Document runStartForeground.
+// runStartForeground runs the AYB server in the foreground, initializing the database, wiring all services, and blocking until a shutdown signal is received.
 func runStartForeground(cmd *cobra.Command, args []string) error {
 	flags := make(map[string]string)
 	if v, _ := cmd.Flags().GetString("database-url"); v != "" {

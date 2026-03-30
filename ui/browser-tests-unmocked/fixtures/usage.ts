@@ -13,9 +13,6 @@ export interface SeededUsageMeteringTenant {
 const USAGE_SMOKE_REQUEST_COUNT_TODAY = 4_000_000_000_000_000;
 const USAGE_SMOKE_REQUEST_COUNT_YESTERDAY = 2_000_000_000_000_000;
 
-/**
- * TODO: Document seedUsageMeteringTenantDailyRows.
- */
 export async function seedUsageMeteringTenantDailyRows(
   request: APIRequestContext,
   token: string,

@@ -406,4 +406,16 @@ func TestSecurityHeaders(t *testing.T) {
 	testutil.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 	testutil.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
 	testutil.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+	testutil.Equal(t, "camera=(), microphone=(), geolocation=()", w.Header().Get("Permissions-Policy"))
+	testutil.Equal(t, "none", w.Header().Get("X-Permitted-Cross-Domain-Policies"))
+
+	// HSTS should NOT be set for plain HTTP requests.
+	testutil.Equal(t, "", w.Header().Get("Strict-Transport-Security"))
+
+	// HSTS should be set when X-Forwarded-Proto indicates HTTPS.
+	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req2.Header.Set("X-Forwarded-Proto", "https")
+	w2 := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w2, req2)
+	testutil.Equal(t, "max-age=63072000; includeSubDomains", w2.Header().Get("Strict-Transport-Security"))
 }

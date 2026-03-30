@@ -98,9 +98,10 @@ func TestResolveWhereGtLtCombined(t *testing.T) {
 	}
 	sql, args, err := resolveWhere(where, testTable(), 1)
 	testutil.NoError(t, err)
-	// Both conditions on same column should be AND-joined
-	testutil.True(t, len(args) == 2, "expected 2 args, got %d", len(args))
-	testutil.True(t, sql != "", "expected non-empty SQL")
+	testutil.Equal(t, `"score" > $1 AND "score" < $2`, sql)
+	testutil.Equal(t, 2, len(args))
+	testutil.Equal(t, 5, args[0])
+	testutil.Equal(t, 10, args[1])
 }
 
 func TestResolveWhereIn(t *testing.T) {
@@ -108,10 +109,13 @@ func TestResolveWhereIn(t *testing.T) {
 	where := map[string]interface{}{
 		"title": map[string]interface{}{"_in": []interface{}{"a", "b", "c"}},
 	}
-	sql, args, err := resolveWhere(where, testTable(), 1)
+	sql, args, err := resolveWhere(where, testTable(), 3)
 	testutil.NoError(t, err)
-	testutil.Equal(t, `"title" IN ($1, $2, $3)`, sql)
+	testutil.Equal(t, `"title" IN ($3, $4, $5)`, sql)
 	testutil.Equal(t, 3, len(args))
+	testutil.Equal(t, "a", args[0])
+	testutil.Equal(t, "b", args[1])
+	testutil.Equal(t, "c", args[2])
 }
 
 func TestResolveWhereIsNullTrue(t *testing.T) {
@@ -168,8 +172,26 @@ func TestResolveWhereAnd(t *testing.T) {
 	}
 	sql, args, err := resolveWhere(where, testTable(), 1)
 	testutil.NoError(t, err)
+	testutil.Equal(t, `("title" = $1 AND "score" > $2)`, sql)
 	testutil.Equal(t, 2, len(args))
-	testutil.True(t, sql != "", "expected non-empty SQL")
+	testutil.Equal(t, "a", args[0])
+	testutil.Equal(t, 5, args[1])
+}
+
+func TestResolveWhereAndParamIdxOffset(t *testing.T) {
+	t.Parallel()
+	where := map[string]interface{}{
+		"_and": []interface{}{
+			map[string]interface{}{"title": map[string]interface{}{"_eq": "a"}},
+			map[string]interface{}{"score": map[string]interface{}{"_gt": 5}},
+		},
+	}
+	sql, args, err := resolveWhere(where, testTable(), 5)
+	testutil.NoError(t, err)
+	testutil.Equal(t, `("title" = $5 AND "score" > $6)`, sql)
+	testutil.Equal(t, 2, len(args))
+	testutil.Equal(t, "a", args[0])
+	testutil.Equal(t, 5, args[1])
 }
 
 func TestResolveWhereOr(t *testing.T) {
@@ -182,8 +204,10 @@ func TestResolveWhereOr(t *testing.T) {
 	}
 	sql, args, err := resolveWhere(where, testTable(), 1)
 	testutil.NoError(t, err)
+	testutil.Equal(t, `("title" = $1 OR "title" = $2)`, sql)
 	testutil.Equal(t, 2, len(args))
-	testutil.True(t, sql != "", "expected non-empty SQL for _or")
+	testutil.Equal(t, "a", args[0])
+	testutil.Equal(t, "b", args[1])
 }
 
 func TestResolveWhereNot(t *testing.T) {
@@ -214,8 +238,11 @@ func TestResolveWhereNestedAndInsideOr(t *testing.T) {
 	}
 	sql, args, err := resolveWhere(where, testTable(), 1)
 	testutil.NoError(t, err)
+	testutil.Equal(t, `(("title" = $1 AND "score" > $2) OR "score" < $3)`, sql)
 	testutil.Equal(t, 3, len(args))
-	testutil.True(t, sql != "", "expected non-empty SQL for nested")
+	testutil.Equal(t, "a", args[0])
+	testutil.Equal(t, 1, args[1])
+	testutil.Equal(t, 0, args[2])
 }
 
 func TestResolveWhereUnknownColumn(t *testing.T) {
@@ -225,6 +252,59 @@ func TestResolveWhereUnknownColumn(t *testing.T) {
 	}
 	_, _, err := resolveWhere(where, testTable(), 1)
 	testutil.True(t, err != nil, "expected error for unknown column")
+	testutil.Equal(t, "unknown column: nonexistent", err.Error())
+}
+
+func TestResolveWhereInvalidInputErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want string
+	}{
+		{
+			name: "_and non-list",
+			args: map[string]interface{}{"_and": map[string]interface{}{"title": "x"}},
+			want: "_and must be a list",
+		},
+		{
+			name: "_not non-object",
+			args: map[string]interface{}{"_not": []interface{}{"x"}},
+			want: "_not must be an object",
+		},
+		{
+			name: "_is_null non-boolean",
+			args: map[string]interface{}{
+				"body": map[string]interface{}{"_is_null": "true"},
+			},
+			want: "_is_null must be boolean",
+		},
+		{
+			name: "_in non-list",
+			args: map[string]interface{}{
+				"title": map[string]interface{}{"_in": "not-a-list"},
+			},
+			want: "_in must be a list",
+		},
+		{
+			name: "unknown operator",
+			args: map[string]interface{}{
+				"title": map[string]interface{}{"_wat": "x"},
+			},
+			want: "unknown operator: _wat",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, err := resolveWhere(tc.args, testTable(), 1)
+			testutil.True(t, err != nil, "expected error")
+			testutil.Equal(t, tc.want, err.Error())
+		})
+	}
 }
 
 // --- resolveOrderBy tests ---

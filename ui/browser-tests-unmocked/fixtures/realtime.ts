@@ -30,9 +30,6 @@ function emitSSEFrame(
   pendingEvent.dataLines = [];
 }
 
-/**
- * TODO: Document consumeSSEStream.
- */
 async function consumeSSEStream(
   stream: ReadableStream<Uint8Array>,
   onFrame: (frame: SSEFrame) => void,
@@ -90,9 +87,6 @@ async function consumeSSEStream(
   }
 }
 
-/**
- * TODO: Document startSSECapture.
- */
 export async function startSSECapture(
   page: Page,
   baseURL: string,
@@ -192,9 +186,6 @@ function buildRealtimeWsUrl(currentPageUrl: string, token: string): string {
   return wsURL.toString();
 }
 
-/**
- * TODO: Document openRealtimeWsSubscription.
- */
 async function openRealtimeWsSubscription(
   page: Page,
   currentPageUrl: string,
@@ -249,9 +240,6 @@ async function openRealtimeWsSubscription(
   return handle;
 }
 
-/**
- * TODO: Document closeRealtimeWsSubscription.
- */
 async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<void> {
   await page.evaluate(async (evaluateHandle) => {
     const registry = globalThis as typeof globalThis & Record<string, WebSocket | undefined>;
@@ -293,9 +281,6 @@ async function closeRealtimeWsSubscription(page: Page, handle: string): Promise<
   }, handle);
 }
 
-/**
- * TODO: Document withRealtimeWsSubscription.
- */
 export async function withRealtimeWsSubscription<T>(
   page: Page,
   currentPageUrl: string,
@@ -324,9 +309,6 @@ export async function withRealtimeWsSubscription<T>(
 // Fixture helper: create an API key for a user via the admin API.
 // Extracted from spec files to comply with eslint no-restricted-syntax rule
 // that bans request.* calls in spec files.
-/**
- * TODO: Document createApiKeyForUser.
- */
 export async function createApiKeyForUser(
   request: import("@playwright/test").APIRequestContext,
   adminToken: string,

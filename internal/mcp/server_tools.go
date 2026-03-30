@@ -1,4 +1,3 @@
-// Package mcp Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/mcp/server_tools.go.
 package mcp
 
 import (
@@ -99,7 +98,7 @@ func registerTools(s *mcp.Server, c *apiClient) {
 
 // --- Tool handlers ---
 
-// TODO: Document handleListTables.
+// handleListTables fetches the schema endpoint and returns all tables with their metadata, including PostGIS availability status.
 func handleListTables(ctx context.Context, c *apiClient) (*mcp.CallToolResult, ListTablesOutput, error) {
 	result, _, err := c.doJSON(ctx, "GET", "/api/schema", nil, false)
 	if err != nil {

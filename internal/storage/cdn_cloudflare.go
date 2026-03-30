@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/allyourbase/ayb/internal/backoff"
 )
@@ -35,11 +36,10 @@ type CloudflareCDNProvider struct {
 	backoffConfig backoff.Config
 }
 
-// NewCloudflareCDNProvider constructs a CloudflareCDNProvider with defaults.
 func NewCloudflareCDNProvider(opts CloudflareCDNOptions) *CloudflareCDNProvider {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	maxRetries, backoffConfig := resolveCDNRetrySettings(opts.MaxRetries, opts.BackoffConfig)

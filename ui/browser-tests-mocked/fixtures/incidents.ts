@@ -11,9 +11,6 @@ export interface IncidentsMockOptions {
   addUpdateResponder?: (id: string, body: Record<string, unknown>) => MockApiResponse;
 }
 
-/**
- * TODO: Document mockAdminIncidentApis.
- */
 export async function mockAdminIncidentApis(
   page: Page,
   options: IncidentsMockOptions = {},

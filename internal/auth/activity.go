@@ -41,7 +41,6 @@ func NewSessionActivityTracker(pool *pgxpool.Pool, debounce time.Duration, logge
 	return tracker
 }
 
-// Touch marks a session as active and triggers a debounced async DB update.
 func (t *SessionActivityTracker) Touch(ctx context.Context, sessionID string) {
 	if t == nil || sessionID == "" {
 		return
@@ -65,6 +64,11 @@ func (t *SessionActivityTracker) Touch(ctx context.Context, sessionID string) {
 
 	updateCtx := context.WithoutCancel(ctx)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil && t.logger != nil {
+				t.logger.Error("session activity tracker panic recovered", "panic", r)
+			}
+		}()
 		if err := updateFn(updateCtx, sessionID); err != nil && t.logger != nil {
 			t.logger.Error("failed to update session last_active_at", "session_id", sessionID, "error", err)
 		}

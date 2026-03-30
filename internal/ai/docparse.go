@@ -1,4 +1,3 @@
-// Package ai ai parses documents with AI providers and validates JSON responses against schemas.
 package ai
 
 import (
@@ -9,7 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// docparseHTTPClient is a shared HTTP client for fetching external document URLs.
+var docparseHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // ParseDocumentRequest describes a document parsing request.
 type ParseDocumentRequest struct {
@@ -112,13 +115,12 @@ func fetchDocument(ctx context.Context, req ParseDocumentRequest, fetcher Storag
 	return nil, "", fmt.Errorf("docparse: either storage_path or url is required")
 }
 
-// fetchURL retrieves document bytes from the given URL via HTTP GET and returns the response body and Content-Type header.
 func fetchURL(ctx context.Context, url string) ([]byte, string, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("docparse: create request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := docparseHTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, "", fmt.Errorf("docparse: fetch url: %w", err)
 	}
@@ -126,7 +128,7 @@ func fetchURL(ctx context.Context, url string) ([]byte, string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("docparse: fetch url returned HTTP %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, "", fmt.Errorf("docparse: read response: %w", err)
 	}

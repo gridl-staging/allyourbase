@@ -227,7 +227,7 @@ export function CommandPalette({ open, onClose, onSelect, tables }: CommandPalet
                       onMouseEnter={() => setActiveIndex(idx)}
                       className={cn(
                         "w-full flex items-center gap-3 px-4 py-2 text-sm text-left",
-                        isActive ? "bg-gray-100 dark:bg-gray-700" : "hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800",
+                        isActive ? "bg-gray-100 dark:bg-gray-700" : "hover:bg-gray-50 dark:bg-gray-800",
                       )}
                     >
                       {item.icon}
@@ -267,7 +267,7 @@ export function CommandPaletteHint({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-4 py-2 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-800 transition-colors"
+      className="w-full flex items-center gap-2 px-4 py-2 text-xs text-gray-500 hover:text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:bg-gray-800 transition-colors"
     >
       <Search className="w-3.5 h-3.5" />
       <span className="flex-1 text-left">Search...</span>

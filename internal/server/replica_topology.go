@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/replica_topology.go.
 package server
 
 import (
@@ -13,7 +12,7 @@ import (
 	"github.com/allyourbase/ayb/internal/replica"
 )
 
-// TODO: Document bootstrapReplicaStoreFromConfig.
+// bootstrapReplicaStoreFromConfig seeds the replica topology store with primary and replica node records derived from the config, but only if the store is currently empty.
 func bootstrapReplicaStoreFromConfig(ctx context.Context, cfg *config.Config, store replica.ReplicaStore, logger *slog.Logger) {
 	if cfg == nil || store == nil {
 		return
@@ -46,7 +45,7 @@ func bootstrapReplicaStoreFromConfig(ctx context.Context, cfg *config.Config, st
 	logger.Info("replica topology bootstrap completed", "records", len(records))
 }
 
-// TODO: Document topologyRecordsFromConfig.
+// topologyRecordsFromConfig parses the primary database URL and all configured replica URLs into a slice of TopologyNodeRecord values with normalized weights and lag limits.
 func topologyRecordsFromConfig(cfg *config.Config) ([]replica.TopologyNodeRecord, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -78,7 +77,7 @@ func topologyRecordsFromConfig(cfg *config.Config) ([]replica.TopologyNodeRecord
 	return records, nil
 }
 
-// TODO: Document topologyRecordFromURL.
+// topologyRecordFromURL parses a PostgreSQL connection URL into a TopologyNodeRecord, extracting host, port, database name, and SSL mode.
 func topologyRecordFromURL(name, rawURL, role string) (replica.TopologyNodeRecord, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

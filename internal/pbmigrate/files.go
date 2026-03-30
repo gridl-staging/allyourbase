@@ -1,4 +1,3 @@
-// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/pbmigrate/files.go.
 package pbmigrate
 
 import (
@@ -18,7 +17,7 @@ type fileCopyTotals struct {
 	failedFiles []string // "collection/relpath" for each failure
 }
 
-// TODO: Document Migrator.migrateFiles.
+// migrateFiles copies storage files from PocketBase collections with file fields into the target AYB storage directory.
 func (m *Migrator) migrateFiles(ctx context.Context, collections []PBCollection) error {
 	_ = ctx
 	fmt.Fprintln(m.output, "Migrating files...")
@@ -101,7 +100,7 @@ func (m *Migrator) resolveTargetStoragePath() (string, error) {
 	return storagePath, nil
 }
 
-// TODO: Document Migrator.findCollectionStoragePath.
+// findCollectionStoragePath locates the on-disk storage directory for a collection, checking both name-based and ID-based PocketBase layouts.
 func (m *Migrator) findCollectionStoragePath(coll PBCollection) (string, error) {
 	candidates := []string{
 		filepath.Join(m.opts.SourcePath, "storage", coll.Name), // older PB layout
@@ -135,7 +134,7 @@ func countCollectionFiles(collectionPath string) int {
 	return fileCount
 }
 
-// TODO: Document Migrator.copyCollectionFiles.
+// copyCollectionFiles walks a collection's storage directory and copies each regular file to the target bucket, recording failures rather than aborting.
 func (m *Migrator) copyCollectionFiles(coll PBCollection, collectionPath, storagePath string) (fileCopyTotals, error) {
 	total := fileCopyTotals{}
 

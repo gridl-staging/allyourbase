@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/permission_middleware.go.
 package server
 
 import (
@@ -10,7 +9,7 @@ import (
 	"github.com/allyourbase/ayb/internal/tenant"
 )
 
-// TODO: Document Server.requireTenantPermission.
+// requireTenantPermission is middleware that resolves the authenticated user's permissions for the current tenant and attaches them to the request context, bypassing resolution for admin tokens or requests missing claims or a tenant ID.
 func (s *Server) requireTenantPermission(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.isAdminToken(r) {

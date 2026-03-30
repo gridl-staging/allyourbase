@@ -1,4 +1,3 @@
-// Package jobs Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar21_01_go_backend_test_hardening_and_resilience/allyourbase_dev/internal/jobs/service.go.
 package jobs
 
 import (
@@ -118,7 +117,7 @@ func (s *Service) workerLoop(ctx context.Context, workerNum int) {
 	}
 }
 
-// TODO: Document Service.pollAndProcess.
+// pollAndProcess claims the next available job from the queue, dispatches it to the registered handler with lease renewal, and records the success or failure result.
 func (s *Service) pollAndProcess(ctx context.Context, workerID string) {
 	job, err := s.store.Claim(ctx, workerID, s.cfg.LeaseDuration)
 	if err != nil {

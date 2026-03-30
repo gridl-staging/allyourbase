@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/server/admin_request_logs_handler.go.
 package server
 
 import (
@@ -94,7 +93,7 @@ func (s *Server) handleAdminRequestLogs(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// TODO: Document parseAdminRequestLogFilters.
+// parseAdminRequestLogFilters extracts request log query filters (method, path, status code, pagination, time range) from URL query parameters, returning a validation error message if any value is invalid.
 func parseAdminRequestLogFilters(query url.Values) (adminRequestLogFilters, string) {
 	filters := adminRequestLogFilters{
 		method: strings.ToUpper(strings.TrimSpace(query.Get("method"))),
@@ -128,7 +127,7 @@ func parseAdminRequestLogFilters(query url.Values) (adminRequestLogFilters, stri
 	return filters, ""
 }
 
-// TODO: Document buildAdminRequestLogsQuery.
+// buildAdminRequestLogsQuery constructs a parameterized SQL query against _ayb_request_logs with optional WHERE clauses for each non-zero filter field (including LIKE for path wildcards), ordered by timestamp descending with LIMIT/OFFSET.
 func buildAdminRequestLogsQuery(filters adminRequestLogFilters) (string, []any) {
 	sql := `SELECT id, timestamp, method, path, status_code, duration_ms,
 				user_id, api_key_id, request_size, response_size, host(ip_address), request_id

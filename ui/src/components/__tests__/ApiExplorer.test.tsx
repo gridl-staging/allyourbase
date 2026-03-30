@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { expectWcagContrastToken } from "../../test-utils";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiExplorer } from "../ApiExplorer";
@@ -103,6 +104,12 @@ describe("ApiExplorer", () => {
     render(<ApiExplorer schema={makeSchema()} />);
     expect(screen.getByText("Send")).toBeInTheDocument();
     expect(screen.getByText("Send a request to see the response")).toBeInTheDocument();
+  });
+
+  it("keyboard hint uses WCAG AA compliant contrast token", () => {
+    render(<ApiExplorer schema={makeSchema()} />);
+    const className = screen.getByText(/Enter to send/).className;
+    expectWcagContrastToken(className);
   });
 
   it("executes request and displays response", async () => {

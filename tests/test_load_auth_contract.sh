@@ -128,7 +128,7 @@ assert_section_contains tests/load/README.md "## Auth Request-Path Scenario" 'St
 assert_section_contains tests/load/README.md "## Auth Request-Path Scenario" 'Stage 7 contract assertion: `bash tests/test_load_auth_contract.sh`' "README auth section should identify the guarding contract script"
 assert_section_contains tests/load/README.md "## Auth Request-Path Scenario" 'Stage 7 caveat: refresh-token reuse must keep returning `401` after token rotation.' "README auth section should preserve the Stage 7 refresh-rotation caveat"
 
-assert_contains tests/test_load_harness.sh "make load-auth-request-path" "harness regression should validate direct auth request-path make target"
-assert_contains tests/test_load_harness.sh "make load-auth-request-path-local" "harness regression should validate local auth request-path make target"
+assert_contains tests/test_load_harness.sh "load-auth-request-path" "harness regression should validate direct auth request-path make target"
+assert_contains tests/test_load_harness.sh "load-auth-request-path-local" "harness regression should validate local auth request-path make target"
 
 echo "PASS: Stage 3 auth contract and harness boundary assertions are wired"

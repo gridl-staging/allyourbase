@@ -24,9 +24,6 @@ if (browserSkipReason) {
   setup.skip(true, browserSkipReason);
 }
 
-/**
- * TODO: Document bootstrapWithSavedToken.
- */
 async function bootstrapWithSavedToken(page: import("@playwright/test").Page, token: string): Promise<boolean> {
   await page.goto("/admin/", { waitUntil: "domcontentloaded" });
   await page.evaluate((savedToken: string) => {
@@ -46,9 +43,6 @@ async function bootstrapWithSavedToken(page: import("@playwright/test").Page, to
   }
 }
 
-/**
- * TODO: Document loginWithPassword.
- */
 async function loginWithPassword(page: import("@playwright/test").Page, password: string): Promise<void> {
   await page.goto("/admin/", { waitUntil: "domcontentloaded" });
 

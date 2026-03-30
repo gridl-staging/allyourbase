@@ -56,7 +56,6 @@ class GetParams {
   }
 }
 
-/// TODO: Document AuthResponse.
 class AuthResponse {
   const AuthResponse({
     required this.token,
@@ -85,7 +84,6 @@ class AuthResponse {
   }
 }
 
-/// TODO: Document User.
 class User {
   const User({
     required this.id,
@@ -122,7 +120,6 @@ class User {
   }
 }
 
-/// TODO: Document ListResponse.
 class ListResponse<T> {
   const ListResponse({
     required this.items,
@@ -153,7 +150,6 @@ class ListResponse<T> {
   }
 }
 
-/// TODO: Document RealtimeEvent.
 class RealtimeEvent {
   const RealtimeEvent({
     required this.action,
@@ -186,7 +182,6 @@ class RealtimeEvent {
   }
 }
 
-/// TODO: Document StorageObject.
 class StorageObject {
   const StorageObject({
     required this.id,
@@ -235,7 +230,6 @@ class StorageObject {
   }
 }
 
-/// TODO: Document BatchOperation.
 class BatchOperation {
   const BatchOperation({
     required this.method,
@@ -263,7 +257,6 @@ class BatchOperation {
   }
 }
 
-/// TODO: Document BatchResult.
 class BatchResult<T> {
   const BatchResult({
     required this.index,
@@ -303,7 +296,6 @@ class BatchResult<T> {
   }
 }
 
-/// TODO: Document DeviceToken.
 class DeviceToken {
   const DeviceToken({
     required this.id,

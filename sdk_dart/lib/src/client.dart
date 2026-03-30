@@ -28,7 +28,6 @@ class AuthSession {
   final String refreshToken;
 }
 
-/// TODO: Document RealtimeOptions.
 class RealtimeOptions {
   const RealtimeOptions({
     this.maxReconnectAttempts = 5,
@@ -51,7 +50,6 @@ class RealtimeOptions {
   final double Function()? randomDouble;
 }
 
-/// TODO: Document AYBClient.
 class AYBClient {
   AYBClient(
     String baseUrl, {
@@ -226,7 +224,6 @@ class AYBClient {
   }
 }
 
-/// TODO: Document AuthClient.
 class AuthClient {
   AuthClient(this.client);
 
@@ -563,7 +560,6 @@ class AuthClient {
   }
 }
 
-/// TODO: Document RecordsClient.
 class RecordsClient {
   RecordsClient(this.client);
 
@@ -663,7 +659,6 @@ class RecordsClient {
   }
 }
 
-/// TODO: Document StorageClient.
 class StorageClient {
   StorageClient(this.client);
 
@@ -787,7 +782,6 @@ class StorageListResponse {
   }
 }
 
-/// TODO: Document RealtimeClient.
 class RealtimeClient {
   RealtimeClient(
     this.client, {
@@ -943,7 +937,6 @@ class RealtimeClient {
   }
 }
 
-/// TODO: Document PushClient.
 class PushClient {
   PushClient(this.client);
 

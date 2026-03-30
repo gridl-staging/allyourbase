@@ -90,3 +90,9 @@ type EmbeddingResponse struct {
 	Model      string      `json:"model"`
 	Usage      Usage       `json:"usage"`
 }
+
+// maxResponseSize caps how many bytes we read from an AI provider's HTTP
+// response.  LLM completions can be large (long-form text, embeddings), so
+// the limit is generous — but still bounded to prevent OOM from a
+// misbehaving upstream.
+const maxResponseSize = 10 << 20 // 10 MB

@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/storage_cdn_admin_handler.go.
 package server
 
 import (
@@ -44,7 +43,7 @@ func (s *Server) registerAdminStorageCDNRoutes(r chi.Router) {
 	})
 }
 
-// TODO: Document Server.handleAdminStorageCDNPurge.
+// handleAdminStorageCDNPurge handles POST requests to purge CDN caches, supporting both selective URL purge and full purge-all operations.
 func (s *Server) handleAdminStorageCDNPurge(w http.ResponseWriter, r *http.Request) {
 	if s.storageHandler == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "storage service is not enabled")
@@ -98,7 +97,7 @@ func decodeStrictAdminStorageCDNPurgeRequest(w http.ResponseWriter, r *http.Requ
 	return true
 }
 
-// TODO: Document validateAdminStorageCDNPurgeRequest.
+// validateAdminStorageCDNPurgeRequest validates a CDN purge request, ensuring exactly one mode (urls or purge_all) is set and all URLs are absolute HTTP(S) URLs.
 func validateAdminStorageCDNPurgeRequest(req adminStorageCDNPurgeRequest) ([]string, string, error) {
 	cleanURLs := storage.NormalizePublicURLs(req.URLs)
 	if req.PurgeAll && len(cleanURLs) > 0 {
@@ -123,7 +122,7 @@ func validateAdminStorageCDNPurgeRequest(req adminStorageCDNPurgeRequest) ([]str
 	return cleanURLs, "purge_urls", nil
 }
 
-// TODO: Document Server.allowAdminStorageCDNPurgeAll.
+// allowAdminStorageCDNPurgeAll checks the per-client rate limit for purge-all operations, setting rate-limit headers and returning false with a 429 response if exceeded.
 func (s *Server) allowAdminStorageCDNPurgeAll(w http.ResponseWriter, r *http.Request) bool {
 	if s.storageCDNPurgeAllRL == nil {
 		return true

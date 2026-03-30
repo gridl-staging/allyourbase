@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/sites_handler.go.
 package server
 
 import (
@@ -89,7 +88,7 @@ func handleAdminListSites(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminCreateSite.
+// handleAdminCreateSite handles POST requests to create a new site, validating the name and slug then delegating to the site manager.
 func handleAdminCreateSite(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createSiteRequest
@@ -123,7 +122,7 @@ func handleAdminCreateSite(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminGetSite.
+// handleAdminGetSite handles GET requests to retrieve a single site by ID.
 func handleAdminGetSite(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := extractSiteID(w, r)
@@ -144,7 +143,7 @@ func handleAdminGetSite(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminUpdateSite.
+// handleAdminUpdateSite handles PATCH/PUT requests to update a site's name, SPA mode, or custom domain binding.
 func handleAdminUpdateSite(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := extractSiteID(w, r)
@@ -179,7 +178,7 @@ func handleAdminUpdateSite(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminDeleteSite.
+// handleAdminDeleteSite handles DELETE requests to remove a site by ID, returning 204 on success.
 func handleAdminDeleteSite(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := extractSiteID(w, r)
@@ -202,7 +201,7 @@ func handleAdminDeleteSite(svc siteManager) http.HandlerFunc {
 
 // --- deploy handlers ---
 
-// TODO: Document handleAdminListDeploys.
+// handleAdminListDeploys handles GET requests to list deploys for a site with pagination.
 func handleAdminListDeploys(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -226,7 +225,7 @@ func handleAdminListDeploys(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminCreateDeploy.
+// handleAdminCreateDeploy handles POST requests to create a new deploy for a site.
 func handleAdminCreateDeploy(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -247,7 +246,7 @@ func handleAdminCreateDeploy(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminGetDeploy.
+// handleAdminGetDeploy handles GET requests to retrieve a specific deploy by site and deploy ID.
 func handleAdminGetDeploy(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -272,7 +271,7 @@ func handleAdminGetDeploy(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminPromoteDeploy.
+// handleAdminPromoteDeploy handles POST requests to promote a deploy to live status, returning a conflict error if the state transition is invalid.
 func handleAdminPromoteDeploy(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -301,7 +300,7 @@ func handleAdminPromoteDeploy(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminFailDeploy.
+// handleAdminFailDeploy handles POST requests to mark a deploy as failed with an error message.
 func handleAdminFailDeploy(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)
@@ -335,7 +334,7 @@ func handleAdminFailDeploy(svc siteManager) http.HandlerFunc {
 	}
 }
 
-// TODO: Document handleAdminRollbackDeploy.
+// handleAdminRollbackDeploy handles POST requests to rollback a site to its previous live deploy.
 func handleAdminRollbackDeploy(svc siteManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		siteID, ok := extractSiteID(w, r)

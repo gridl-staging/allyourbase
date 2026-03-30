@@ -5,48 +5,26 @@ package openapi_test
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/openapi"
 	"github.com/allyourbase/ayb/internal/schema"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/allyourbase/ayb/internal/testutil"
 )
 
-func getTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
-	}
-	pool, err := pgxpool.New(context.Background(), dbURL)
-	if err != nil {
-		t.Fatalf("connecting to database: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
-}
-
-func execSQL(t *testing.T, pool *pgxpool.Pool, sql string) {
-	t.Helper()
-	if _, err := pool.Exec(context.Background(), sql); err != nil {
-		t.Fatalf("exec SQL: %v\nSQL: %s", err, sql)
-	}
-}
-
 func TestIntegration_OpenAPIFromLiveSchema(t *testing.T) {
-	pool := getTestPool(t)
+	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
 	t.Cleanup(func() {
-		execSQL(t, pool, `DROP TABLE IF EXISTS oa_test_items CASCADE`)
-		execSQL(t, pool, `DROP TYPE IF EXISTS oa_test_priority CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TABLE IF EXISTS oa_test_items CASCADE`)
+		testutil.ExecSQL(t, pool, `DROP TYPE IF EXISTS oa_test_priority CASCADE`)
 	})
 
 	// Create a table with varied column types.
-	execSQL(t, pool, `CREATE TYPE oa_test_priority AS ENUM ('low', 'medium', 'high')`)
-	execSQL(t, pool, `
+	testutil.ExecSQL(t, pool, `CREATE TYPE oa_test_priority AS ENUM ('low', 'medium', 'high')`)
+	testutil.ExecSQL(t, pool, `
 		CREATE TABLE oa_test_items (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			name text NOT NULL,
@@ -91,7 +69,7 @@ func TestIntegration_OpenAPIFromLiveSchema(t *testing.T) {
 	}
 
 	// Add a column and regenerate.
-	execSQL(t, pool, `ALTER TABLE oa_test_items ADD COLUMN description text`)
+	testutil.ExecSQL(t, pool, `ALTER TABLE oa_test_items ADD COLUMN description text`)
 
 	sc2, err := schema.BuildCache(ctx, pool)
 	if err != nil {

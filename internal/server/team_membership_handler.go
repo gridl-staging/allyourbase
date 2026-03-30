@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/team_membership_handler.go.
 package server
 
 import (
@@ -38,7 +37,7 @@ func writeTeamMembershipNotFoundError(w http.ResponseWriter, err error) bool {
 	return false
 }
 
-// TODO: Document Server.teamMembershipStoresHandler.
+// teamMembershipStoresHandler wraps an HTTP handler that needs the team membership, org membership, and team stores, returning 500 if any store is not configured.
 func (s *Server) teamMembershipStoresHandler(handler func(tenant.TeamMembershipStore, tenant.OrgMembershipStore, tenant.TeamStore) http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s == nil || s.teamMembershipStore == nil {
@@ -71,7 +70,7 @@ func (s *Server) teamMembershipStoreAndTeamStoreHandler(handler func(tenant.Team
 	}
 }
 
-// TODO: Document lookupTeamForMembershipRoute.
+// lookupTeamForMembershipRoute extracts org and team IDs from the request URL, fetches the team, and verifies it belongs to the org.
 func lookupTeamForMembershipRoute(r *http.Request, w http.ResponseWriter, teamStore tenant.TeamStore) (*tenant.Team, bool) {
 	orgID, ok := orgIDFromTeamMembershipRoute(r, w)
 	if !ok {
@@ -97,7 +96,7 @@ func lookupTeamForMembershipRoute(r *http.Request, w http.ResponseWriter, teamSt
 	return team, true
 }
 
-// TODO: Document handleAdminAddTeamMember.
+// handleAdminAddTeamMember returns an HTTP handler that adds a user to a team, requiring the user to already be an org member.
 func handleAdminAddTeamMember(teamMembershipStore tenant.TeamMembershipStore, orgMembershipStore tenant.OrgMembershipStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		team, ok := lookupTeamForMembershipRoute(r, w, teamStore)
@@ -156,7 +155,7 @@ func handleAdminAddTeamMember(teamMembershipStore tenant.TeamMembershipStore, or
 	}
 }
 
-// TODO: Document handleAdminListTeamMembers.
+// handleAdminListTeamMembers returns an HTTP handler that lists all memberships for a given team.
 func handleAdminListTeamMembers(teamMembershipStore tenant.TeamMembershipStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		team, ok := lookupTeamForMembershipRoute(r, w, teamStore)
@@ -175,7 +174,7 @@ func handleAdminListTeamMembers(teamMembershipStore tenant.TeamMembershipStore, 
 	}
 }
 
-// TODO: Document handleAdminUpdateTeamMemberRole.
+// handleAdminUpdateTeamMemberRole returns an HTTP handler that updates a team member's role after validating the role value.
 func handleAdminUpdateTeamMemberRole(teamMembershipStore tenant.TeamMembershipStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		team, ok := lookupTeamForMembershipRoute(r, w, teamStore)
@@ -216,7 +215,7 @@ func handleAdminUpdateTeamMemberRole(teamMembershipStore tenant.TeamMembershipSt
 	}
 }
 
-// TODO: Document handleAdminRemoveTeamMember.
+// handleAdminRemoveTeamMember returns an HTTP handler that removes a user from a team, returning 204 on success.
 func handleAdminRemoveTeamMember(teamMembershipStore tenant.TeamMembershipStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		team, ok := lookupTeamForMembershipRoute(r, w, teamStore)

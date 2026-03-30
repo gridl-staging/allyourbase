@@ -1,4 +1,3 @@
-// Package ai Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/ai/assistant_response_parser.go.
 package ai
 
 import (
@@ -34,7 +33,7 @@ func ParseAssistantResponseText(text string) AssistantParsedResponse {
 	}
 }
 
-// TODO: Document detectDestructiveWarnings.
+// detectDestructiveWarnings scans SQL text for dangerous statements (DROP DATABASE, DROP TABLE, TRUNCATE, DELETE without WHERE) and returns human-readable warnings for each match.
 func detectDestructiveWarnings(input string) []string {
 	lower := strings.ToLower(input)
 	warnings := make([]string, 0, 3)

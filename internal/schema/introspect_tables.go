@@ -1,4 +1,3 @@
-// Package schema Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/schema/introspect_tables.go.
 package schema
 
 import (
@@ -36,7 +35,7 @@ func loadPostGISExtensionStatus(ctx context.Context, querier extensionStatusQuer
 	return true, version, nil
 }
 
-// TODO: Document loadPostGISExtensions.
+// loadPostGISExtensions queries pg_extension for optional PostGIS companion extensions (topology, sfcgal, address_standardizer) and returns their names.
 func loadPostGISExtensions(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT extname
@@ -83,7 +82,7 @@ func loadTablesAndColumns(ctx context.Context, pool *pgxpool.Pool, enums map[uin
 	return tables, schemaListFromSet(schemaSet), nil
 }
 
-// TODO: Document buildTablesAndColumnsQuery.
+// buildTablesAndColumnsQuery constructs a SQL query that retrieves all tables, views, and materialized views with their column metadata from pg_catalog, excluding internal AYB tables.
 func buildTablesAndColumnsQuery() (string, []any) {
 	filter, args := schemaFilter("n.nspname", 1)
 	extraFilter := fmt.Sprintf(" AND c.relname NOT LIKE $%d", len(args)+1)
@@ -115,7 +114,7 @@ func buildTablesAndColumnsQuery() (string, []any) {
 	return query, args
 }
 
-// TODO: Document scanTablesAndColumnsRows.
+// scanTablesAndColumnsRows iterates query result rows to build a map of tables with their columns, populating type classifications (JSON, array, enum, vector) and resolving enum values.
 func scanTablesAndColumnsRows(rows pgx.Rows, enums map[uint32]*EnumType) (map[string]*Table, map[string]bool, error) {
 	tables := make(map[string]*Table)
 	schemaSet := make(map[string]bool)
@@ -223,7 +222,7 @@ func enrichSpatialColumns(ctx context.Context, pool *pgxpool.Pool, tables map[st
 	return nil
 }
 
-// TODO: Document enrichRasterColumns.
+// enrichRasterColumns queries the PostGIS raster_columns view and marks matching columns with raster metadata including SRID.
 func enrichRasterColumns(ctx context.Context, pool *pgxpool.Pool, tables map[string]*Table) error {
 	filter, args := schemaFilter("r_table_schema", 1)
 

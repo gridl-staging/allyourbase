@@ -1,4 +1,3 @@
-// Package tenant Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/tenant/org_store.go.
 package tenant
 
 import (
@@ -48,7 +47,7 @@ func NewPostgresOrgStore(pool *pgxpool.Pool, logger *slog.Logger) *PostgresOrgSt
 	return &PostgresOrgStore{pool: pool, logger: logger}
 }
 
-// TODO: Document scanOrg.
+// scanOrg reads a single Organization from a pgx.Row, mapping columns in orgColumns order.
 func scanOrg(row pgx.Row) (*Organization, error) {
 	var org Organization
 	err := row.Scan(
@@ -66,7 +65,7 @@ func scanOrg(row pgx.Row) (*Organization, error) {
 	return &org, nil
 }
 
-// TODO: Document scanOrgs.
+// scanOrgs collects all rows into a slice, returning an empty (non-nil) slice when no rows match.
 func scanOrgs(rows pgx.Rows) ([]Organization, error) {
 	var items []Organization
 	for rows.Next() {
@@ -85,7 +84,7 @@ func scanOrgs(rows pgx.Rows) ([]Organization, error) {
 	return items, nil
 }
 
-// TODO: Document PostgresOrgStore.CreateOrg.
+// CreateOrg inserts a new organization, defaulting planTier to "free" when empty. It validates the slug format and rejects parent references that would create a cycle.
 func (s *PostgresOrgStore) CreateOrg(ctx context.Context, name, slug string, parentOrgID *string, planTier string) (*Organization, error) {
 	if !IsValidSlug(slug) {
 		return nil, ErrInvalidSlug
@@ -150,7 +149,7 @@ func (s *PostgresOrgStore) GetOrgBySlug(ctx context.Context, slug string) (*Orga
 	return org, nil
 }
 
-// TODO: Document PostgresOrgStore.ListOrgs.
+// ListOrgs returns all organizations when userID is empty, or only those the user is a member of when userID is provided.
 func (s *PostgresOrgStore) ListOrgs(ctx context.Context, userID string) ([]Organization, error) {
 	var rows pgx.Rows
 	var err error
@@ -189,7 +188,7 @@ func (s *PostgresOrgStore) ListChildOrgs(ctx context.Context, parentOrgID string
 	return scanOrgs(rows)
 }
 
-// TODO: Document PostgresOrgStore.UpdateOrg.
+// UpdateOrg applies partial updates to an organization. Nil fields are left unchanged; setting ParentOrgID to an empty string clears the parent. Cycle detection runs before the write.
 func (s *PostgresOrgStore) UpdateOrg(ctx context.Context, id string, update OrgUpdate) (*Organization, error) {
 	if err := s.validateParentOrgCycle(ctx, id, update.ParentOrgID); err != nil {
 		return nil, err
@@ -249,7 +248,7 @@ func (s *PostgresOrgStore) DeleteOrg(ctx context.Context, id string) error {
 	return nil
 }
 
-// TODO: Document PostgresOrgStore.validateParentOrgCycle.
+// validateParentOrgCycle walks the org hierarchy via a recursive CTE to detect cycles before allowing a parent assignment. It short-circuits for nil/empty parentOrgID or when orgID is empty (new org creation).
 func (s *PostgresOrgStore) validateParentOrgCycle(ctx context.Context, orgID string, parentOrgID *string) error {
 	if parentOrgID == nil {
 		return nil

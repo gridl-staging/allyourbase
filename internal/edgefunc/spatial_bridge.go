@@ -1,4 +1,3 @@
-// Package edgefunc Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/edgefunc/spatial_bridge.go.
 package edgefunc
 
 import (
@@ -56,7 +55,7 @@ func setupSpatial(vm *goja.Runtime, sqe SpatialQueryExecutor, cacheGetter func()
 	return setupSpatialWithContext(vm, context.Background(), sqe, cacheGetter)
 }
 
-// TODO: Document setupSpatialWithContext.
+// setupSpatialWithContext registers ayb.spatial.near/within/bbox/info methods on the Goja runtime, but only when PostGIS is available in the schema cache. Returns nil without registering anything if the executor, cache, or PostGIS support is absent.
 func setupSpatialWithContext(
 	vm *goja.Runtime,
 	ctx context.Context,
@@ -91,7 +90,7 @@ func setupSpatialWithContext(
 	return aybObj.Set("spatial", spatialObj)
 }
 
-// TODO: Document registerSpatialNearMethod.
+// registerSpatialNearMethod exposes ayb.spatial.near(table, column, lng, lat, distance, opts) which finds rows within a given distance of a point.
 func registerSpatialNearMethod(
 	vm *goja.Runtime,
 	spatialObj *goja.Object,
@@ -117,7 +116,7 @@ func registerSpatialNearMethod(
 	})
 }
 
-// TODO: Document registerSpatialWithinMethod.
+// registerSpatialWithinMethod exposes ayb.spatial.within(table, column, geojson, opts) which finds rows whose geometry falls inside a GeoJSON Polygon or MultiPolygon.
 func registerSpatialWithinMethod(
 	vm *goja.Runtime,
 	spatialObj *goja.Object,
@@ -148,7 +147,7 @@ func registerSpatialWithinMethod(
 	})
 }
 
-// TODO: Document registerSpatialBBoxMethod.
+// registerSpatialBBoxMethod exposes ayb.spatial.bbox(table, column, minLng, minLat, maxLng, maxLat, opts) which finds rows whose geometry intersects a bounding box.
 func registerSpatialBBoxMethod(
 	vm *goja.Runtime,
 	spatialObj *goja.Object,
@@ -192,7 +191,7 @@ func registerSpatialInfoMethod(
 	})
 }
 
-// TODO: Document parseNearCallParams.
+// parseNearCallParams extracts and validates the positional arguments for ayb.spatial.near, including WGS84 coordinate validation and a positive distance requirement.
 func parseNearCallParams(vm *goja.Runtime, call goja.FunctionCall) (nearCallParams, error) {
 	tableName, err := requiredStringArgument(call, 0, "table")
 	if err != nil {
@@ -231,7 +230,7 @@ func parseNearCallParams(vm *goja.Runtime, call goja.FunctionCall) (nearCallPara
 	}, nil
 }
 
-// TODO: Document parseWithinCallParams.
+// parseWithinCallParams extracts and validates the positional arguments for ayb.spatial.within (table, column, geojson, and optional options).
 func parseWithinCallParams(vm *goja.Runtime, call goja.FunctionCall) (withinCallParams, error) {
 	tableName, err := requiredStringArgument(call, 0, "table")
 	if err != nil {
@@ -254,7 +253,7 @@ func parseWithinCallParams(vm *goja.Runtime, call goja.FunctionCall) (withinCall
 	}, nil
 }
 
-// TODO: Document parseBBoxCallParams.
+// parseBBoxCallParams extracts and validates the six positional arguments for ayb.spatial.bbox (table, column, minLng, minLat, maxLng, maxLat) plus optional options.
 func parseBBoxCallParams(vm *goja.Runtime, call goja.FunctionCall) (bboxCallParams, error) {
 	tableName, err := requiredStringArgument(call, 0, "table")
 	if err != nil {
@@ -292,7 +291,7 @@ func parseBBoxCallParams(vm *goja.Runtime, call goja.FunctionCall) (bboxCallPara
 	}, nil
 }
 
-// TODO: Document spatialFilterExecutor.execute.
+// execute builds a spatial SELECT query from the filter, runs it via QueryRaw, and returns the result rows as a Goja value. Panics with a Go error on failure, which Goja surfaces as a JS exception.
 func (filterExecutor spatialFilterExecutor) execute(
 	table *schema.Table,
 	filter spatial.Filter,
@@ -323,7 +322,7 @@ func spatialInfoPayload(cache *schema.SchemaCache) map[string]any {
 	return summary.ToMap()
 }
 
-// TODO: Document resolveSpatialTableAndColumn.
+// resolveSpatialTableAndColumn looks up a table and geometry column from the schema cache, restricting resolution to the public schema to match ayb.db's access scope.
 func resolveSpatialTableAndColumn(cache *schema.SchemaCache, tableName, columnName string) (*schema.Table, *schema.Column, error) {
 	if cache == nil {
 		return nil, nil, fmt.Errorf("schema cache is unavailable")
@@ -349,7 +348,7 @@ func resolveSpatialTableAndColumn(cache *schema.SchemaCache, tableName, columnNa
 	return table, column, nil
 }
 
-// TODO: Document buildSpatialSelectSQL.
+// buildSpatialSelectSQL constructs a SELECT with ST_AsGeoJSON for geometry columns, a spatial WHERE clause, and optional parameterized LIMIT/OFFSET.
 func buildSpatialSelectSQL(table *schema.Table, spatialSQL string, spatialArgs []any, limit, offset int) (string, []any) {
 	selectList := make([]string, 0, len(table.Columns))
 	for _, column := range table.Columns {
@@ -396,7 +395,7 @@ func requiredStringArgument(call goja.FunctionCall, index int, name string) (str
 	return value, nil
 }
 
-// TODO: Document requiredFloatArgument.
+// requiredFloatArgument extracts a numeric Goja argument at the given index, accepting any Go numeric type and converting to float64.
 func requiredFloatArgument(call goja.FunctionCall, index int, name string) (float64, error) {
 	if len(call.Arguments) <= index {
 		return 0, fmt.Errorf("%s is required", name)
@@ -423,7 +422,7 @@ func requiredFloatArgument(call goja.FunctionCall, index int, name string) (floa
 	}
 }
 
-// TODO: Document parseSpatialCallOptions.
+// parseSpatialCallOptions reads an optional JS object argument at the given index and extracts limit/offset pagination fields, panicking on invalid types.
 func parseSpatialCallOptions(vm *goja.Runtime, call goja.FunctionCall, index int) spatialCallOptions {
 	if len(call.Arguments) <= index || goja.IsUndefined(call.Arguments[index]) || goja.IsNull(call.Arguments[index]) {
 		return spatialCallOptions{}
@@ -459,7 +458,7 @@ func parseSpatialCallOptions(vm *goja.Runtime, call goja.FunctionCall, index int
 	return parsed
 }
 
-// TODO: Document numericOptionToInt.
+// numericOptionToInt coerces a JS-exported value (int, int64, float64, or string) to a Go int, rejecting non-integer floats and unparseable strings.
 func numericOptionToInt(raw any, optionName string) (int, error) {
 	switch value := raw.(type) {
 	case int:

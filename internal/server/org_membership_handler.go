@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/org_membership_handler.go.
 package server
 
 import (
@@ -62,7 +61,7 @@ func (s *Server) orgStoreMembershipHandler(handler func(tenant.OrgStore, tenant.
 	}
 }
 
-// TODO: Document handleAdminAddOrgMember.
+// handleAdminAddOrgMember handles POST requests to add a user to an organization with a specified role, validating the user ID format and role value.
 func handleAdminAddOrgMember(orgStore tenant.OrgStore, store tenant.OrgMembershipStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := lookupOrgMembershipRouteOrgID(r, w, orgStore)
@@ -110,7 +109,7 @@ func handleAdminAddOrgMember(orgStore tenant.OrgStore, store tenant.OrgMembershi
 	}
 }
 
-// TODO: Document handleAdminListOrgMembers.
+// handleAdminListOrgMembers handles GET requests to list all memberships for an organization.
 func handleAdminListOrgMembers(orgStore tenant.OrgStore, store tenant.OrgMembershipStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := lookupOrgMembershipRouteOrgID(r, w, orgStore)
@@ -130,7 +129,7 @@ func handleAdminListOrgMembers(orgStore tenant.OrgStore, store tenant.OrgMembers
 	}
 }
 
-// TODO: Document handleAdminUpdateOrgMemberRole.
+// handleAdminUpdateOrgMemberRole handles PATCH requests to change a member's role within an organization, preventing demotion of the last owner.
 func handleAdminUpdateOrgMemberRole(orgStore tenant.OrgStore, store tenant.OrgMembershipStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := lookupOrgMembershipRouteOrgID(r, w, orgStore)
@@ -177,7 +176,7 @@ func handleAdminUpdateOrgMemberRole(orgStore tenant.OrgStore, store tenant.OrgMe
 	}
 }
 
-// TODO: Document handleAdminRemoveOrgMember.
+// handleAdminRemoveOrgMember handles DELETE requests to remove a user's membership from an organization, preventing removal of the last owner.
 func handleAdminRemoveOrgMember(orgStore tenant.OrgStore, store tenant.OrgMembershipStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := lookupOrgMembershipRouteOrgID(r, w, orgStore)

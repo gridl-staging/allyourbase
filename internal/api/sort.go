@@ -1,4 +1,3 @@
-// Package api Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/api/sort.go.
 package api
 
 import (
@@ -29,7 +28,7 @@ type resolvedSort struct {
 	Args           []any
 }
 
-// TODO: Document parseStructuredSort.
+// parseStructuredSort parses a comma-separated sort parameter (e.g. "-created,+name" or "location.distance(lng,lat)") into typed StructuredSortTerm values, validating columns against the table schema. At most one distance term is allowed and it must appear first.
 func parseStructuredSort(tbl *schema.Table, sortParam string, hasPostGIS bool) (StructuredSort, error) {
 	if sortParam == "" {
 		return StructuredSort{}, nil
@@ -88,7 +87,7 @@ func parseStructuredSort(tbl *schema.Table, sortParam string, hasPostGIS bool) (
 	return parsed, nil
 }
 
-// TODO: Document parseDistanceSortTerm.
+// parseDistanceSortTerm detects and parses a "column.distance(lng,lat)" sort token into a StructuredSortTerm with a spatial DistanceSort. Returns (term, false, nil) when the token is not a distance expression.
 func parseDistanceSortTerm(tbl *schema.Table, token string, hasPostGIS bool) (StructuredSortTerm, bool, error) {
 	const distanceMarker = ".distance("
 
@@ -161,7 +160,7 @@ func parsePlainSortToken(token string) (column string, desc bool) {
 	return column, false
 }
 
-// TODO: Document splitSortTerms.
+// splitSortTerms splits a sort parameter string on commas while respecting parenthesized groups, so that "col.distance(1,2),-name" correctly yields two terms instead of three.
 func splitSortTerms(sortParam string) []string {
 	var (
 		terms []string
@@ -189,7 +188,7 @@ func splitSortTerms(sortParam string) []string {
 	return terms
 }
 
-// TODO: Document ensureStructuredSortPKTiebreaker.
+// ensureStructuredSortPKTiebreaker appends any primary key columns not already in the sort list to guarantee deterministic ordering for cursor-based pagination.
 func ensureStructuredSortPKTiebreaker(tbl *schema.Table, sort StructuredSort) StructuredSort {
 	if len(tbl.PrimaryKey) == 0 {
 		return sort
@@ -217,7 +216,7 @@ func ensureStructuredSortPKTiebreaker(tbl *schema.Table, sort StructuredSort) St
 	return StructuredSort{Terms: terms}
 }
 
-// TODO: Document resolveStructuredSort.
+// resolveStructuredSort converts parsed StructuredSort terms into concrete SortField values with SQL expressions and parameterized args, including the distance SELECT alias when a spatial distance term is present.
 func resolveStructuredSort(sort StructuredSort, paramOffset int) (resolvedSort, error) {
 	out := resolvedSort{Fields: make([]SortField, 0, len(sort.Terms))}
 	for _, term := range sort.Terms {

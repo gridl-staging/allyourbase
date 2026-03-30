@@ -1,4 +1,3 @@
-// Package ai OllamaProvider implements Provider and EmbeddingProvider interfaces for local Ollama servers, communicating via HTTP to generate text and embeddings.
 package ai
 
 import (
@@ -8,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const ollamaDefaultBaseURL = "http://localhost:11434"
@@ -25,11 +25,10 @@ func NewOllamaProvider(baseURL string) *OllamaProvider {
 	}
 	return &OllamaProvider{
 		baseURL: baseURL,
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-// GenerateText calls the Ollama chat API endpoint and returns the generated text response with token usage and finish reason information.
 func (p *OllamaProvider) GenerateText(ctx context.Context, req GenerateTextRequest) (GenerateTextResponse, error) {
 	messages := buildOllamaMessages(req)
 
@@ -56,7 +55,7 @@ func (p *OllamaProvider) GenerateText(ctx context.Context, req GenerateTextReque
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return GenerateTextResponse{}, fmt.Errorf("ollama: read response: %w", err)
 	}
@@ -129,7 +128,6 @@ type ollamaResponse struct {
 	EvalCount       int           `json:"eval_count"`
 }
 
-// GenerateEmbedding implements EmbeddingProvider for Ollama.
 func (p *OllamaProvider) GenerateEmbedding(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
 	body := ollamaEmbedRequest(req)
 
@@ -150,7 +148,7 @@ func (p *OllamaProvider) GenerateEmbedding(ctx context.Context, req EmbeddingReq
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return EmbeddingResponse{}, fmt.Errorf("ollama: read embedding response: %w", err)
 	}

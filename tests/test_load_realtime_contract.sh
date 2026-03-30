@@ -170,8 +170,8 @@ assert_contains Makefile "load-realtime-ws-local:" "makefile should expose local
 assert_not_contains Makefile "\"type\":\"subscribe\"" "makefile should not duplicate websocket subscribe payload bodies"
 assert_not_contains Makefile "/api/realtime/ws" "makefile should not duplicate websocket endpoint specifics"
 
-assert_contains tests/test_load_harness.sh "make load-realtime-ws" "harness regression should validate direct Stage 5 realtime target"
-assert_contains tests/test_load_harness.sh "make load-realtime-ws-local" "harness regression should validate local Stage 5 realtime target"
+assert_contains tests/test_load_harness.sh "load-realtime-ws" "harness regression should validate direct Stage 5 realtime target"
+assert_contains tests/test_load_harness.sh "load-realtime-ws-local" "harness regression should validate local Stage 5 realtime target"
 assert_contains tests/test_load_harness.sh "tests/load/scenarios/realtime_ws_subscribe.js" "harness regression should assert realtime target executes Stage 5 scenario"
 assert_contains tests/test_load_harness.sh "realtime local target should enable auth for the started server" "harness regression should lock realtime-local auth enablement"
 assert_contains tests/test_load_harness.sh "realtime local target should inject a non-empty, non-static jwt secret for the started server" "harness regression should lock realtime-local jwt env export"

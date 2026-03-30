@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // StripeAdapter defines the methods needed by BillingService for Stripe lifecycle calls.
@@ -42,7 +43,7 @@ func NewStripeHTTPAdapter(apiKey string, cfg StripeAdapterConfig) *StripeHTTPAda
 	if strings.TrimSpace(cfg.BaseURL) != "" {
 		baseURL = strings.TrimRight(cfg.BaseURL, "/")
 	}
-	var client doer = http.DefaultClient
+	var client doer = &http.Client{Timeout: 30 * time.Second}
 	if cfg.Client != nil {
 		client = cfg.Client
 	}
@@ -124,7 +125,6 @@ func (a *StripeHTTPAdapter) post(ctx context.Context, path string, payload url.V
 	return a.request(ctx, http.MethodPost, path, payload, idempotencyKey, out)
 }
 
-// request executes an HTTP request to a Stripe API endpoint with Bearer token authentication and an optional idempotency key, returning stripeError on non-2xx responses and decoding successful JSON responses into out.
 func (a *StripeHTTPAdapter) request(ctx context.Context, method, path string, payload url.Values, idempotencyKey string, out any) error {
 	path = ensureLeadingSlash(path)
 	requestURL := a.baseURL + path
@@ -152,7 +152,7 @@ func (a *StripeHTTPAdapter) request(ctx context.Context, method, path string, pa
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 		return &stripeError{
 			StatusCode: resp.StatusCode,
 			Body:       strings.TrimSpace(string(bodyBytes)),
@@ -161,7 +161,7 @@ func (a *StripeHTTPAdapter) request(ctx context.Context, method, path string, pa
 	if out == nil {
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(out); err != nil {
 		return fmt.Errorf("decode stripe response: %w", err)
 	}
 	return nil
@@ -186,6 +186,9 @@ func (e *stripeError) Error() string {
 func stripeIDempotencyKey(parts ...string) string {
 	return fmt.Sprintf("%s:%s", billingIDPrefix, strings.Join(parts, ":"))
 }
+
+// maxResponseSize caps how many bytes we read from the Stripe API response.
+const maxResponseSize = 1 << 20 // 1 MB
 
 const billingIDPrefix = "ayb-billing"
 

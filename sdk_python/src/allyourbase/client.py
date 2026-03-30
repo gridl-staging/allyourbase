@@ -1,6 +1,3 @@
-"""
-Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/sdk_python/src/allyourbase/client.py.
-"""
 
 from __future__ import annotations
 
@@ -15,7 +12,6 @@ AuthStateListener = Callable[[str, Optional[Dict[str, str]]], None]
 
 
 class AYBClient:
-    """AllYourBase Python client."""
 
     def __init__(
         self,
@@ -30,8 +26,8 @@ class AYBClient:
         self._auth_listeners: Set[AuthStateListener] = set()
 
         from allyourbase.auth import AuthClient
-        from allyourbase.records import RecordsClient
         from allyourbase.realtime import RealtimeClient
+        from allyourbase.records import RecordsClient
         from allyourbase.storage import StorageClient
 
         self.auth = AuthClient(self)
@@ -87,7 +83,6 @@ class AYBClient:
         data: Optional[Any] = None,
         skip_auth: bool = False,
     ) -> Optional[httpx.Response]:
-        """TODO: Document AYBClient._request."""
         req_headers: Dict[str, str] = dict(headers or {})
         if not skip_auth and self._token is not None:
             req_headers["Authorization"] = f"Bearer {self._token}"
@@ -134,7 +129,6 @@ class AYBClient:
 
 
 def _raise_error(resp: httpx.Response) -> None:
-    """TODO: Document _raise_error."""
     status = resp.status_code
     message = resp.reason_phrase or f"HTTP {status}"
     code: Optional[str] = None

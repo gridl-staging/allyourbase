@@ -10,7 +10,6 @@ class IntegrationCredentials {
   final String password;
 }
 
-/// TODO: Document IntegrationTestEnv.
 class IntegrationTestEnv {
   IntegrationTestEnv._({
     required this.baseUrl,

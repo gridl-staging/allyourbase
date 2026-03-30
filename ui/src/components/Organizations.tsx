@@ -327,7 +327,7 @@ function OrganizationDetailPane({
   if (!detail.org) {
     if (selectedId && detail.isLoading) {
       return (
-        <div className="flex items-center justify-center h-full gap-2 text-gray-500 dark:text-gray-400">
+        <div className="flex items-center justify-center h-full gap-2 text-gray-500 dark:text-gray-300">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span>Loading organization details…</span>
         </div>
@@ -343,7 +343,7 @@ function OrganizationDetailPane({
       );
     }
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-300">
         {listItemCount === 0 ? "No organizations found" : "Select an organization to view details"}
       </div>
     );
@@ -360,7 +360,7 @@ function OrganizationDetailPane({
       />
       {detail.isLoading ? (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
         </div>
       ) : (
         <>
@@ -408,8 +408,8 @@ export function Organizations() {
   if (listState.isLoading && listState.items.length === 0) {
     return (
       <div data-testid="organizations-view" className="flex-1 flex items-center justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400 mr-2" />
-        <span className="text-gray-500 dark:text-gray-400">Loading organizations…</span>
+        <Loader2 className="w-6 h-6 animate-spin text-gray-500 mr-2" />
+        <span className="text-gray-500 dark:text-gray-300">Loading organizations…</span>
       </div>
     );
   }

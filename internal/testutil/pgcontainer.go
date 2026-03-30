@@ -31,9 +31,6 @@ func (pg *PGContainer) Cleanup() {
 	}
 }
 
-// StartPostgresForTestMain connects to TEST_DATABASE_URL, creates a temporary
-// database for isolation, and returns a pool + cleanup function.
-// Panics on failure since TestMain has no *testing.T.
 func StartPostgresForTestMain(ctx context.Context) (*PGContainer, func()) {
 	baseURL := os.Getenv("TEST_DATABASE_URL")
 	if baseURL == "" {

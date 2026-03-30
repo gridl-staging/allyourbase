@@ -21,9 +21,6 @@ const defaultFiles = [
   },
 ];
 
-/**
- * TODO: Document mockAdminStorageApis.
- */
 export async function mockAdminStorageApis(
   page: Page,
   options: StorageMockOptions = {},

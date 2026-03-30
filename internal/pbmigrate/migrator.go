@@ -187,7 +187,7 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	return &m.stats, nil
 }
 
-// TODO: Document Migrator.migrateSchema.
+// migrateSchema creates PostgreSQL tables, views, and indexes for each non-system, non-auth PocketBase collection.
 func (m *Migrator) migrateSchema(ctx context.Context, tx *sql.Tx, collections []PBCollection, phase migrate.Phase) error {
 	completed := 0
 	for _, coll := range collections {
@@ -310,7 +310,7 @@ func (m *Migrator) migrateData(ctx context.Context, tx *sql.Tx, collections []PB
 	return nil
 }
 
-// TODO: Document Migrator.insertBatch.
+// insertBatch inserts a slice of PBRecord rows into a PostgreSQL table, coercing SQLite types (booleans, arrays) to their PostgreSQL equivalents.
 func (m *Migrator) insertBatch(ctx context.Context, tx *sql.Tx, tableName string, schema []PBField, records []PBRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -453,7 +453,7 @@ func coerceToTextArray(val interface{}) interface{} {
 	}
 }
 
-// TODO: Document Migrator.migrateRLS.
+// migrateRLS enables row-level security on each non-system table and creates the generated RLS policies, recording diagnostics for unconvertible rules.
 func (m *Migrator) migrateRLS(ctx context.Context, tx *sql.Tx, collections []PBCollection) error {
 	for _, coll := range collections {
 		// Skip system, auth, and view collections

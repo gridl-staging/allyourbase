@@ -1,4 +1,3 @@
-// Package server Stub summary for /Users/stuart/parallel_development/allyourbase_dev/MAR18_WS_C_phase5_features_and_phase6/allyourbase_dev/internal/server/team_handler.go.
 package server
 
 import (
@@ -34,7 +33,7 @@ func teamIDFromURL(r *http.Request, w http.ResponseWriter) (string, bool) {
 	return teamID, true
 }
 
-// TODO: Document lookupTeamInOrg.
+// lookupTeamInOrg retrieves a team by URL param and verifies it belongs to the given org, writing an HTTP error and returning false on failure.
 func lookupTeamInOrg(r *http.Request, w http.ResponseWriter, store tenant.TeamStore, orgID string) (*tenant.Team, bool) {
 	teamID, ok := teamIDFromURL(r, w)
 	if !ok {
@@ -60,7 +59,7 @@ func (s *Server) orgTeamStoreHandler(handler func(tenant.OrgStore, tenant.TeamSt
 	return s.orgAndTeamStoreHandler(handler)
 }
 
-// TODO: Document handleAdminCreateTeam.
+// handleAdminCreateTeam returns an HTTP handler that creates a team within an org, validating the name and slug before persisting.
 func handleAdminCreateTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, ok := lookupOrg(r, w, orgStore)
@@ -109,7 +108,7 @@ func handleAdminCreateTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore)
 	}
 }
 
-// TODO: Document handleAdminListTeams.
+// handleAdminListTeams returns an HTTP handler that lists all teams belonging to a specified org.
 func handleAdminListTeams(orgStore tenant.OrgStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, ok := lookupOrg(r, w, orgStore)
@@ -144,7 +143,7 @@ func handleAdminGetTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore) ht
 	}
 }
 
-// TODO: Document handleAdminUpdateTeam.
+// handleAdminUpdateTeam returns an HTTP handler that updates a team's name and/or slug after verifying the team belongs to the specified org.
 func handleAdminUpdateTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := orgIDFromURL(r, w)
@@ -203,7 +202,7 @@ func handleAdminUpdateTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore)
 	}
 }
 
-// TODO: Document handleAdminDeleteTeam.
+// handleAdminDeleteTeam returns an HTTP handler that deletes a team after verifying it belongs to the specified org.
 func handleAdminDeleteTeam(orgStore tenant.OrgStore, teamStore tenant.TeamStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgID, ok := orgIDFromURL(r, w)

@@ -8,9 +8,6 @@ import { toErrorMessage, type UseOrgManagementArgs } from "./organization-manage
 
 type TenantArgs = Pick<UseOrgManagementArgs, "selectedId" | "setDetail">;
 
-/**
- * TODO: Document useTenantAssignmentControls.
- */
 export function useTenantAssignmentControls({ selectedId, setDetail }: TenantArgs) {
   const [assignTenantId, setAssignTenantId] = useState("");
   const [tenantActionError, setTenantActionError] = useState<string | null>(null);

@@ -159,7 +159,7 @@ func NewWithFieldEncryptor(cfg *config.Config, logger *slog.Logger, schemaCache 
 	return newServer(cfg, logger, schemaCache, pool, authSvc, storageSvc, fieldEncryptor)
 }
 
-// TODO: Document newServer.
+// newServer constructs a fully wired Server with router, middleware, tracing, realtime hub, and all service integrations.
 func newServer(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolder, pool *pgxpool.Pool, authSvc *auth.Service, storageSvc *storage.Service, fieldEncryptor *api.FieldEncryptor) *Server {
 	r := chi.NewRouter()
 	tracerProvider, outboundTransport := initTracing(cfg, r, logger)
@@ -260,7 +260,7 @@ func newServerRequestLogger(cfg *config.Config, logger *slog.Logger, pool *pgxpo
 	}, logger, pool)
 }
 
-// TODO: Document applyDeferredServerRouteMiddleware.
+// applyDeferredServerRouteMiddleware registers host-routing and site-runtime middleware that resolve lazily via a Server pointer, allowing them to run before the Server is fully constructed.
 func applyDeferredServerRouteMiddleware(r chi.Router, serverRef **Server) {
 	useDeferredServerMiddleware(r, serverRef, func(s *Server, next http.Handler) http.Handler {
 		return s.hostRouteMiddleware(next)
@@ -282,7 +282,7 @@ func useDeferredServerMiddleware(r chi.Router, serverRef **Server, wrap func(*Se
 	})
 }
 
-// TODO: Document Server.registerServerAPIRoutes.
+// registerServerAPIRoutes mounts the /api route group with IP allowlists, tenant resolution, rate limiting, and all sub-route registrations (admin, auth, storage, webhooks, and public API).
 func (s *Server) registerServerAPIRoutes(r chi.Router, tenantMetricsMiddleware func(http.Handler) http.Handler) {
 	serverAllowlist := newIPAllowlist("server.allowed_ips", s.cfg.Server.AllowedIPs, s.logger)
 	adminAllowlist := newIPAllowlist("admin.allowed_ips", s.cfg.Admin.AllowedIPs, s.logger)

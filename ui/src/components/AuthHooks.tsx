@@ -40,7 +40,7 @@ export function AuthHooks() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Auth Hooks
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-300">Loading...</p>
       </div>
     );
   }
@@ -66,7 +66,7 @@ export function AuthHooks() {
               className={
                 hooks[key]
                   ? "text-sm font-mono text-gray-900 dark:text-gray-100"
-                  : "text-sm text-gray-400 dark:text-gray-500 italic"
+                  : "text-sm text-gray-500 dark:text-gray-300 italic"
               }
             >
               {hooks[key] || "Not configured"}

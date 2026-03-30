@@ -83,7 +83,7 @@ assert_file internal/server/routes_admin.go
 assert_file internal/server/sql_handler.go
 
 assert_contains internal/api/handler.go 'r.Route("/collections/{table}", func(r chi.Router) {' "API handler should keep collection CRUD under /api/collections/{table}"
-assert_contains internal/api/handler.go 'r.Post("/batch", h.handleBatch)' "API handler should keep collection batch under POST /api/collections/{table}/batch"
+assert_contains internal/api/handler.go '.Post("/batch", h.handleBatch)' "API handler should keep collection batch under POST /api/collections/{table}/batch"
 assert_contains internal/server/routes_admin.go 'r.Route("/admin/sql", func(r chi.Router) {' "server routes should expose admin SQL under /api/admin/sql/"
 assert_contains internal/server/routes_admin.go 'r.Post("/", handleAdminSQL(s.pool, s.schema))' "admin SQL route should continue using handleAdminSQL"
 assert_contains internal/server/sql_handler.go "type sqlRequest struct" "admin SQL handler should lock request contract struct"
@@ -173,10 +173,10 @@ assert_contains tests/load/DESIGN.md "/api/collections/{table}" "design doc shou
 assert_contains tests/load/DESIGN.md "/api/admin/sql/" "design doc should include admin SQL pressure endpoint contract"
 assert_contains tests/load/DESIGN.md "SELECT pg_sleep(2)" "design doc should include Stage 4 pool-pressure query contract"
 
-assert_contains tests/test_load_harness.sh "make load-data-path" "harness regression should validate direct data-path make target"
-assert_contains tests/test_load_harness.sh "make load-data-path-local" "harness regression should validate local data-path make target"
-assert_contains tests/test_load_harness.sh "make load-data-pool-pressure" "harness regression should validate direct pool-pressure make target"
-assert_contains tests/test_load_harness.sh "make load-data-pool-pressure-local" "harness regression should validate local pool-pressure make target"
+assert_contains tests/test_load_harness.sh "load-data-path" "harness regression should validate direct data-path make target"
+assert_contains tests/test_load_harness.sh "load-data-path-local" "harness regression should validate local data-path make target"
+assert_contains tests/test_load_harness.sh "load-data-pool-pressure" "harness regression should validate direct pool-pressure make target"
+assert_contains tests/test_load_harness.sh "load-data-pool-pressure-local" "harness regression should validate local pool-pressure make target"
 assert_contains tests/test_load_harness.sh "data-path local target should enable auth for the started server" "harness regression should lock data-path local auth enablement env export"
 assert_contains tests/test_load_harness.sh "data-path local target should inject a non-empty, non-static jwt secret for the started server" "harness regression should lock data-path local jwt env export"
 

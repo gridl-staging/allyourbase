@@ -75,7 +75,6 @@ test.describe("Edge Function Log Filters (Full E2E)", () => {
     const probeStatus = await probeEndpoint(request, adminToken, "/api/admin/functions");
     // This full E2E flow depends on the optional edge-functions service.
     // Skip cleanly when the environment does not expose that surface.
-    // eslint-disable-next-line playwright/no-skipped-test
     test.skip(
       probeStatus === 503 || probeStatus === 404 || probeStatus === 501 || probeStatus === 500,
       `Edge functions service unavailable (status ${probeStatus})`,

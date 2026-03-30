@@ -235,7 +235,7 @@ func (s *Server) handlePITRJobAbandon(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "abandoned"})
 }
 
-// TODO: Document requestedByFromRequest.
+// requestedByFromRequest extracts a human-readable requester identity from the HTTP request, preferring the JWT subject, then API key ID, then audit principal, then client IP, falling back to "admin".
 func requestedByFromRequest(r *http.Request) string {
 	if r == nil {
 		return "admin"

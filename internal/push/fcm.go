@@ -1,4 +1,3 @@
-// Package push FCMProvider sends push notifications via Firebase Cloud Messaging HTTP v1, managing OAuth token authentication and mapping FCM error responses.
 package push
 
 import (
@@ -121,7 +120,6 @@ func (p *FCMProvider) Send(ctx context.Context, token string, msg *Message) (*Re
 	return p.sendWithCachedToken(ctx, token, msg)
 }
 
-// sends a device notification via the FCM HTTP v1 API, building the payload from the message and returning the FCM message ID on success.
 func (p *FCMProvider) sendWithCachedToken(ctx context.Context, deviceToken string, msg *Message) (*Result, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("%w: message is required", ErrProviderError)
@@ -164,7 +162,7 @@ func (p *FCMProvider) sendWithCachedToken(ctx context.Context, deviceToken strin
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read response: %v", ErrProviderError, err)
 	}
@@ -187,7 +185,6 @@ func (p *FCMProvider) sendWithCachedToken(ctx context.Context, deviceToken strin
 	return &Result{MessageID: success.Name}, nil
 }
 
-// returns a valid OAuth access token for FCM, maintaining a cached token with automatic refresh when it expires or will expire within 5 minutes.
 func (p *FCMProvider) getAccessToken(ctx context.Context) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -218,7 +215,7 @@ func (p *FCMProvider) getAccessToken(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return "", fmt.Errorf("%w: read oauth response: %v", ErrProviderAuth, err)
 	}

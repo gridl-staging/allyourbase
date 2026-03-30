@@ -18,11 +18,11 @@ class MultipartBodyTest {
         assertEquals("multipart/form-data; boundary=test-boundary", built.contentType)
 
         val text = built.body.decodeToString()
-        assertTrue(text.contains("--test-boundary\\r\\n"))
-        assertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"greeting.txt\"\\r\\n"))
-        assertTrue(text.contains("Content-Type: text/plain\\r\\n"))
-        assertTrue(text.contains("\\r\\nhello\\r\\n"))
-        assertTrue(text.contains("--test-boundary--\\r\\n"))
+        assertTrue(text.contains("--test-boundary\r\n"))
+        assertTrue(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"greeting.txt\"\r\n"))
+        assertTrue(text.contains("Content-Type: text/plain\r\n"))
+        assertTrue(text.contains("\r\nhello\r\n"))
+        assertTrue(text.contains("--test-boundary--\r\n"))
     }
 
     @Test
@@ -34,9 +34,9 @@ class MultipartBodyTest {
         )
 
         val text = built.body.decodeToString()
-        assertTrue(text.contains("Content-Disposition: form-data; name=\"file\"\\r\\n"))
+        assertTrue(text.contains("Content-Disposition: form-data; name=\"file\"\r\n"))
         assertTrue(!text.contains("filename="))
         assertTrue(!text.contains("Content-Type:"))
-        assertTrue(text.endsWith("--test-boundary-2--\\r\\n"))
+        assertTrue(text.endsWith("--test-boundary-2--\r\n"))
     }
 }

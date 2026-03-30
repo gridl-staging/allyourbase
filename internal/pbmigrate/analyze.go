@@ -1,4 +1,3 @@
-// Package pbmigrate Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar22_pm_03_pbmigrate_hardening/allyourbase_dev/internal/pbmigrate/analyze.go.
 package pbmigrate
 
 import (
@@ -9,7 +8,7 @@ import (
 	"github.com/allyourbase/ayb/internal/migrate"
 )
 
-// TODO: Document Analyze.
+// Analyze reads a PocketBase source directory and returns an AnalysisReport summarizing tables, views, records, auth users, RLS policies, and storage files.
 func Analyze(sourcePath string) (*migrate.AnalysisReport, error) {
 	reader, err := NewReader(sourcePath)
 	if err != nil {
@@ -93,7 +92,7 @@ func Analyze(sourcePath string) (*migrate.AnalysisReport, error) {
 	return report, nil
 }
 
-// TODO: Document countPolicies.
+// countPolicies returns the number of convertible RLS policies for a collection and any diagnostics for unconvertible rules.
 func countPolicies(coll PBCollection) (int, []RLSDiagnostic) {
 	if coll.System || coll.Type == "auth" || coll.Type == "view" {
 		return 0, nil

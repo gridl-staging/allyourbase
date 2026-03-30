@@ -1,4 +1,3 @@
-// Package cli Stub summary for /Users/stuart/parallel_development/allyourbase_dev/mar19_03_go_code_quality_refactoring/allyourbase_dev/internal/cli/start_services_wire.go.
 package cli
 
 import (
@@ -84,7 +83,7 @@ func wireServices(
 	return phase.state, nil
 }
 
-// TODO: Document wireServerAndVaultBootstrap.
+// wireServerAndVaultBootstrap initializes the vault engine, creates the HTTP server with field encryption, and wires billing, support, and FDW services.
 func wireServerAndVaultBootstrap(args wireServicesArgs, phase *wireServicesPhaseState) error {
 	var vaultEngine *vault.Vault
 	if args.pool != nil {
@@ -129,7 +128,7 @@ func wireEdgeAIAndEmailServices(args wireServicesArgs, phase *wireServicesPhaseS
 	return nil
 }
 
-// TODO: Document wireEdgeRuntimeAndCoreAdminServices.
+// wireEdgeRuntimeAndCoreAdminServices creates the edge function pool and service, SMS provider, materialized view admin, and extension management service.
 func wireEdgeRuntimeAndCoreAdminServices(args wireServicesArgs, phase *wireServicesPhaseState) *edgefunc.Pool {
 	edgeRuntimeCfg := buildEdgeFuncRuntimeConfig(args.cfg)
 	edgePoolOpts := []edgefunc.PoolOption{
@@ -186,7 +185,7 @@ func wireEdgeRuntimeAndCoreAdminServices(args wireServicesArgs, phase *wireServi
 	return edgePool
 }
 
-// TODO: Document wireAIServices.
+// wireAIServices builds the AI provider registry with retry, circuit breaker, and logging wrappers, then wires edge callbacks, embedding, and the dashboard assistant.
 func wireAIServices(args wireServicesArgs, phase *wireServicesPhaseState, edgePool *edgefunc.Pool) {
 	var aiReg *ai.Registry
 	var assistantHistoryStore ai.AssistantHistoryStore
@@ -242,7 +241,7 @@ func wireAIServices(args wireServicesArgs, phase *wireServicesPhaseState, edgePo
 	wireDashboardAIAssistant(phase.srv, args.cfg, aiReg, args.schemaCache, assistantHistoryStore, args.logger)
 }
 
-// TODO: Document wireEmailAndTLSServices.
+// wireEmailAndTLSServices configures the email template service, email rate limiter, edge email bridge, and optional TLS via certmagic.
 func wireEmailAndTLSServices(args wireServicesArgs, phase *wireServicesPhaseState, edgePool *edgefunc.Pool) {
 	var etSvc *emailtemplates.Service
 	if args.pool != nil {
@@ -271,7 +270,6 @@ func wireEmailAndTLSServices(args wireServicesArgs, phase *wireServicesPhaseStat
 	}
 }
 
-// TODO: Document wireJobsPushTenantBackupAndBranch.
 func wireJobsPushTenantBackupAndBranch(args wireServicesArgs, phase *wireServicesPhaseState) error {
 	if args.cfg.Jobs.Enabled && args.pool != nil {
 		phase.jobStore = jobs.NewStore(args.pool.DB())
@@ -285,7 +283,7 @@ func wireJobsPushTenantBackupAndBranch(args wireServicesArgs, phase *wireService
 			WorkerID:          fmt.Sprintf("ayb-%d", os.Getpid()),
 		}
 		phase.state.jobSvc = jobs.NewService(phase.jobStore, args.logger, jobCfg)
-		jobs.RegisterBuiltinHandlers(phase.state.jobSvc, args.pool.DB(), args.logger)
+		jobs.RegisterBuiltinHandlers(phase.state.jobSvc, args.pool.DB(), args.core.storageSvc, args.logger)
 		phase.srv.SetJobService(phase.state.jobSvc)
 
 		wireJobDomainHandlers(args.ctx, phase.srv, phase.state.jobSvc, args.logger)
@@ -362,7 +360,7 @@ func wireJobsPushTenantBackupAndBranch(args wireServicesArgs, phase *wireService
 	return nil
 }
 
-// TODO: Document wireGraphQLAndStartJobs.
+// wireGraphQLAndStartJobs sets up the GraphQL handler with auth and realtime integration, then starts the background job worker.
 func wireGraphQLAndStartJobs(args wireServicesArgs, phase *wireServicesPhaseState) {
 	if args.cfg.GraphQL.Enabled && args.pool != nil {
 		gqlHandler := aybgraphql.NewHandler(args.pool.DB(), args.schemaCache, args.logger)

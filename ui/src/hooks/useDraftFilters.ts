@@ -3,9 +3,6 @@
  */
 import { useCallback, useRef, useState } from "react";
 
-/**
- * TODO: Document useDraftFilters.
- */
 export function useDraftFilters<T extends Record<string, string>>(initialValues: T) {
   const initialValuesRef = useRef(initialValues);
 

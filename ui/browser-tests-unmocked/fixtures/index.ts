@@ -53,9 +53,6 @@ export async function dropTableIfExists(
   await execSQL(request, token, `DROP TABLE IF EXISTS ${safeTableName}`);
 }
 
-/**
- * TODO: Document createTableViaSQLEditor.
- */
 export async function createTableViaSQLEditor(page: Page, tableName: string): Promise<void> {
   const safeTableName = assertSafeSQLIdentifier(tableName, "table name");
   await page.goto("/admin/");

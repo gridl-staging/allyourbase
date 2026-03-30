@@ -84,9 +84,6 @@ export function applyDeletedTeamMember(state: OrgDetailState, teamId: string, us
   };
 }
 
-/**
- * TODO: Document applyUpdatedTeamMemberRole.
- */
 export function applyUpdatedTeamMemberRole(
   state: OrgDetailState,
   teamId: string,

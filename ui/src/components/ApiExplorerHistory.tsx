@@ -17,12 +17,12 @@ export function ApiExplorerHistory({ history, onClear, onSelect }: ApiExplorerHi
   return (
     <div className="border-b bg-gray-50 dark:bg-gray-800 px-6 py-3 max-h-48 overflow-y-auto">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-300">
           Recent Requests
         </span>
         <button
           onClick={onClear}
-          className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-500 flex items-center gap-1"
+          className="text-xs text-gray-500 dark:text-gray-300 hover:text-red-500 flex items-center gap-1"
         >
           <Trash2 className="w-3 h-3" />
           Clear
@@ -32,7 +32,7 @@ export function ApiExplorerHistory({ history, onClear, onSelect }: ApiExplorerHi
         <button
           key={index}
           onClick={() => onSelect(entry)}
-          className="w-full text-left px-2 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-700 rounded flex items-center gap-2 font-mono"
+          className="w-full text-left px-2 py-1 text-xs hover:bg-gray-100 dark:bg-gray-700 rounded flex items-center gap-2 font-mono"
         >
           <span
             className={cn(
@@ -44,7 +44,7 @@ export function ApiExplorerHistory({ history, onClear, onSelect }: ApiExplorerHi
           </span>
           <span className="truncate flex-1">{entry.path}</span>
           <span className={cn("shrink-0", statusColor(entry.status))}>{entry.status}</span>
-          <span className="text-gray-400 dark:text-gray-500 shrink-0">
+          <span className="text-gray-500 dark:text-gray-300 shrink-0">
             <Clock className="w-3 h-3 inline mr-1" />
             {entry.durationMs}ms
           </span>

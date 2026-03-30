@@ -21,7 +21,6 @@ func hasTransformParams(r *http.Request) bool {
 	return q.Get("w") != "" || q.Get("h") != "" || getFormatQuery(q) != "" || q.Get("q") != "" || q.Get("crop") != ""
 }
 
-// serveTransformed decodes, transforms, and serves an image with the requested parameters.
 func (h *Handler) serveTransformed(w http.ResponseWriter, r *http.Request, reader io.ReadCloser, obj *Object, isPublic bool) {
 	q := r.URL.Query()
 
@@ -79,7 +78,7 @@ func (h *Handler) serveTransformed(w http.ResponseWriter, r *http.Request, reade
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", cacheControlTransformed(isPublic))
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, &buf)
+	_, _ = io.Copy(w, &buf)
 }
 
 // computeTransformETag generates a deterministic ETag from the object identity and

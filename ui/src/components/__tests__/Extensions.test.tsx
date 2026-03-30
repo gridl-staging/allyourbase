@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import { renderWithProviders } from "../../test-utils";
+import { renderWithProviders, expectWcagContrastToken } from "../../test-utils";
 import { Extensions } from "../Extensions";
 
 vi.mock("../../api_extensions", () => ({
@@ -40,6 +40,25 @@ beforeEach(() => {
 });
 
 describe("Extensions", () => {
+  it("loading indicator uses WCAG AA compliant contrast token", () => {
+    (api.listExtensions as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<Extensions />);
+
+    const className = screen.getByText("Loading...").className;
+    expectWcagContrastToken(className);
+  });
+
+  it("enable action uses WCAG AA compliant contrast token", async () => {
+    renderWithProviders(<Extensions />);
+    await waitFor(() => {
+      expect(screen.getByText("pgvector")).toBeInTheDocument();
+    });
+
+    const enableButton = screen.getAllByRole("button", { name: /enable/i })[0];
+    expect(enableButton.className).toContain("text-blue-600");
+    expect(enableButton.className).not.toContain("text-blue-500");
+  });
+
   it("renders extension list with name/installed status/version", async () => {
     renderWithProviders(<Extensions />);
     await waitFor(() => {

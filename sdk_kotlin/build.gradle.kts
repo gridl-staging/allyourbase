@@ -10,6 +10,9 @@ repositories {
     mavenCentral()
 }
 
+val okhttpVersion = "4.12.0"
+val okioVersion = "3.9.1"
+
 kotlin {
     jvmToolchain(17)
 }
@@ -25,6 +28,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("io.ktor:ktor-client-core:2.3.12")
     implementation("io.ktor:ktor-client-okhttp:2.3.12")
+    implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
+    implementation("com.squareup.okio:okio:$okioVersion")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")

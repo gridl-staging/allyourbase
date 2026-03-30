@@ -27,9 +27,6 @@ const defaultApps = [
   { id: "app-001", name: "Portal App", description: "", ownerUserId: "user-001", rateLimitRps: 10, rateLimitWindowSeconds: 60, createdAt: "2026-02-28T00:00:00Z", updatedAt: "2026-02-28T00:00:00Z" },
 ];
 
-/**
- * TODO: Document mockAdminOAuthClientApis.
- */
 export async function mockAdminOAuthClientApis(
   page: Page,
   options: OAuthClientsMockOptions = {},

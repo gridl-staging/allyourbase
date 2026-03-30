@@ -29,9 +29,6 @@ export function unhandledMockedApiRoute(
 const defaultSchemaBody = { tables: {}, schemas: ["public"], builtAt: "2026-02-28T00:00:00Z" };
 const defaultStatusBody = { auth: true };
 
-/**
- * TODO: Document handleCommonAdminRoutes.
- */
 export async function handleCommonAdminRoutes(
   route: Route,
   method: string,
@@ -61,9 +58,6 @@ export interface RealtimeInspectorMockOptions {
   statsResponder?: () => MockApiResponse;
 }
 
-/**
- * TODO: Document mockRealtimeInspectorApis.
- */
 export async function mockRealtimeInspectorApis(
   page: Page,
   options: RealtimeInspectorMockOptions = {},
@@ -109,9 +103,6 @@ export interface PerformanceAdvisorMockOptions {
   reportResponder?: () => MockApiResponse;
 }
 
-/**
- * TODO: Document mockPerformanceAdvisorApis.
- */
 export async function mockPerformanceAdvisorApis(
   page: Page,
   options: PerformanceAdvisorMockOptions = {},
@@ -154,9 +145,6 @@ export interface SecurityAdvisorMockOptions {
   reportResponder?: () => MockApiResponse;
 }
 
-/**
- * TODO: Document mockSecurityAdvisorApis.
- */
 export async function mockSecurityAdvisorApis(
   page: Page,
   options: SecurityAdvisorMockOptions = {},
@@ -197,9 +185,6 @@ export interface SchemaDesignerMockOptions {
   schemaResponder?: () => MockApiResponse;
 }
 
-/**
- * TODO: Document mockSchemaDesignerApis.
- */
 export async function mockSchemaDesignerApis(
   page: Page,
   options: SchemaDesignerMockOptions = {},

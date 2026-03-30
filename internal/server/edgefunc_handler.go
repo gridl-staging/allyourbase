@@ -29,10 +29,6 @@ type edgeFuncInvoker interface {
 type edgeFuncTokenValidator func(ctx context.Context, token string) error
 type edgeFuncInvocationRecorder func(ctx context.Context, name, status string)
 
-// handleEdgeFuncInvoke handles public invocation of edge functions via HTTP.
-// Route: /functions/v1/{name} and /functions/v1/{name}/*
-// Forwards ANY HTTP method to the edge function. The function sees the real
-// method in request.method.
 func handleEdgeFuncInvoke(svc edgeFuncInvoker, maxBodyBytes int64, validateToken edgeFuncTokenValidator, recordInvocation edgeFuncInvocationRecorder) http.HandlerFunc {
 	if maxBodyBytes <= 0 {
 		maxBodyBytes = MaxEdgeFuncBodySize
@@ -58,65 +54,14 @@ func handleEdgeFuncInvoke(svc edgeFuncInvoker, maxBodyBytes int64, validateToken
 			return
 		}
 
-		// Look up the function first to check auth.
-		fn, err := svc.GetByName(r.Context(), name)
-		if err != nil {
-			if errors.Is(err, edgefunc.ErrFunctionNotFound) {
-				httputil.WriteError(w, http.StatusNotFound, "function not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to load function")
+		efReq, ok := resolveEdgeFuncRequest(w, r, svc, maxBodyBytes, validateToken, name)
+		if !ok {
 			return
 		}
 
-		// Private functions require authentication.
-		if !fn.Public {
-			token, ok := httputil.ExtractBearerToken(r)
-			if !ok || token == "" || validateToken == nil {
-				httputil.WriteError(w, http.StatusUnauthorized, "authentication required")
-				return
-			}
-			if err := validateToken(r.Context(), token); err != nil {
-				httputil.WriteError(w, http.StatusUnauthorized, "authentication required")
-				return
-			}
-		}
-
-		// Read body with size limit.
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-		var body []byte
-		if r.Body != nil {
-			body, err = io.ReadAll(r.Body)
-			if err != nil {
-				if isMaxBytesError(err) {
-					httputil.WriteError(w, http.StatusRequestEntityTooLarge, "request body too large")
-					return
-				}
-				httputil.WriteError(w, http.StatusBadRequest, "failed to read request body")
-				return
-			}
-		}
-
-		// Build the sub-path: everything after /functions/v1/{name}
-		subPath := chi.URLParam(r, "*")
-		if subPath != "" && !strings.HasPrefix(subPath, "/") {
-			subPath = "/" + subPath
-		}
-
-		// Translate HTTP request → edgefunc.Request
-		efReq := edgefunc.Request{
-			Method:  r.Method,
-			Path:    "/" + name + subPath,
-			Query:   r.URL.RawQuery,
-			Headers: r.Header,
-			Body:    body,
-		}
-
-		// Tag context with HTTP trigger metadata for log attribution.
 		ctx := edgefunc.WithTriggerMeta(r.Context(), edgefunc.TriggerHTTP, "")
 
-		// Invoke
-		resp, err := svc.Invoke(ctx, name, efReq)
+		resp, err := svc.Invoke(ctx, name, *efReq)
 		if err != nil {
 			if recordInvocation != nil {
 				recordInvocation(ctx, name, "error")
@@ -138,12 +83,65 @@ func handleEdgeFuncInvoke(svc edgeFuncInvoker, maxBodyBytes int64, validateToken
 			recordInvocation(ctx, name, "ok")
 		}
 
-		// Translate edgefunc.Response → HTTP response
 		if err := writeEdgeFuncResponse(w, resp); err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
+}
+
+// resolveEdgeFuncRequest looks up the named edge function, enforces private-function
+// auth, reads the bounded request body, and builds the edgefunc.Request. Returns nil
+// and false if an error response was already written.
+func resolveEdgeFuncRequest(w http.ResponseWriter, r *http.Request, svc edgeFuncInvoker, maxBodyBytes int64, validateToken edgeFuncTokenValidator, name string) (*edgefunc.Request, bool) {
+	fn, err := svc.GetByName(r.Context(), name)
+	if err != nil {
+		if errors.Is(err, edgefunc.ErrFunctionNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "function not found")
+			return nil, false
+		}
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to load function")
+		return nil, false
+	}
+
+	if !fn.Public {
+		token, ok := httputil.ExtractBearerToken(r)
+		if !ok || token == "" || validateToken == nil {
+			httputil.WriteError(w, http.StatusUnauthorized, "authentication required")
+			return nil, false
+		}
+		if err := validateToken(r.Context(), token); err != nil {
+			httputil.WriteError(w, http.StatusUnauthorized, "authentication required")
+			return nil, false
+		}
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	var body []byte
+	if r.Body != nil {
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			if isMaxBytesError(err) {
+				httputil.WriteError(w, http.StatusRequestEntityTooLarge, "request body too large")
+				return nil, false
+			}
+			httputil.WriteError(w, http.StatusBadRequest, "failed to read request body")
+			return nil, false
+		}
+	}
+
+	subPath := chi.URLParam(r, "*")
+	if subPath != "" && !strings.HasPrefix(subPath, "/") {
+		subPath = "/" + subPath
+	}
+
+	return &edgefunc.Request{
+		Method:  r.Method,
+		Path:    "/" + name + subPath,
+		Query:   r.URL.RawQuery,
+		Headers: r.Header,
+		Body:    body,
+	}, true
 }
 
 // writeEdgeFuncResponse writes the edge function response to the HTTP response writer.

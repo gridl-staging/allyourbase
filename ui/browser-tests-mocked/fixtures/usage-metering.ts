@@ -37,9 +37,6 @@ function captureUsageQuery(url: URL): UsageQuerySnapshot {
   };
 }
 
-/**
- * TODO: Document mockUsageMeteringApis.
- */
 export async function mockUsageMeteringApis(
   page: Page,
 ): Promise<UsageMeteringMockState> {
