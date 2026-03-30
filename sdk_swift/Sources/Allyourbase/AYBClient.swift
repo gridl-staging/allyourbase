@@ -88,7 +88,14 @@ public final class AYBClient {
         self.tokenStore = store
         self.transport = transport ?? URLSessionHTTPTransport(timeout: timeout)
         self.sseTransport = sseTransport ?? URLSessionSSETransport(timeout: timeout)
+        #if canImport(Darwin)
         self.wsTransport = wsTransport ?? URLSessionWebSocketTransport()
+        #else
+        guard let wsTransport else {
+            preconditionFailure("WebSocketTransport is required on non-Apple platforms (URLSessionWebSocketTask is unavailable)")
+        }
+        self.wsTransport = wsTransport
+        #endif
         self.requestBuilder = RequestBuilder(baseURL: parsedURL)
     }
 

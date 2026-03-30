@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum HTTPMethod: String {
     case get = "GET"
@@ -207,6 +210,7 @@ public final class URLSessionSSETransport: SSETransport {
     }
 }
 
+#if canImport(Darwin)
 private final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Sendable {
     private let task: URLSessionWebSocketTask
 
@@ -264,6 +268,7 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
         return URLSessionWebSocketConnection(task: task)
     }
 }
+#endif
 
 public final class RequestBuilder {
     public let baseURL: URL
