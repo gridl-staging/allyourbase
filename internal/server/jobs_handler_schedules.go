@@ -10,6 +10,50 @@ import (
 	"github.com/allyourbase/ayb/internal/jobs"
 )
 
+var scheduleNow = func() time.Time { return time.Now() }
+
+const defaultScheduleTimezone = "UTC"
+
+func isScheduleNotFound(err error) bool {
+	return strings.Contains(err.Error(), "not found")
+}
+
+func writeScheduleServiceError(w http.ResponseWriter, err error, internalMessage string) bool {
+	if err == nil {
+		return false
+	}
+	if isScheduleNotFound(err) {
+		httputil.WriteError(w, http.StatusNotFound, "schedule not found")
+		return true
+	}
+	httputil.WriteError(w, http.StatusInternalServerError, internalMessage)
+	return true
+}
+
+func validateScheduleCronExpr(w http.ResponseWriter, cronExpr string) bool {
+	if gronx.New().IsValid(cronExpr) {
+		return true
+	}
+	httputil.WriteError(w, http.StatusBadRequest, "invalid cron expression")
+	return false
+}
+
+func validateScheduleTimezone(w http.ResponseWriter, timezone string) bool {
+	if _, err := time.LoadLocation(timezone); err == nil {
+		return true
+	}
+	httputil.WriteError(w, http.StatusBadRequest, "invalid timezone")
+	return false
+}
+
+func scheduleNextRunAt(cronExpr, timezone string) (*time.Time, error) {
+	nextRunAt, err := jobs.CronNextTime(cronExpr, timezone, scheduleNow())
+	if err != nil {
+		return nil, err
+	}
+	return &nextRunAt, nil
+}
+
 // handleAdminListSchedules returns all schedules.
 func handleAdminListSchedules(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +70,6 @@ func handleAdminListSchedules(svc jobAdmin) http.HandlerFunc {
 	}
 }
 
-// handleAdminCreateSchedule creates a new schedule.
 func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createScheduleRequest
@@ -53,16 +96,13 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "cronExpr is required")
 			return
 		}
-		gron := gronx.New()
-		if !gron.IsValid(req.CronExpr) {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid cron expression")
+		if !validateScheduleCronExpr(w, req.CronExpr) {
 			return
 		}
 		if req.Timezone == "" {
-			req.Timezone = "UTC"
+			req.Timezone = defaultScheduleTimezone
 		}
-		if _, err := time.LoadLocation(req.Timezone); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid timezone")
+		if !validateScheduleTimezone(w, req.Timezone) {
 			return
 		}
 
@@ -76,7 +116,7 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 		}
 
 		// Compute initial next_run_at.
-		nextRunAt, err := jobs.CronNextTime(req.CronExpr, req.Timezone, time.Now())
+		nextRunAt, err := scheduleNextRunAt(req.CronExpr, req.Timezone)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "failed to compute next run time: "+err.Error())
 			return
@@ -90,7 +130,7 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 			Timezone:    req.Timezone,
 			Enabled:     enabled,
 			MaxAttempts: maxAttempts,
-			NextRunAt:   &nextRunAt,
+			NextRunAt:   nextRunAt,
 		})
 		if err != nil {
 			httputil.WriteError(w, http.StatusInternalServerError, "failed to create schedule")
@@ -101,9 +141,6 @@ func handleAdminCreateSchedule(svc jobAdmin) http.HandlerFunc {
 	}
 }
 
-// handleAdminUpdateSchedule updates a schedule's mutable fields.
-// Uses read-modify-write: fetches the existing schedule first, then merges
-// only the fields the client provided, avoiding zero-value overwrites.
 func handleAdminUpdateSchedule(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scheduleID, ok := parseUUIDParamWithLabel(w, r, "id", "schedule id")
@@ -119,21 +156,14 @@ func handleAdminUpdateSchedule(svc jobAdmin) http.HandlerFunc {
 
 		// Fetch existing schedule to use as base for merge.
 		existing, err := svc.GetSchedule(r.Context(), id)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				httputil.WriteError(w, http.StatusNotFound, "schedule not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to get schedule")
+		if writeScheduleServiceError(w, err, "failed to get schedule") {
 			return
 		}
 
 		// Merge: use request values when provided, existing values otherwise.
 		cronExpr := existing.CronExpr
 		if req.CronExpr != "" {
-			gron := gronx.New()
-			if !gron.IsValid(req.CronExpr) {
-				httputil.WriteError(w, http.StatusBadRequest, "invalid cron expression")
+			if !validateScheduleCronExpr(w, req.CronExpr) {
 				return
 			}
 			cronExpr = req.CronExpr
@@ -141,8 +171,7 @@ func handleAdminUpdateSchedule(svc jobAdmin) http.HandlerFunc {
 
 		tz := existing.Timezone
 		if req.Timezone != "" {
-			if _, err := time.LoadLocation(req.Timezone); err != nil {
-				httputil.WriteError(w, http.StatusBadRequest, "invalid timezone")
+			if !validateScheduleTimezone(w, req.Timezone) {
 				return
 			}
 			tz = req.Timezone
@@ -164,23 +193,18 @@ func handleAdminUpdateSchedule(svc jobAdmin) http.HandlerFunc {
 		tzChanged := req.Timezone != "" && req.Timezone != existing.Timezone
 		enableTransition := !existing.Enabled && enabled
 		if cronChanged || tzChanged || enableTransition {
-			t, err := jobs.CronNextTime(cronExpr, tz, time.Now())
+			t, err := scheduleNextRunAt(cronExpr, tz)
 			if err != nil {
 				httputil.WriteError(w, http.StatusBadRequest, "failed to compute next run time")
 				return
 			}
-			nextRunAt = &t
+			nextRunAt = t
 		} else {
 			nextRunAt = existing.NextRunAt
 		}
 
 		sched, err := svc.UpdateSchedule(r.Context(), id, cronExpr, tz, payload, enabled, nextRunAt)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				httputil.WriteError(w, http.StatusNotFound, "schedule not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to update schedule")
+		if writeScheduleServiceError(w, err, "failed to update schedule") {
 			return
 		}
 
@@ -188,7 +212,6 @@ func handleAdminUpdateSchedule(svc jobAdmin) http.HandlerFunc {
 	}
 }
 
-// handleAdminDeleteSchedule hard-deletes a schedule.
 func handleAdminDeleteSchedule(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scheduleID, ok := parseUUIDParamWithLabel(w, r, "id", "schedule id")
@@ -198,12 +221,7 @@ func handleAdminDeleteSchedule(svc jobAdmin) http.HandlerFunc {
 		id := scheduleID.String()
 
 		err := svc.DeleteSchedule(r.Context(), id)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				httputil.WriteError(w, http.StatusNotFound, "schedule not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to delete schedule")
+		if writeScheduleServiceError(w, err, "failed to delete schedule") {
 			return
 		}
 
@@ -211,7 +229,6 @@ func handleAdminDeleteSchedule(svc jobAdmin) http.HandlerFunc {
 	}
 }
 
-// handleAdminEnableSchedule enables a schedule.
 func handleAdminEnableSchedule(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scheduleID, ok := parseUUIDParamWithLabel(w, r, "id", "schedule id")
@@ -221,12 +238,7 @@ func handleAdminEnableSchedule(svc jobAdmin) http.HandlerFunc {
 		id := scheduleID.String()
 
 		sched, err := svc.SetScheduleEnabled(r.Context(), id, true)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				httputil.WriteError(w, http.StatusNotFound, "schedule not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to enable schedule")
+		if writeScheduleServiceError(w, err, "failed to enable schedule") {
 			return
 		}
 
@@ -234,7 +246,6 @@ func handleAdminEnableSchedule(svc jobAdmin) http.HandlerFunc {
 	}
 }
 
-// handleAdminDisableSchedule disables a schedule.
 func handleAdminDisableSchedule(svc jobAdmin) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scheduleID, ok := parseUUIDParamWithLabel(w, r, "id", "schedule id")
@@ -244,12 +255,7 @@ func handleAdminDisableSchedule(svc jobAdmin) http.HandlerFunc {
 		id := scheduleID.String()
 
 		sched, err := svc.SetScheduleEnabled(r.Context(), id, false)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				httputil.WriteError(w, http.StatusNotFound, "schedule not found")
-				return
-			}
-			httputil.WriteError(w, http.StatusInternalServerError, "failed to disable schedule")
+		if writeScheduleServiceError(w, err, "failed to disable schedule") {
 			return
 		}
 

@@ -139,6 +139,7 @@ assert_contains tests/load/lib/realtime.js "buildRealtimeUnsubscribeMessage(" "r
 assert_contains tests/load/lib/realtime.js "assertRealtimeConnectedMessage(" "reusable realtime flow helper should enforce initial connected message contract"
 assert_contains tests/load/lib/realtime.js "assertRealtimeReplyOK(" "reusable realtime flow helper should enforce subscribe/unsubscribe reply contracts"
 assert_contains tests/load/lib/realtime.js "assertRealtimeEventMessage(" "reusable realtime flow helper should enforce event payload contract"
+assert_contains tests/load/lib/realtime.js "ignore unrelated realtime events emitted for other VUs that share the table subscription" "reusable realtime flow helper should ignore same-table events for other VU row ids before asserting the expected record id"
 assert_contains tests/load/lib/realtime.js "realtimeMessageTimeoutMillis()" "reusable realtime flow helper should use shared websocket message timeout helper"
 
 assert_contains tests/load/scenarios/realtime_ws_subscribe.js "import ws from 'k6/ws';" "realtime scenario should use k6 websocket client"

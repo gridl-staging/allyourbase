@@ -406,3 +406,50 @@ func TestPortAlreadyInUse(t *testing.T) {
 	// The error wraps pg_ctl or postgres bind failure.
 	testutil.Contains(t, err.Error(), "managed postgres")
 }
+
+func TestManagedPGOutageRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	harness := newTestPGHarness(t)
+	mgr := New(harness.config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), managedPGStartTimeout())
+	defer cancel()
+
+	connURL, err := mgr.Start(ctx)
+	testutil.NoError(t, err)
+	testutil.True(t, connURL != "", "expected non-empty connection URL")
+
+	db, err := sql.Open("pgx", connURL)
+	testutil.NoError(t, err)
+	defer db.Close()
+
+	// Phase 1: healthy instance should answer queries.
+	var healthyResult int
+	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&healthyResult)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, healthyResult)
+
+	// Phase 2: same DB handle should fail while managed Postgres is stopped.
+	err = mgr.Stop()
+	testutil.NoError(t, err)
+
+	var outageResult int
+	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&outageResult)
+	testutil.True(t, err != nil, "expected query error while managed Postgres is stopped")
+
+	// Phase 3: restart managed Postgres and verify the same DB handle recovers.
+	mgr2 := New(harness.config)
+	defer mgr2.Stop()
+
+	connURL2, err := mgr2.Start(ctx)
+	testutil.NoError(t, err)
+	testutil.Equal(t, connURL, connURL2)
+
+	var recoveredResult int
+	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&recoveredResult)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, recoveredResult)
+}

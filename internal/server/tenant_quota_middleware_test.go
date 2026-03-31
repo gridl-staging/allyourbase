@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -182,13 +183,11 @@ func TestTenantWSAdmission_HardDenyAndRelease(t *testing.T) {
 	reader := &testQuotaReader{quotas: &tenant.TenantQuotas{RealtimeConnectionsHard: &hardLimit}}
 
 	start := make(chan struct{})
+	var startOnce sync.Once
 	release := make(chan struct{})
 	done := make(chan struct{})
 	wsHandler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		select {
-		case start <- struct{}{}:
-		default:
-		}
+		startOnce.Do(func() { close(start) })
 		<-release
 	})
 	adapter := tenantWSAdmission(counter, reader, acc, wsHandler)
@@ -315,13 +314,11 @@ func TestServerTenantWSAdmissionDynamic_UsesSetterWiringAfterConstruction(t *tes
 
 	s := &Server{}
 	start := make(chan struct{})
+	var startOnce sync.Once
 	release := make(chan struct{})
 	done := make(chan struct{})
 	wsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		select {
-		case start <- struct{}{}:
-		default:
-		}
+		startOnce.Do(func() { close(start) })
 		<-release
 		w.WriteHeader(http.StatusOK)
 	})
@@ -446,13 +443,11 @@ func TestTenantWSAdmission_EmitsTenantQuotaMetricsOnViolation(t *testing.T) {
 	metricsCapture := &quotaMetricsCapture{}
 
 	start := make(chan struct{})
+	var startOnce sync.Once
 	release := make(chan struct{})
 	done := make(chan struct{})
 	wsHandler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		select {
-		case start <- struct{}{}:
-		default:
-		}
+		startOnce.Do(func() { close(start) })
 		<-release
 	})
 
@@ -489,13 +484,11 @@ func TestTenantWSAdmission_EmitsQuotaViolationAudit(t *testing.T) {
 	emitter := tenant.NewAuditEmitterWithInserter(auditCapture, nil)
 
 	start := make(chan struct{})
+	var startOnce sync.Once
 	release := make(chan struct{})
 	done := make(chan struct{})
 	wsHandler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		select {
-		case start <- struct{}{}:
-		default:
-		}
+		startOnce.Do(func() { close(start) })
 		<-release
 	})
 

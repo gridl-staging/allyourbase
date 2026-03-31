@@ -258,6 +258,21 @@ function processRealtimeSocketMessage({
   }
 
   if (!flowState.eventReceived) {
+    // ignore unrelated realtime events emitted for other VUs that share the table subscription.
+    if (
+      message !== null &&
+      typeof message === 'object' &&
+      !Array.isArray(message) &&
+      message.type === 'event' &&
+      message.action === expectedEventAction &&
+      message.table === tableName &&
+      message.record !== null &&
+      typeof message.record === 'object' &&
+      !Array.isArray(message.record) &&
+      message.record.id !== rowKey
+    ) {
+      return;
+    }
     assertRealtimeEventMessage(message, expectedEventAction, tableName, rowKey);
     flowState.eventReceived = true;
     socket.send(JSON.stringify(buildRealtimeUnsubscribeMessage(tableName, unsubscribeRef)));
