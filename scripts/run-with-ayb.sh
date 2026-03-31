@@ -15,7 +15,6 @@ readonly AYB_HEALTH_POLL_INTERVAL_SECONDS="${AYB_HEALTH_POLL_INTERVAL_SECONDS:-0
 readonly AYB_ADMIN_TOKEN_PATH="${AYB_ADMIN_TOKEN_PATH:-${HOME}/.ayb/admin-token}"
 ADMIN_TOKEN_BACKUP_PATH=""
 ADMIN_TOKEN_HAD_ORIGINAL=0
-ADMIN_TOKEN_WAS_PREPARED=0
 
 # Rate-limit overrides prevent load/browser tests from being throttled.
 export AYB_AUTH_RATE_LIMIT="${AYB_AUTH_RATE_LIMIT:-10000}"
@@ -72,8 +71,6 @@ prepare_admin_token_file() {
     cp "$AYB_ADMIN_TOKEN_PATH" "$ADMIN_TOKEN_BACKUP_PATH"
     ADMIN_TOKEN_HAD_ORIGINAL=1
   fi
-
-  remove_admin_token_file
 }
 
 # Restore the original admin-token file (or remove the test-generated one) so
@@ -135,12 +132,12 @@ wait_for_ayb_readiness() {
   done
 }
 
-# When AYB_ADMIN_PASSWORD is set the caller already knows the admin password,
-# so preserve any existing admin-token file for load_resolve_admin_token to read.
-# When unset, AYB generates a fresh password and writes a new file on startup.
+# Always back up any pre-existing admin-token so cleanup can restore it.
+# When AYB_ADMIN_PASSWORD is unset, also remove the token file so AYB
+# generates a fresh password and writes a new one on startup.
+prepare_admin_token_file
 if [[ -z "${AYB_ADMIN_PASSWORD:-}" ]]; then
-  prepare_admin_token_file
-  ADMIN_TOKEN_WAS_PREPARED=1
+  remove_admin_token_file
 fi
 bash -lc "$AYB_START_COMMAND" > "$AYB_START_LOG" 2>&1 &
 AYB_PID=$!
@@ -148,9 +145,7 @@ AYB_PID=$!
 cleanup() {
   kill "$AYB_PID" 2>/dev/null || true
   wait "$AYB_PID" 2>/dev/null || true
-  if (( ADMIN_TOKEN_WAS_PREPARED )); then
-    restore_admin_token_if_needed
-  fi
+  restore_admin_token_if_needed
 }
 trap cleanup EXIT
 
