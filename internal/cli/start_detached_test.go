@@ -1,17 +1,21 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/spf13/cobra"
 )
@@ -56,8 +60,10 @@ func TestRunStartDetached_ExistingHealthyPIDShortCircuits(t *testing.T) {
 	testutil.NoError(t, err)
 
 	pidPath := filepath.Join(aybDir, "ayb.pid")
+	tokenPath := filepath.Join(aybDir, "admin-token")
 	pidContent := fmt.Sprintf("%d\n%d", os.Getpid(), port)
 	testutil.NoError(t, os.WriteFile(pidPath, []byte(pidContent), 0o644))
+	testutil.NoError(t, os.WriteFile(tokenPath, []byte("keep-token"), 0o600))
 
 	cmd := &cobra.Command{}
 	stderr := captureStderr(t, func() {
@@ -65,9 +71,12 @@ func TestRunStartDetached_ExistingHealthyPIDShortCircuits(t *testing.T) {
 	})
 	testutil.NoError(t, err)
 	testutil.Contains(t, stderr, "AYB server is already running")
+	testutil.Contains(t, stderr, "Stop with: ayb stop")
 
 	_, statErr := os.Stat(pidPath)
 	testutil.NoError(t, statErr)
+	_, tokenErr := os.Stat(tokenPath)
+	testutil.NoError(t, tokenErr)
 }
 
 func TestRunStartDetached_StalePIDCleansFilesBeforeEarlyExit(t *testing.T) {
@@ -102,9 +111,30 @@ func TestRunStartDetached_StalePIDCleansFilesBeforeEarlyExit(t *testing.T) {
 	testutil.True(t, os.IsNotExist(tokenErr))
 }
 
+func TestPreflightDetachedStart_LegacyPIDWithoutPortCleansFiles(t *testing.T) {
+	aybDir := filepath.Join(isolatedDetachedTestHome(t), ".ayb")
+	testutil.NoError(t, os.MkdirAll(aybDir, 0o755))
+
+	pidPath := filepath.Join(aybDir, "ayb.pid")
+	tokenPath := filepath.Join(aybDir, "admin-token")
+	testutil.NoError(t, os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644))
+	testutil.NoError(t, os.WriteFile(tokenPath, []byte("token"), 0o600))
+
+	handled, err := preflightDetachedStart()
+	testutil.NoError(t, err)
+	testutil.False(t, handled)
+
+	_, pidErr := os.Stat(pidPath)
+	_, tokenErr := os.Stat(tokenPath)
+	testutil.True(t, os.IsNotExist(pidErr))
+	testutil.True(t, os.IsNotExist(tokenErr))
+}
+
 func TestRunStartDetachedReadiness_WaitsForAdminTokenWhenPasswordMissing(t *testing.T) {
 	tokenPath := filepath.Join(t.TempDir(), "admin-token")
+	var healthChecks atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		healthChecks.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -134,4 +164,46 @@ func TestRunStartDetachedReadiness_WaitsForAdminTokenWhenPasswordMissing(t *test
 	testutil.NoError(t, err)
 	testutil.False(t, terminated)
 	testutil.True(t, elapsed >= 60*time.Millisecond)
+	testutil.True(t, healthChecks.Load() >= 2)
+	_, statErr := os.Stat(tokenPath)
+	testutil.NoError(t, statErr)
+}
+
+func TestWaitForDetachedStartReadiness_ReturnsAdminTokenPathError(t *testing.T) {
+	originalTokenPathFunc := detachedAdminTokenPathFunc
+	detachedAdminTokenPathFunc = func() (string, error) {
+		return "", errors.New("home unavailable")
+	}
+	t.Cleanup(func() {
+		detachedAdminTokenPathFunc = originalTokenPathFunc
+	})
+
+	prep := detachedStartPreparation{
+		cfg:               config.Default(),
+		generatedPassword: "generated-secret",
+		timeout:           time.Second,
+	}
+	childDone := make(chan struct{})
+
+	err := waitForDetachedStartReadiness(prep, &exec.Cmd{}, "/tmp/detached.log", childDone)
+	testutil.NotNil(t, err)
+	testutil.Contains(t, err.Error(), "resolving admin token path")
+	testutil.Contains(t, err.Error(), "home unavailable")
+}
+
+func TestBuildDetachedChildCommand_HardensLogFilePermissions(t *testing.T) {
+	isolatedDetachedTestHome(t)
+
+	_, logPath, logFile, err := buildDetachedChildCommand()
+	testutil.NoError(t, err)
+	if logFile != nil {
+		defer logFile.Close()
+	}
+	if logPath == "" {
+		t.Fatal("expected detached start log path")
+	}
+
+	info, err := os.Stat(logPath)
+	testutil.NoError(t, err)
+	testutil.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }

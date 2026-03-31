@@ -4,6 +4,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,6 +33,108 @@ func setupOAuthClient(t *testing.T, ctx context.Context, svc *auth.Service, clie
 	testutil.NoError(t, err)
 
 	return client, secret
+}
+
+func TestOAuthGetClientByUUID(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+	svc := newAuthService()
+
+	client, _ := setupOAuthClient(t, ctx, svc, auth.OAuthClientTypeConfidential)
+
+	got, err := svc.GetOAuthClientByUUID(ctx, client.ID)
+	testutil.NoError(t, err)
+	testutil.Equal(t, client.ID, got.ID)
+	testutil.Equal(t, client.ClientID, got.ClientID)
+	testutil.Equal(t, client.AppID, got.AppID)
+	testutil.Equal(t, client.Name, got.Name)
+}
+
+func TestOAuthUpdateClientAndRevokePaths(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+	svc := newAuthService()
+
+	client, _ := setupOAuthClient(t, ctx, svc, auth.OAuthClientTypeConfidential)
+
+	updated, err := svc.UpdateOAuthClient(
+		ctx,
+		client.ClientID,
+		"updated-client-name",
+		[]string{"https://example.com/new-callback"},
+		[]string{"readonly"},
+	)
+	testutil.NoError(t, err)
+	testutil.Equal(t, client.ClientID, updated.ClientID)
+	testutil.Equal(t, "updated-client-name", updated.Name)
+	testutil.Equal(t, 1, len(updated.RedirectURIs))
+	testutil.Equal(t, "https://example.com/new-callback", updated.RedirectURIs[0])
+	testutil.Equal(t, 1, len(updated.Scopes))
+	testutil.Equal(t, "readonly", updated.Scopes[0])
+
+	err = svc.RevokeOAuthClient(ctx, client.ClientID)
+	testutil.NoError(t, err)
+
+	revokedClient, err := svc.GetOAuthClient(ctx, client.ClientID)
+	testutil.NoError(t, err)
+	testutil.NotNil(t, revokedClient.RevokedAt)
+
+	_, err = svc.UpdateOAuthClient(
+		ctx,
+		client.ClientID,
+		"should-fail",
+		[]string{"https://example.com/new-callback"},
+		[]string{"readonly"},
+	)
+	testutil.True(t, errors.Is(err, auth.ErrOAuthClientRevoked), "revoked client update should return ErrOAuthClientRevoked")
+}
+
+func TestOAuthRegenerateClientSecretConfidential(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+	svc := newAuthService()
+
+	client, initialSecret := setupOAuthClient(t, ctx, svc, auth.OAuthClientTypeConfidential)
+
+	newSecret, err := svc.RegenerateOAuthClientSecret(ctx, client.ClientID)
+	testutil.NoError(t, err)
+	testutil.True(t, newSecret != "", "new secret should not be empty")
+	testutil.True(t, newSecret != initialSecret, "new secret should differ from original")
+
+	_, err = svc.ValidateOAuthClientCredentials(ctx, client.ClientID, initialSecret)
+	testutil.True(t, err != nil, "old secret should no longer validate")
+
+	validated, err := svc.ValidateOAuthClientCredentials(ctx, client.ClientID, newSecret)
+	testutil.NoError(t, err)
+	testutil.Equal(t, client.ClientID, validated.ClientID)
+}
+
+func TestOAuthRegenerateClientSecretPublicClientRejected(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+	svc := newAuthService()
+
+	client, _ := setupOAuthClient(t, ctx, svc, auth.OAuthClientTypePublic)
+
+	_, err := svc.RegenerateOAuthClientSecret(ctx, client.ClientID)
+	testutil.True(t, errors.Is(err, auth.ErrOAuthClientPublicSecretRotator), "public clients must reject secret regeneration")
+}
+
+func TestOAuthValidateClientCredentialsRejectsRevokedClient(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+	svc := newAuthService()
+
+	client, secret := setupOAuthClient(t, ctx, svc, auth.OAuthClientTypeConfidential)
+
+	err := svc.RevokeOAuthClient(ctx, client.ClientID)
+	testutil.NoError(t, err)
+
+	_, err = svc.ValidateOAuthClientCredentials(ctx, client.ClientID, secret)
+	testutil.True(t, err != nil, "revoked client credentials must be rejected")
+	oauthErr, ok := err.(*auth.OAuthError)
+	testutil.True(t, ok, "expected OAuthError")
+	testutil.Equal(t, auth.OAuthErrInvalidClient, oauthErr.Code)
 }
 
 func TestOAuthListClientsIncludesTokenStats(t *testing.T) {

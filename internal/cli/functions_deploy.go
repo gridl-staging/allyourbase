@@ -12,100 +12,135 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type functionsDeployInput struct {
+	name       string
+	source     string
+	entryPoint string
+	timeoutMs  int
+	outFmt     string
+}
+
+type existingFunctionsDeployTarget struct {
+	ID     string `json:"id"`
+	Public bool   `json:"public"`
+}
+
 // Handles the functions deploy CLI command, creating or updating an edge function from a local source file with optional entry point, timeout, and visibility settings.
 func runFunctionsDeploy(cmd *cobra.Command, args []string) error {
+	input, err := loadFunctionsDeployInput(cmd, args)
+	if err != nil {
+		return err
+	}
+	lookupResp, lookupBody, err := lookupFunctionsDeployTarget(cmd, input.name)
+	if err != nil {
+		return err
+	}
+	action, resp, body, err := executeFunctionsDeploy(cmd, input, lookupResp, lookupBody)
+	if err != nil {
+		return err
+	}
+	return renderFunctionsDeployResponse(input.outFmt, action, resp, body)
+}
+
+func loadFunctionsDeployInput(cmd *cobra.Command, args []string) (functionsDeployInput, error) {
 	name := strings.TrimSpace(args[0])
 	if name == "" {
-		return fmt.Errorf("function name is required")
+		return functionsDeployInput{}, fmt.Errorf("function name is required")
 	}
 
 	sourceFile, _ := cmd.Flags().GetString("source")
 	if sourceFile == "" {
-		return fmt.Errorf("--source flag is required")
+		return functionsDeployInput{}, fmt.Errorf("--source flag is required")
 	}
 
 	sourceBytes, err := os.ReadFile(sourceFile)
 	if err != nil {
-		return fmt.Errorf("reading source file: %w", err)
+		return functionsDeployInput{}, fmt.Errorf("reading source file: %w", err)
 	}
-	source := string(sourceBytes)
+	if err := validateDeployVisibilityFlags(cmd); err != nil {
+		return functionsDeployInput{}, err
+	}
 
 	entryPoint, _ := cmd.Flags().GetString("entry-point")
 	timeoutMs, _ := cmd.Flags().GetInt("timeout")
-	if err := validateDeployVisibilityFlags(cmd); err != nil {
-		return err
-	}
+	return functionsDeployInput{
+		name:       name,
+		source:     string(sourceBytes),
+		entryPoint: entryPoint,
+		timeoutMs:  timeoutMs,
+		outFmt:     outputFormat(cmd),
+	}, nil
+}
 
-	outFmt := outputFormat(cmd)
-
-	// Check if function already exists by name.
+func lookupFunctionsDeployTarget(cmd *cobra.Command, name string) (*http.Response, []byte, error) {
 	lookupPath := "/api/admin/functions/by-name/" + url.PathEscape(name)
-	lookupResp, lookupBody, err := adminRequest(cmd, "GET", lookupPath, nil)
-	if err != nil {
-		return err
-	}
+	return adminRequest(cmd, "GET", lookupPath, nil)
+}
 
-	var action string
-	var resp *http.Response
-	var body []byte
+func executeFunctionsDeploy(cmd *cobra.Command, input functionsDeployInput, lookupResp *http.Response, lookupBody []byte) (string, *http.Response, []byte, error) {
+	action := "Created"
+	method := "POST"
+	path := "/api/admin/functions"
+	defaultPublic := false
+	includeName := true
 
-	if lookupResp.StatusCode == http.StatusOK {
-		// Function exists → update via PUT.
-		var existing struct {
-			ID     string `json:"id"`
-			Public bool   `json:"public"`
-		}
+	switch lookupResp.StatusCode {
+	case http.StatusOK:
+		var existing existingFunctionsDeployTarget
 		if err := json.Unmarshal(lookupBody, &existing); err != nil {
-			return fmt.Errorf("parsing existing function: %w", err)
+			return "", nil, nil, fmt.Errorf("parsing existing function: %w", err)
 		}
 		if existing.ID == "" {
-			return fmt.Errorf("function lookup returned empty ID")
+			return "", nil, nil, fmt.Errorf("function lookup returned empty ID")
+		}
+		if existing.ID != url.PathEscape(existing.ID) {
+			return "", nil, nil, fmt.Errorf("function lookup returned unsafe ID %q", existing.ID)
 		}
 
-		isPublic, err := resolveDeployPublicValue(cmd, existing.Public)
-		if err != nil {
-			return err
-		}
-
-		payload := map[string]any{
-			"source":      source,
-			"entry_point": entryPoint,
-			"timeout_ms":  timeoutMs,
-			"public":      isPublic,
-		}
-		payloadBytes, _ := json.Marshal(payload)
-
-		updatePath := "/api/admin/functions/" + existing.ID
-		resp, body, err = adminRequest(cmd, "PUT", updatePath, bytes.NewReader(payloadBytes))
-		if err != nil {
-			return err
-		}
 		action = "Updated"
-	} else if lookupResp.StatusCode == http.StatusNotFound {
-		// Function does not exist → create via POST.
-		isPublic, err := resolveDeployPublicValue(cmd, false)
-		if err != nil {
-			return err
-		}
-
-		payload := map[string]any{
-			"name":        name,
-			"source":      source,
-			"entry_point": entryPoint,
-			"timeout_ms":  timeoutMs,
-			"public":      isPublic,
-		}
-		payloadBytes, _ := json.Marshal(payload)
-
-		resp, body, err = adminRequest(cmd, "POST", "/api/admin/functions", bytes.NewReader(payloadBytes))
-		if err != nil {
-			return err
-		}
-		action = "Created"
-	} else {
-		return serverError(lookupResp.StatusCode, lookupBody)
+		method = "PUT"
+		path = "/api/admin/functions/" + existing.ID
+		defaultPublic = existing.Public
+		includeName = false
+	case http.StatusNotFound:
+	default:
+		return "", nil, nil, serverError(lookupResp.StatusCode, lookupBody)
 	}
 
+	isPublic, err := resolveDeployPublicValue(cmd, defaultPublic)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	payloadBytes, err := buildFunctionsDeployPayload(input, isPublic, includeName)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	resp, body, err := adminRequest(cmd, method, path, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return action, resp, body, nil
+}
+
+func buildFunctionsDeployPayload(input functionsDeployInput, isPublic bool, includeName bool) ([]byte, error) {
+	payload := map[string]any{
+		"source":      input.source,
+		"entry_point": input.entryPoint,
+		"timeout_ms":  input.timeoutMs,
+		"public":      isPublic,
+	}
+	if includeName {
+		payload["name"] = input.name
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encoding deploy payload: %w", err)
+	}
+	return payloadBytes, nil
+}
+
+func renderFunctionsDeployResponse(outFmt, action string, resp *http.Response, body []byte) error {
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return serverError(resp.StatusCode, body)
 	}

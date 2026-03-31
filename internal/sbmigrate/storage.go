@@ -29,6 +29,11 @@ type StorageBucket struct {
 	Public bool
 }
 
+type storageBucketObjects struct {
+	bucket  StorageBucket
+	objects []StorageObject
+}
+
 // listStorageBuckets queries storage.buckets from the Supabase source database.
 func (m *Migrator) listStorageBuckets(ctx context.Context) ([]StorageBucket, error) {
 	// Check if storage schema exists.
@@ -97,15 +102,6 @@ func (m *Migrator) listStorageObjects(ctx context.Context, bucketID string) ([]S
 	return objects, rows.Err()
 }
 
-// migrateStorage copies files from a local Supabase storage export directory
-// into AYB's local storage layout.
-//
-// The source directory should mirror Supabase's bucket/path structure:
-//
-//	<storage-path>/<bucket-name>/<object-path>
-//
-// The migrator reads bucket/object metadata from the source Postgres database
-// and copies matching files from the local export directory.
 func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int) error {
 	phase := migrate.Phase{Name: "Storage files", Index: phaseIdx, Total: totalPhases}
 
@@ -115,105 +111,25 @@ func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int
 	}
 
 	if len(buckets) == 0 {
-		m.progress.StartPhase(phase, 0)
-		m.progress.CompletePhase(phase, 0, 0)
-		fmt.Fprintln(m.output, "No storage buckets found (skipping)")
+		m.completeEmptyStoragePhase(phase)
 		return nil
 	}
 
-	// Load all objects per bucket in a single pass to avoid double-querying.
-	type bucketObjects struct {
-		bucket  StorageBucket
-		objects []StorageObject
-	}
-	var allBuckets []bucketObjects
-	var totalObjects int
-	for _, b := range buckets {
-		objects, err := m.listStorageObjects(ctx, b.ID)
-		if err != nil {
-			return fmt.Errorf("listing objects in bucket %s: %w", b.Name, err)
-		}
-		allBuckets = append(allBuckets, bucketObjects{bucket: b, objects: objects})
-		totalObjects += len(objects)
+	allBuckets, totalObjects, err := m.loadStorageBucketsWithObjects(ctx, buckets)
+	if err != nil {
+		return err
 	}
 
-	m.progress.StartPhase(phase, totalObjects)
-	start := time.Now()
-
-	fmt.Fprintln(m.output, "Migrating storage files...")
-
-	destPath := m.opts.StoragePath
-	if destPath == "" {
-		destPath = filepath.Join(".", "ayb_storage")
-	}
-
-	if err := os.MkdirAll(destPath, 0755); err != nil {
-		return fmt.Errorf("creating storage directory: %w", err)
+	start := m.startStoragePhase(phase, totalObjects)
+	destPath, err := m.prepareStorageDestinationRoot()
+	if err != nil {
+		return err
 	}
 
 	processed := 0
-	for _, bo := range allBuckets {
-		bucket := bo.bucket
-		objects := bo.objects
-
-		if len(objects) == 0 {
-			if m.verbose {
-				fmt.Fprintf(m.output, "  %s: 0 files\n", bucket.Name)
-			}
-			continue
-		}
-
-		bucketName := normalizeBucketName(bucket.Name)
-		bucketDir := filepath.Join(destPath, bucketName)
-		if err := os.MkdirAll(bucketDir, 0755); err != nil {
-			return fmt.Errorf("creating bucket directory %s: %w", bucketName, err)
-		}
-
-		copied := 0
-		for _, obj := range objects {
-			// Source file path: <storage-export>/<bucket>/<object-path>
-			srcFile := filepath.Join(m.opts.StorageExportPath, bucket.Name, obj.Name)
-
-			// Destination: <ayb-storage>/<bucket>/<object-path>
-			destFile := filepath.Join(bucketDir, obj.Name)
-
-			// Guard against path traversal: ensure destFile is under bucketDir.
-			if !strings.HasPrefix(filepath.Clean(destFile), filepath.Clean(bucketDir)+string(filepath.Separator)) &&
-				filepath.Clean(destFile) != filepath.Clean(bucketDir) {
-				m.stats.Errors = append(m.stats.Errors,
-					fmt.Sprintf("skipping %s/%s: path traversal detected", bucket.Name, obj.Name))
-				processed++
-				m.progress.Progress(phase, processed, totalObjects)
-				continue
-			}
-
-			// Create parent directories.
-			if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
-				m.stats.Errors = append(m.stats.Errors,
-					fmt.Sprintf("creating directory for %s/%s: %v", bucket.Name, obj.Name, err))
-				processed++
-				m.progress.Progress(phase, processed, totalObjects)
-				continue
-			}
-
-			bytes, err := copyFile(srcFile, destFile)
-			if err != nil {
-				m.stats.Errors = append(m.stats.Errors,
-					fmt.Sprintf("copying %s/%s: %v", bucket.Name, obj.Name, err))
-				processed++
-				m.progress.Progress(phase, processed, totalObjects)
-				continue
-			}
-
-			copied++
-			m.stats.StorageFiles++
-			m.stats.StorageBytes += bytes
-			processed++
-			m.progress.Progress(phase, processed, totalObjects)
-		}
-
-		if m.verbose {
-			fmt.Fprintf(m.output, "  %s: %d files copied\n", bucket.Name, copied)
+	for _, bucketObjects := range allBuckets {
+		if err := m.copyStorageBucket(phase, totalObjects, &processed, destPath, bucketObjects); err != nil {
+			return err
 		}
 	}
 
@@ -221,6 +137,124 @@ func (m *Migrator) migrateStorage(ctx context.Context, phaseIdx, totalPhases int
 	fmt.Fprintf(m.output, "  %d files migrated (%s)\n",
 		m.stats.StorageFiles, migrate.FormatBytes(m.stats.StorageBytes))
 	return nil
+}
+
+func (m *Migrator) completeEmptyStoragePhase(phase migrate.Phase) {
+	m.progress.StartPhase(phase, 0)
+	m.progress.CompletePhase(phase, 0, 0)
+	fmt.Fprintln(m.output, "No storage buckets found (skipping)")
+}
+
+func (m *Migrator) loadStorageBucketsWithObjects(
+	ctx context.Context,
+	buckets []StorageBucket,
+) ([]storageBucketObjects, int, error) {
+	allBuckets := make([]storageBucketObjects, 0, len(buckets))
+	totalObjects := 0
+
+	for _, bucket := range buckets {
+		objects, err := m.listStorageObjects(ctx, bucket.ID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("listing objects in bucket %s: %w", bucket.Name, err)
+		}
+		allBuckets = append(allBuckets, storageBucketObjects{bucket: bucket, objects: objects})
+		totalObjects += len(objects)
+	}
+
+	return allBuckets, totalObjects, nil
+}
+
+func (m *Migrator) startStoragePhase(phase migrate.Phase, totalObjects int) time.Time {
+	m.progress.StartPhase(phase, totalObjects)
+	fmt.Fprintln(m.output, "Migrating storage files...")
+	return time.Now()
+}
+
+func (m *Migrator) prepareStorageDestinationRoot() (string, error) {
+	destPath := m.opts.StoragePath
+	if destPath == "" {
+		destPath = filepath.Join(".", "ayb_storage")
+	}
+
+	if err := os.MkdirAll(destPath, 0755); err != nil {
+		return "", fmt.Errorf("creating storage directory: %w", err)
+	}
+
+	return destPath, nil
+}
+
+func (m *Migrator) copyStorageBucket(
+	phase migrate.Phase,
+	totalObjects int,
+	processed *int,
+	destPath string,
+	bucketObjects storageBucketObjects,
+) error {
+	bucket := bucketObjects.bucket
+	objects := bucketObjects.objects
+	if len(objects) == 0 {
+		if m.verbose {
+			fmt.Fprintf(m.output, "  %s: 0 files\n", bucket.Name)
+		}
+		return nil
+	}
+
+	bucketName := normalizeBucketName(bucket.Name)
+	bucketDir := filepath.Join(destPath, bucketName)
+	if err := os.MkdirAll(bucketDir, 0755); err != nil {
+		return fmt.Errorf("creating bucket directory %s: %w", bucketName, err)
+	}
+
+	copied := 0
+	for _, obj := range objects {
+		srcFile := filepath.Join(m.opts.StorageExportPath, bucket.Name, obj.Name)
+		destFile := filepath.Join(bucketDir, obj.Name)
+		if !isStoragePathWithinBucket(destFile, bucketDir) {
+			m.recordStorageObjectError(phase, processed, totalObjects,
+				fmt.Sprintf("skipping %s/%s: path traversal detected", bucket.Name, obj.Name))
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
+			m.recordStorageObjectError(phase, processed, totalObjects,
+				fmt.Sprintf("creating directory for %s/%s: %v", bucket.Name, obj.Name, err))
+			continue
+		}
+
+		bytes, err := copyFile(srcFile, destFile)
+		if err != nil {
+			m.recordStorageObjectError(phase, processed, totalObjects,
+				fmt.Sprintf("copying %s/%s: %v", bucket.Name, obj.Name, err))
+			continue
+		}
+
+		copied++
+		m.stats.StorageFiles++
+		m.stats.StorageBytes += bytes
+		(*processed)++
+		m.progress.Progress(phase, *processed, totalObjects)
+	}
+
+	if m.verbose {
+		fmt.Fprintf(m.output, "  %s: %d files copied\n", bucket.Name, copied)
+	}
+	return nil
+}
+
+func isStoragePathWithinBucket(destFile, bucketDir string) bool {
+	cleanDest := filepath.Clean(destFile)
+	cleanBucket := filepath.Clean(bucketDir)
+	return strings.HasPrefix(cleanDest, cleanBucket+string(filepath.Separator)) || cleanDest == cleanBucket
+}
+
+func (m *Migrator) recordStorageObjectError(
+	phase migrate.Phase,
+	processed *int,
+	totalObjects int,
+	message string,
+) {
+	m.stats.Errors = append(m.stats.Errors, message)
+	(*processed)++
+	m.progress.Progress(phase, *processed, totalObjects)
 }
 
 // copyFile copies a file from src to dst, returning bytes copied.

@@ -19,11 +19,17 @@ import { formatDate } from "./shared/format";
 import { useAppToast } from "./ToastProvider";
 
 const PREVIEW_DEBOUNCE_MS = 350;
+const DEFAULT_TEMPLATE_VARIABLE_VALUES: Record<string, string> = {
+  AppName: "Allyourbase",
+  ActionURL: "https://example.com/action",
+};
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 function defaultVariableValue(name: string): string {
-  if (name === "AppName") return "Allyourbase";
-  if (name === "ActionURL") return "https://example.com/action";
-  return "";
+  return DEFAULT_TEMPLATE_VARIABLE_VALUES[name] ?? "";
 }
 
 function defaultVarsJSON(variables: string[] | undefined): string {
@@ -88,6 +94,7 @@ export function EmailTemplates() {
   const [sendTo, setSendTo] = useState("");
   const [sending, setSending] = useState(false);
   const effectiveLoadSeqRef = useRef(0);
+  const previewRequestSeqRef = useRef(0);
 
   const { addToast } = useAppToast();
 
@@ -105,7 +112,7 @@ export function EmailTemplates() {
       const res = await listEmailTemplates();
       setList(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load email templates");
+      setError(getErrorMessage(e, "Failed to load email templates"));
       setList(null);
     } finally {
       setLoadingList(false);
@@ -129,12 +136,19 @@ export function EmailTemplates() {
       if (effectiveLoadSeqRef.current !== requestSeq) return;
       setEffective(null);
       setPreviewResult(null);
-      setPreviewError(e instanceof Error ? e.message : "Failed to load template");
+      setPreviewError(getErrorMessage(e, "Failed to load template"));
     } finally {
       if (effectiveLoadSeqRef.current !== requestSeq) return;
       setLoadingEffective(false);
     }
   }, []);
+
+  const refreshSelectedTemplate = useCallback(
+    async (key: string) => {
+      await Promise.all([loadList(), loadEffective(key)]);
+    },
+    [loadEffective, loadList],
+  );
 
   useEffect(() => {
     loadList();
@@ -163,13 +177,22 @@ export function EmailTemplates() {
   }, [selectedKey, loadEffective]);
 
   useEffect(() => {
-    if (!selectedKey || loadingEffective) return;
-    if (subjectTemplate.trim() === "" || htmlTemplate.trim() === "") return;
+    const requestSeq = ++previewRequestSeqRef.current;
+
+    if (!selectedKey || loadingEffective) {
+      setPreviewLoading(false);
+      return;
+    }
+    if (subjectTemplate.trim() === "" || htmlTemplate.trim() === "") {
+      setPreviewLoading(false);
+      return;
+    }
 
     const parsed = parseVariablesJSON(previewVarsInput);
     if (parsed.error) {
       setPreviewError(parsed.error);
       setPreviewResult(null);
+      setPreviewLoading(false);
       return;
     }
 
@@ -181,15 +204,18 @@ export function EmailTemplates() {
           htmlTemplate,
           variables: parsed.vars ?? {},
         });
-        setPreviewResult(rendered);
-        setPreviewError(null);
-      } catch (e) {
-        setPreviewResult(null);
-        setPreviewError(e instanceof Error ? e.message : "Preview failed");
-      } finally {
-        setPreviewLoading(false);
-      }
-    }, PREVIEW_DEBOUNCE_MS);
+      if (previewRequestSeqRef.current !== requestSeq) return;
+      setPreviewResult(rendered);
+      setPreviewError(null);
+    } catch (e) {
+      if (previewRequestSeqRef.current !== requestSeq) return;
+      setPreviewResult(null);
+      setPreviewError(getErrorMessage(e, "Preview failed"));
+    } finally {
+      if (previewRequestSeqRef.current !== requestSeq) return;
+      setPreviewLoading(false);
+    }
+  }, PREVIEW_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
   }, [selectedKey, loadingEffective, subjectTemplate, htmlTemplate, previewVarsInput]);
@@ -203,9 +229,9 @@ export function EmailTemplates() {
         htmlTemplate,
       });
       addToast("success", `Saved ${selectedKey}`);
-      await Promise.all([loadList(), loadEffective(selectedKey)]);
+      await refreshSelectedTemplate(selectedKey);
     } catch (e) {
-      addToast("error", e instanceof Error ? e.message : "Failed to save template");
+      addToast("error", getErrorMessage(e, "Failed to save template"));
     } finally {
       setSaving(false);
     }
@@ -217,9 +243,9 @@ export function EmailTemplates() {
     try {
       await setEmailTemplateEnabled(selectedKey, !selectedItem.enabled);
       addToast("success", `${!selectedItem.enabled ? "Enabled" : "Disabled"} ${selectedKey}`);
-      await Promise.all([loadList(), loadEffective(selectedKey)]);
+      await refreshSelectedTemplate(selectedKey);
     } catch (e) {
-      addToast("error", e instanceof Error ? e.message : "Failed to update template status");
+      addToast("error", getErrorMessage(e, "Failed to update template status"));
     } finally {
       setToggling(false);
     }
@@ -232,9 +258,9 @@ export function EmailTemplates() {
     try {
       await deleteEmailTemplate(selectedKey);
       addToast("success", isSystemKey ? `Reset ${selectedKey} to default` : `Deleted ${selectedKey}`);
-      await Promise.all([loadList(), loadEffective(selectedKey)]);
+      await refreshSelectedTemplate(selectedKey);
     } catch (e) {
-      addToast("error", e instanceof Error ? e.message : "Failed to delete template");
+      addToast("error", getErrorMessage(e, "Failed to delete template"));
     } finally {
       setDeleting(false);
     }
@@ -264,7 +290,7 @@ export function EmailTemplates() {
       });
       addToast("success", `Sent test email to ${recipient}`);
     } catch (e) {
-      addToast("error", e instanceof Error ? e.message : "Failed to send test email");
+      addToast("error", getErrorMessage(e, "Failed to send test email"));
     } finally {
       setSending(false);
     }
@@ -288,7 +314,7 @@ export function EmailTemplates() {
           <button
             onClick={() => {
               setLoadingList(true);
-              loadList();
+              void loadList();
             }}
             className="mt-2 text-sm text-blue-600 hover:underline"
           >

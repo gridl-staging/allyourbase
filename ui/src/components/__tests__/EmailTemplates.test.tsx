@@ -369,6 +369,69 @@ describe("EmailTemplates", () => {
     expect(screen.getByTestId("email-template-preview-html")).toHaveAttribute("tabindex", "0");
   });
 
+  it("ignores stale preview responses after a newer render completes", async () => {
+    const stalePreview = deferred<PreviewEmailTemplateResponse>();
+    mockPreviewEmailTemplate
+      .mockResolvedValueOnce(makePreview({ html: "<p>initial</p>" }))
+      .mockImplementationOnce(() => stalePreview.promise)
+      .mockResolvedValueOnce(makePreview({ html: "<p>https://latest.example/reset</p>" }));
+
+    renderWithProviders(<EmailTemplates />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent("initial");
+    });
+
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByLabelText("Preview Variables (JSON)"), {
+      target: {
+        value: JSON.stringify({
+          AppName: "Stale App",
+          ActionURL: "https://stale.example/reset",
+        }),
+      },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(450);
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(2);
+
+    fireEvent.change(screen.getByLabelText("Preview Variables (JSON)"), {
+      target: {
+        value: JSON.stringify({
+          AppName: "Latest App",
+          ActionURL: "https://latest.example/reset",
+        }),
+      },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(450);
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewEmailTemplate).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent(
+      "https://latest.example/reset",
+    );
+
+    await act(async () => {
+      stalePreview.resolve(makePreview({ html: "<p>https://stale.example/reset</p>" }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("email-template-preview-html")).toHaveTextContent(
+      "https://latest.example/reset",
+    );
+    expect(screen.getByTestId("email-template-preview-html")).not.toHaveTextContent(
+      "https://stale.example/reset",
+    );
+  });
+
   it("reloads effective template after reset to default", async () => {
     mockListEmailTemplates
       .mockResolvedValueOnce({

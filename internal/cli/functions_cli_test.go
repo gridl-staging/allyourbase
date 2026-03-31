@@ -685,6 +685,15 @@ func TestFunctionsDeployCreatesNewFunction(t *testing.T) {
 	if gotBody["source"] != srcContent {
 		t.Fatalf("expected source in body, got %v", gotBody["source"])
 	}
+	if gotBody["entry_point"] != "" {
+		t.Fatalf("expected default entry_point to be empty, got %v", gotBody["entry_point"])
+	}
+	if gotBody["timeout_ms"] != float64(0) {
+		t.Fatalf("expected default timeout_ms=0, got %v", gotBody["timeout_ms"])
+	}
+	if gotBody["public"] != false {
+		t.Fatalf("expected default public=false on create, got %v", gotBody["public"])
+	}
 	if !strings.Contains(output, createdID) {
 		t.Fatalf("expected function ID in output, got %q", output)
 	}
@@ -707,6 +716,7 @@ func TestFunctionsDeployUpdatesExistingFunction(t *testing.T) {
 	const existingID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	var gotMethod string
 	var gotPath string
+	var gotBody map[string]any
 
 	stubAdminHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -719,6 +729,8 @@ func TestFunctionsDeployUpdatesExistingFunction(t *testing.T) {
 		case r.Method == "PUT" && r.URL.Path == "/api/admin/functions/"+existingID:
 			gotMethod = r.Method
 			gotPath = r.URL.Path
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &gotBody)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":   existingID,
 				"name": "myfunc",
@@ -742,12 +754,67 @@ func TestFunctionsDeployUpdatesExistingFunction(t *testing.T) {
 
 	testutil.Equal(t, "PUT", gotMethod)
 	testutil.Equal(t, "/api/admin/functions/"+existingID, gotPath)
+	if gotBody["source"] != srcContent {
+		t.Fatalf("expected source to be forwarded on update, got %v", gotBody["source"])
+	}
+	if gotBody["entry_point"] != "" {
+		t.Fatalf("expected default entry_point to be empty on update, got %v", gotBody["entry_point"])
+	}
+	if gotBody["timeout_ms"] != float64(0) {
+		t.Fatalf("expected default timeout_ms=0 on update, got %v", gotBody["timeout_ms"])
+	}
+	if gotBody["public"] != false {
+		t.Fatalf("expected existing visibility default false on update, got %v", gotBody["public"])
+	}
+	if _, hasName := gotBody["name"]; hasName {
+		t.Fatalf("did not expect name field in update payload, got %v", gotBody["name"])
+	}
 	if !strings.Contains(output, existingID) {
 		t.Fatalf("expected function ID in output, got %q", output)
 	}
 	if !strings.Contains(output, "Updated") {
 		t.Fatalf("expected 'Updated' status in output, got %q", output)
 	}
+}
+
+func TestFunctionsDeployRejectsUnsafeLookupIDOnUpdate(t *testing.T) {
+	resetJSONFlag()
+	resetFunctionsDeployFlags()
+
+	tmpDir := t.TempDir()
+	srcFile := filepath.Join(tmpDir, "myfunc.js")
+	if err := os.WriteFile(srcFile, []byte("export default function handler() {}"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	const existingID = "../nested?id=1"
+	putCalled := false
+
+	stubAdminHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/admin/functions/by-name/"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   existingID,
+				"name": "myfunc",
+			})
+		case r.Method == "PUT":
+			putCalled = true
+			t.Fatalf("did not expect update request for unsafe lookup ID, got %s", r.URL.Path)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	rootCmd.SetArgs([]string{
+		"functions", "deploy", "myfunc",
+		"--source", srcFile,
+		"--url", testAdminURL,
+		"--admin-token", "tok",
+	})
+	err := rootCmd.Execute()
+	testutil.NotNil(t, err)
+	testutil.Contains(t, err.Error(), "unsafe ID")
+	testutil.False(t, putCalled)
 }
 
 func TestFunctionsDeployPassesFlags(t *testing.T) {
@@ -1091,6 +1158,63 @@ func TestFunctionsDeployJSONOutput(t *testing.T) {
 	}
 	if got["id"] != createdID {
 		t.Fatalf("expected id=%s in JSON, got %v", createdID, got["id"])
+	}
+	if strings.Contains(output, "Created function") {
+		t.Fatalf("expected JSON-only output, got %q", output)
+	}
+}
+
+func TestFunctionsDeployJSONOutputOnUpdate(t *testing.T) {
+	resetJSONFlag()
+	resetFunctionsDeployFlags()
+
+	tmpDir := t.TempDir()
+	srcFile := filepath.Join(tmpDir, "myfunc.js")
+	if err := os.WriteFile(srcFile, []byte("export default function handler() {}"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	const existingID = "f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0"
+	stubAdminHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/admin/functions/by-name/"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":     existingID,
+				"name":   "myfunc",
+				"public": true,
+			})
+		case r.Method == "PUT" && r.URL.Path == "/api/admin/functions/"+existingID:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   existingID,
+				"name": "myfunc",
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"functions", "deploy", "myfunc",
+			"--source", srcFile,
+			"--json",
+			"--url", testAdminURL,
+			"--admin-token", "tok",
+		})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("expected valid JSON output: %v", err)
+	}
+	if got["id"] != existingID {
+		t.Fatalf("expected id=%s in JSON, got %v", existingID, got["id"])
+	}
+	if strings.Contains(output, "Updated function") {
+		t.Fatalf("expected JSON-only output, got %q", output)
 	}
 }
 

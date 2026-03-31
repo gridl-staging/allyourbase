@@ -1,17 +1,10 @@
 # Stage 4 deferred oversized Go files.
 # Format: path:line_count
-internal/server/auth_providers_handler.go:593
-# Deferred split: provider-specific flow extraction is still pending.
-internal/auth/oauth_clients.go:593
 internal/emailtemplates/emailtemplates.go:580
 internal/fbmigrate/migrator.go:583
 internal/cli/deploy_fly.go:580
-internal/jobs/handlers.go:537
 internal/tenant/migration.go:575
 internal/pbmigrate/migrator.go:575
-# Deferred split: store query/transaction families remain tightly coupled.
-internal/jobs/store.go:569
-internal/ws/handler.go:569
 # Deferred split: template additions pushed this file slightly higher; keep
 # allowlist exact until scaffold templates are broken into smaller units.
 internal/scaffold/scaffold_templates.go:522

@@ -226,6 +226,21 @@ func TestAdminAuthProvidersPut_ValidatesBuiltinProviderFields(t *testing.T) {
 	testutil.Contains(t, w.Body.String(), "client_secret is required when enabled")
 }
 
+func TestAdminAuthProvidersPut_BuiltInRejectsOIDCOnlyFields(t *testing.T) {
+	t.Parallel()
+	srv, token := authProvidersServerWithAuth(t, nil)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/auth/providers/google",
+		strings.NewReader(`{"issuer_url":"https://issuer.example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "issuer_url, scopes, and display_name are only supported for OIDC providers")
+}
+
 func TestAdminAuthProvidersPut_UpdatesOIDCProvider(t *testing.T) {
 	providerName := "oidc_admin_put_test"
 	auth.UnregisterOIDCProvider(providerName)
@@ -265,6 +280,27 @@ func TestAdminAuthProvidersPut_UpdatesOIDCProvider(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 	testutil.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	testutil.Contains(t, w.Header().Get("Location"), issuerURL+"/authorize")
+}
+
+func TestAdminAuthProvidersPut_OIDCRejectsBuiltInOnlyFields(t *testing.T) {
+	t.Parallel()
+	providerName := "oidc_admin_put_reject_builtin_fields"
+	auth.UnregisterOIDCProvider(providerName)
+	t.Cleanup(func() {
+		auth.UnregisterOIDCProvider(providerName)
+	})
+
+	srv, token := authProvidersServerWithAuth(t, nil)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/auth/providers/"+providerName,
+		strings.NewReader(`{"tenant_id":"contoso-tenant"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "tenant_id, team_id, key_id, private_key, facebook_api_version, and gitlab_base_url are only supported for built-in providers")
 }
 
 func TestAdminAuthProvidersPut_MicrosoftTenantAffectsRedirectURL(t *testing.T) {
@@ -392,6 +428,18 @@ func TestAdminAuthProvidersDelete_UnknownOIDCProviderReturnsNotFound(t *testing.
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 	testutil.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAdminAuthProvidersDelete_UnknownBuiltInProviderReturnsNoContent(t *testing.T) {
+	t.Parallel()
+	srv, token := authProvidersServerWithAuth(t, nil)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/auth/providers/google", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusNoContent, w.Code)
 }
 
 func newMockOIDCDiscoveryServer(t *testing.T) *httptest.Server {

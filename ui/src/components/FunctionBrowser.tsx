@@ -39,6 +39,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
   const execute = useCallback(
     async (fn: SchemaFunction) => {
       const fnKey = `${fn.schema}.${fn.name}`;
+      const rpcFunctionName = encodeRpcFunctionName(fn);
       setLoading(true);
       setResult(null);
 
@@ -52,7 +53,7 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
 
       const start = performance.now();
       try {
-        const res = await callRpc(fn.name, args);
+        const res = await callRpc(rpcFunctionName, args);
         const durationMs = Math.round(performance.now() - start);
         setResult({ fnKey, status: res.status, data: res.data, durationMs });
       } catch (err: unknown) {
@@ -211,6 +212,12 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
       </div>
     </div>
   );
+}
+
+function encodeRpcFunctionName(fn: SchemaFunction): string {
+  const functionName = fn.schema === "public" ? fn.name : `${fn.schema}.${fn.name}`;
+  // Keep the function identifier in a single URL path segment.
+  return encodeURIComponent(functionName);
 }
 
 function coerceValue(raw: string, pgType: string): unknown {

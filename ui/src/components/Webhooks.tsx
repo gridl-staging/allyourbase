@@ -79,9 +79,13 @@ export function Webhooks() {
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    addToast("success", `${label} copied`);
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      addToast("success", `${label} copied`);
+    } catch (e) {
+      addToast("error", e instanceof Error ? e.message : `Failed to copy ${label}`);
+    }
   };
 
   const handleTest = async (hook: WebhookResponse) => {

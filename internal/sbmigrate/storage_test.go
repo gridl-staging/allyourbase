@@ -199,3 +199,102 @@ func TestBuildValidationSummaryNoStorage(t *testing.T) {
 			"should not have Storage files row when counts are zero")
 	}
 }
+
+func TestMigrateStorageCompleteEmptyStoragePhase(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+	m := &Migrator{
+		output:   &out,
+		progress: migrate.NopReporter{},
+	}
+
+	m.completeEmptyStoragePhase(migrate.Phase{Name: "Storage files", Index: 6, Total: 6})
+
+	testutil.Contains(t, out.String(), "No storage buckets found (skipping)")
+}
+
+func TestMigrateStorageCopyStorageBucket(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty bucket short-circuits when verbose", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+		m := &Migrator{
+			output:   &out,
+			verbose:  true,
+			progress: migrate.NopReporter{},
+		}
+
+		processed := 0
+		err := m.copyStorageBucket(
+			migrate.Phase{Name: "Storage files", Index: 1, Total: 1},
+			0,
+			&processed,
+			t.TempDir(),
+			storageBucketObjects{
+				bucket:  StorageBucket{Name: "avatars"},
+				objects: nil,
+			},
+		)
+		testutil.NoError(t, err)
+		testutil.Equal(t, 0, processed)
+		testutil.Equal(t, 0, m.stats.StorageFiles)
+		testutil.Equal(t, int64(0), m.stats.StorageBytes)
+		testutil.Contains(t, out.String(), "avatars: 0 files")
+	})
+
+	t.Run("continues after per-object errors and accumulates stats", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		exportPath := filepath.Join(root, "storage-export")
+		destPath := filepath.Join(root, "ayb-storage")
+		validContent := []byte("photo-content")
+		bucket := StorageBucket{Name: "Uploads Assets"}
+
+		srcValidPath := filepath.Join(exportPath, bucket.Name, "images", "photo.jpg")
+		testutil.NoError(t, os.MkdirAll(filepath.Dir(srcValidPath), 0755))
+		testutil.NoError(t, os.WriteFile(srcValidPath, validContent, 0644))
+
+		var out strings.Builder
+		m := &Migrator{
+			output:   &out,
+			verbose:  true,
+			progress: migrate.NopReporter{},
+			opts: MigrationOptions{
+				StorageExportPath: exportPath,
+			},
+		}
+
+		objects := []StorageObject{
+			{Name: "images/photo.jpg"},
+			{Name: "../outside.txt"},
+			{Name: "missing.bin"},
+		}
+
+		processed := 0
+		err := m.copyStorageBucket(
+			migrate.Phase{Name: "Storage files", Index: 1, Total: 1},
+			len(objects),
+			&processed,
+			destPath,
+			storageBucketObjects{bucket: bucket, objects: objects},
+		)
+		testutil.NoError(t, err)
+
+		testutil.Equal(t, 3, processed)
+		testutil.Equal(t, 1, m.stats.StorageFiles)
+		testutil.Equal(t, int64(len(validContent)), m.stats.StorageBytes)
+		testutil.SliceLen(t, m.stats.Errors, 2)
+		testutil.Contains(t, strings.Join(m.stats.Errors, "\n"), "path traversal detected")
+		testutil.Contains(t, strings.Join(m.stats.Errors, "\n"), "copying Uploads Assets/missing.bin")
+
+		destFile := filepath.Join(destPath, normalizeBucketName(bucket.Name), "images", "photo.jpg")
+		got, readErr := os.ReadFile(destFile)
+		testutil.NoError(t, readErr)
+		testutil.Equal(t, string(validContent), string(got))
+		testutil.Contains(t, out.String(), "Uploads Assets: 1 files copied")
+	})
+}

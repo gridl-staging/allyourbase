@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../../test-utils";
 import userEvent from "@testing-library/user-event";
@@ -44,6 +44,7 @@ const mockUpdateWebhook = vi.mocked(updateWebhook);
 const mockDeleteWebhook = vi.mocked(deleteWebhook);
 const mockTestWebhook = vi.mocked(testWebhook);
 const mockListDeliveries = vi.mocked(listWebhookDeliveries);
+let clipboardWriteText: ReturnType<typeof vi.spyOn>;
 
 function makeWebhook(
   overrides: Partial<WebhookResponse> = {},
@@ -64,6 +65,17 @@ function makeWebhook(
 describe("Webhooks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => undefined },
+      });
+    }
+    clipboardWriteText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    clipboardWriteText.mockRestore();
   });
 
   it("shows loading state", () => {
@@ -260,6 +272,42 @@ describe("Webhooks", () => {
         screen.getByTitle("HMAC secret configured"),
       ).toBeInTheDocument();
     });
+  });
+
+  it("copies the webhook URL only after the clipboard write succeeds", async () => {
+    const user = userEvent.setup();
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy URL" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("https://example.com/hook");
+      expect(screen.getByText("URL copied")).toBeInTheDocument();
+    });
+  });
+
+  it("shows an error toast when copying the webhook URL fails", async () => {
+    const user = userEvent.setup();
+    clipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+    mockListWebhooks.mockResolvedValueOnce([makeWebhook()]);
+    renderWithProviders(<Webhooks />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy URL" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Copy URL" }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("https://example.com/hook");
+      expect(screen.getByText("clipboard denied")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("URL copied")).not.toBeInTheDocument();
   });
 
   it("displays error on fetch failure", async () => {

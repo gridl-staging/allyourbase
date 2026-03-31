@@ -17,67 +17,40 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runStartDetached launches the AYB server as a background process, polling for readiness before printing the startup banner and returning.
+type detachedStartPreparation struct {
+	cfg               *config.Config
+	generatedPassword string
+	firstRun          bool
+	timeout           time.Duration
+}
+
+var detachedAdminTokenPathFunc = aybAdminTokenPath
+
 func runStartDetached(cmd *cobra.Command, _ []string) error {
-	// --- 1. Preflight existing PID state ---
 	if handled, err := preflightDetachedStart(); handled || err != nil {
 		return err
 	}
-
-	// --- 2. Load config (for port, banner info) ---
-	configPath, _ := cmd.Flags().GetString("config")
-	flags := make(map[string]string)
-	if v, _ := cmd.Flags().GetString("database-url"); v != "" {
-		flags["database-url"] = v
-	}
-	if v, _ := cmd.Flags().GetInt("port"); v != 0 {
-		flags["port"] = fmt.Sprintf("%d", v)
-	}
-	if v, _ := cmd.Flags().GetString("host"); v != "" {
-		flags["host"] = v
-	}
-
-	cfg, err := config.Load(configPath, flags)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-	generatedPassword, err := ensureConfiguredAdminPassword(cfg)
+	prep, err := prepareDetachedStart(cmd)
 	if err != nil {
 		return err
 	}
 
-	// --- 3. Early port check ---
-	if ln, err := net.Listen("tcp", cfg.Address()); err != nil {
-		return portError(cfg.Server.Port, err)
-	} else {
-		ln.Close()
-	}
-
-	// --- 4. Detect first run (G6) ---
-	firstRun := isFirstRun()
-	timeout := 60 * time.Second
-	if firstRun {
-		timeout = 300 * time.Second
-	}
-
-	// --- 5. Build child command (G2, G3) ---
 	child, logPath, logFile, err := buildDetachedChildCommand()
 	if err != nil {
 		return err
 	}
-	if generatedPassword != "" {
-		child.Env = append(child.Env, "AYB_ADMIN_PASSWORD="+generatedPassword)
+	if prep.generatedPassword != "" {
+		child.Env = append(child.Env, "AYB_ADMIN_PASSWORD="+prep.generatedPassword)
 	}
 	if logFile != nil {
 		defer logFile.Close()
 	}
 
-	// --- 6. Start ---
 	isTTY := colorEnabled()
 	sp := newStartupProgress(os.Stderr, isTTY, isTTY)
 	sp.header(bannerVersion(buildVersion))
 
-	if firstRun {
+	if prep.firstRun {
 		sp.step("Downloading PostgreSQL and starting server (first run)...")
 	} else {
 		sp.step("Starting server...")
@@ -88,21 +61,101 @@ func runStartDetached(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("starting server process: %w", err)
 	}
 
-	// Detect early child death (G10).
+	childDone := watchDetachedChildExit(child)
+	if err := waitForDetachedStartReadiness(prep, child, logPath, childDone); err != nil {
+		sp.fail()
+		return err
+	}
+	sp.done()
+
+	printDetachedStartBanner(prep.cfg, prep.generatedPassword, logPath, isTTY)
+	return nil
+}
+
+func prepareDetachedStart(cmd *cobra.Command) (detachedStartPreparation, error) {
+	cfg, generatedPassword, err := loadDetachedStartConfig(cmd)
+	if err != nil {
+		return detachedStartPreparation{}, err
+	}
+	if err := ensureDetachedStartPortAvailable(cfg); err != nil {
+		return detachedStartPreparation{}, err
+	}
+
+	firstRun := isFirstRun()
+	return detachedStartPreparation{
+		cfg:               cfg,
+		generatedPassword: generatedPassword,
+		firstRun:          firstRun,
+		timeout:           detachedStartTimeout(firstRun),
+	}, nil
+}
+
+func loadDetachedStartConfig(cmd *cobra.Command) (*config.Config, string, error) {
+	configPath, _ := cmd.Flags().GetString("config")
+	cfg, err := config.Load(configPath, detachedStartConfigFlags(cmd))
+	if err != nil {
+		return nil, "", fmt.Errorf("loading config: %w", err)
+	}
+
+	generatedPassword, err := ensureConfiguredAdminPassword(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	return cfg, generatedPassword, nil
+}
+
+func detachedStartConfigFlags(cmd *cobra.Command) map[string]string {
+	flags := make(map[string]string)
+	if v, _ := cmd.Flags().GetString("database-url"); v != "" {
+		flags["database-url"] = v
+	}
+	if v, _ := cmd.Flags().GetInt("port"); v != 0 {
+		flags["port"] = fmt.Sprintf("%d", v)
+	}
+	if v, _ := cmd.Flags().GetString("host"); v != "" {
+		flags["host"] = v
+	}
+	return flags
+}
+
+func ensureDetachedStartPortAvailable(cfg *config.Config) error {
+	ln, err := net.Listen("tcp", cfg.Address())
+	if err != nil {
+		return portError(cfg.Server.Port, err)
+	}
+	ln.Close()
+	return nil
+}
+
+func detachedStartTimeout(firstRun bool) time.Duration {
+	if firstRun {
+		return 300 * time.Second
+	}
+	return 60 * time.Second
+}
+
+func watchDetachedChildExit(child *exec.Cmd) <-chan struct{} {
 	childDone := make(chan struct{})
 	go func() {
 		child.Wait()
 		close(childDone)
 	}()
+	return childDone
+}
 
-	// --- 7. Poll for readiness (G4: check health AND admin-token file) ---
-	port := cfg.Server.Port
-	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
-	needAdminToken := cfg.Admin.Enabled && generatedPassword != ""
-	tokenPath, _ := aybAdminTokenPath()
-	readinessErr := waitForDetachedReadiness(detachedReadinessPollOptions{
-		healthURL:      healthURL,
-		timeout:        timeout,
+func waitForDetachedStartReadiness(prep detachedStartPreparation, child *exec.Cmd, logPath string, childDone <-chan struct{}) error {
+	needAdminToken := prep.cfg.Admin.Enabled && prep.generatedPassword != ""
+	tokenPath := ""
+	if needAdminToken {
+		var err error
+		tokenPath, err = detachedAdminTokenPathFunc()
+		if err != nil {
+			return fmt.Errorf("resolving admin token path: %w", err)
+		}
+	}
+	return waitForDetachedReadiness(detachedReadinessPollOptions{
+		healthURL:      fmt.Sprintf("http://127.0.0.1:%d/health", prep.cfg.Server.Port),
+		timeout:        prep.timeout,
 		pollInterval:   300 * time.Millisecond,
 		needAdminToken: needAdminToken,
 		tokenPath:      tokenPath,
@@ -113,53 +166,50 @@ func runStartDetached(cmd *cobra.Command, _ []string) error {
 			_ = child.Process.Signal(syscall.SIGTERM)
 		},
 	})
-	if readinessErr != nil {
-		sp.fail()
-		return readinessErr
-	}
-	sp.done()
+}
 
-	// --- 11. Print banner ---
+func printDetachedStartBanner(cfg *config.Config, generatedPassword, logPath string, isTTY bool) {
 	embeddedPG := cfg.Database.URL == ""
 	if isTTY {
 		printBannerBodyTo(os.Stderr, cfg, embeddedPG, true, generatedPassword, logPath)
 	} else {
 		printBanner(cfg, embeddedPG, generatedPassword, logPath)
 	}
-
 	fmt.Fprintf(os.Stderr, "  %s\n\n", dim("Stop with: ayb stop", isTTY))
-
-	return nil
 }
 
-// preflightDetachedStart checks for an existing PID file and running server, returning early if a healthy server is already active or cleaning up stale state.
 func preflightDetachedStart() (bool, error) {
 	pid, port, err := readAYBPID()
 	if err != nil {
 		return false, nil
 	}
-
-	proc, findErr := os.FindProcess(pid)
-	if findErr == nil && proc.Signal(syscall.Signal(0)) == nil {
-		client := &http.Client{Timeout: 2 * time.Second}
-		healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
-		if resp, hErr := client.Get(healthURL); hErr == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				fmt.Fprintf(os.Stderr, "AYB server is already running (PID %d, port %d).\n", pid, port)
-				fmt.Fprintf(os.Stderr, "Stop with: ayb stop\n")
-				return true, nil
-			}
-		}
-		return true, waitForExistingServer(port)
+	if port <= 0 {
+		// Older pid files only stored the process id. Clean them up so the normal
+		// port-availability checks can decide whether a new detached start is safe.
+		cleanupServerFiles()
+		return false, nil
 	}
 
-	// Stale PID file.
-	cleanupServerFiles()
-	return false, nil
+	proc, findErr := os.FindProcess(pid)
+	if findErr != nil || proc.Signal(syscall.Signal(0)) != nil {
+		// Stale PID file.
+		cleanupServerFiles()
+		return false, nil
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	if resp, hErr := client.Get(healthURL); hErr == nil {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			fmt.Fprintf(os.Stderr, "AYB server is already running (PID %d, port %d).\n", pid, port)
+			fmt.Fprintf(os.Stderr, "Stop with: ayb stop\n")
+			return true, nil
+		}
+	}
+	return true, waitForExistingServer(port)
 }
 
-// buildDetachedChildCommand constructs an exec.Cmd that re-executes the current binary in foreground mode with stdout/stderr redirected to a log file.
 func buildDetachedChildCommand() (*exec.Cmd, string, *os.File, error) {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -177,9 +227,15 @@ func buildDetachedChildCommand() (*exec.Cmd, string, *os.File, error) {
 	logPath := logFilePath()
 	var logFile *os.File
 	if logPath != "" {
-		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			return nil, "", nil, fmt.Errorf("opening log file: %w", err)
+		}
+		// Detached server logs can include operational details, so keep the file
+		// owner-readable only even when reusing an existing path.
+		if err := logFile.Chmod(0o600); err != nil {
+			logFile.Close()
+			return nil, "", nil, fmt.Errorf("hardening log file permissions: %w", err)
 		}
 		child.Stdout = logFile
 		child.Stderr = logFile
@@ -202,8 +258,11 @@ type detachedReadinessPollOptions struct {
 	terminateChild func()
 }
 
-// waitForDetachedReadiness polls the health endpoint and optionally the admin token file until the detached server is ready or the timeout expires.
 func waitForDetachedReadiness(opts detachedReadinessPollOptions) error {
+	if opts.needAdminToken && opts.tokenPath == "" {
+		return fmt.Errorf("admin token path is required")
+	}
+
 	deadline := time.Now().Add(opts.timeout)
 	ticker := time.NewTicker(opts.pollInterval)
 	defer ticker.Stop()
@@ -230,6 +289,9 @@ func waitForDetachedReadiness(opts detachedReadinessPollOptions) error {
 			}
 			if opts.needAdminToken {
 				if _, err := os.Stat(opts.tokenPath); err != nil {
+					if !os.IsNotExist(err) {
+						return fmt.Errorf("checking admin token file: %w", err)
+					}
 					continue
 				}
 			}

@@ -63,9 +63,100 @@ const SIDEBAR_SECTION_CLASS = "mt-3 pt-3 border-t border-gray-200 dark:border-gr
 const SIDEBAR_SECTION_TITLE_CLASS = "px-1 pb-1 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider";
 const SIDEBAR_ACTION_BUTTON_CLASS = "p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60";
 
+interface SidebarNavItem {
+  view: AdminView;
+  label: string;
+  icon: typeof TableIcon;
+  testId?: string;
+}
+
+interface SidebarNavSection {
+  title: string;
+  items: SidebarNavItem[];
+}
+
 function sidebarItemClass(active: boolean) {
   return cn(SIDEBAR_ITEM_BASE_CLASS, active && SIDEBAR_ITEM_ACTIVE_CLASS);
 }
+
+const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
+  {
+    title: "Database",
+    items: [
+      { view: "sql-editor", label: "SQL Editor", icon: Code },
+      { view: "functions", label: "Functions", icon: Zap },
+      { view: "rls", label: "RLS Policies", icon: Shield },
+      { view: "matviews", label: "Matviews", icon: Layers },
+      { view: "schema-designer", label: "Schema Designer", icon: Columns3, testId: "nav-schema-designer" },
+      { view: "fdw", label: "FDW", icon: Cable },
+    ],
+  },
+  {
+    title: "Services",
+    items: [
+      { view: "storage", label: "Storage", icon: HardDrive },
+      { view: "sites", label: "Sites", icon: Globe },
+      { view: "edge-functions", label: "Edge Functions", icon: Zap },
+      { view: "webhooks", label: "Webhooks", icon: Webhook },
+    ],
+  },
+  {
+    title: "Messaging",
+    items: [
+      { view: "sms-health", label: "SMS Health", icon: MessageCircle },
+      { view: "sms-messages", label: "SMS Messages", icon: MessageSquare },
+      { view: "email-templates", label: "Email Templates", icon: Mail },
+      { view: "push", label: "Push Notifications", icon: Bell },
+    ],
+  },
+  {
+    title: "Admin",
+    items: [
+      { view: "users", label: "Users", icon: UsersIcon },
+      { view: "apps", label: "Apps", icon: Box },
+      { view: "api-keys", label: "API Keys", icon: KeyRound },
+      { view: "oauth-clients", label: "OAuth Clients", icon: Fingerprint },
+      { view: "api-explorer", label: "API Explorer", icon: Compass },
+      { view: "jobs", label: "Jobs", icon: ListTodo },
+      { view: "schedules", label: "Schedules", icon: CalendarClock },
+      { view: "realtime-inspector", label: "Realtime Inspector", icon: Activity },
+      { view: "security-advisor", label: "Security Advisor", icon: ShieldAlert },
+      { view: "performance-advisor", label: "Performance Advisor", icon: Gauge },
+      { view: "backups", label: "Backups", icon: Archive },
+      { view: "analytics", label: "Analytics", icon: BarChart3 },
+      { view: "usage", label: "Usage", icon: LineChart },
+      { view: "replicas", label: "Replicas", icon: Server },
+      { view: "branches", label: "Branches", icon: GitBranch },
+      { view: "audit-logs", label: "Audit Logs", icon: ScrollText },
+      { view: "admin-logs", label: "Admin Logs", icon: FileText },
+      { view: "secrets", label: "Secrets", icon: Lock },
+      { view: "custom-domains", label: "Custom Domains", icon: Globe },
+      { view: "extensions", label: "Extensions", icon: Puzzle },
+      { view: "vector-indexes", label: "Vector Indexes", icon: Database },
+      { view: "log-drains", label: "Log Drains", icon: ArrowDownToLine },
+      { view: "stats", label: "Stats", icon: LineChart },
+      { view: "notifications", label: "Notifications", icon: BellRing },
+      { view: "incidents", label: "Incidents", icon: AlertTriangle },
+      { view: "support-tickets", label: "Support Tickets", icon: LifeBuoy },
+      { view: "tenants", label: "Tenants", icon: Building2 },
+      { view: "organizations", label: "Organizations", icon: Building2 },
+    ],
+  },
+  {
+    title: "AI",
+    items: [{ view: "ai-assistant", label: "AI Assistant", icon: Sparkles }],
+  },
+  {
+    title: "Auth",
+    items: [
+      { view: "auth-settings", label: "Auth Settings", icon: Settings },
+      { view: "mfa-management", label: "MFA Management", icon: ShieldCheck },
+      { view: "account-linking", label: "Account Linking", icon: Link },
+      { view: "saml", label: "SAML", icon: ShieldPlus },
+      { view: "auth-hooks", label: "Auth Hooks", icon: Anchor },
+    ],
+  },
+];
 
 interface SidebarProps {
   tables: Table[];
@@ -80,6 +171,31 @@ interface SidebarProps {
   onLogout: () => void;
   theme: "dark" | "light";
   themeToggleLabel: string;
+}
+
+interface SidebarAdminNavButtonProps {
+  item: SidebarNavItem;
+  active: boolean;
+  onSelectAdminView: (view: AdminView) => void;
+}
+
+function SidebarAdminNavButton({
+  item,
+  active,
+  onSelectAdminView,
+}: SidebarAdminNavButtonProps) {
+  const Icon = item.icon;
+
+  return (
+    <button
+      onClick={() => onSelectAdminView(item.view)}
+      className={sidebarItemClass(active)}
+      data-testid={item.testId}
+    >
+      <Icon className={SIDEBAR_ICON_CLASS} />
+      {item.label}
+    </button>
+  );
 }
 
 export function Sidebar({
@@ -162,225 +278,19 @@ export function Sidebar({
           })
         )}
 
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>Database</p>
-          <button onClick={() => onSelectAdminView("sql-editor")} className={sidebarItemClass(view === "sql-editor")}>
-            <Code className={SIDEBAR_ICON_CLASS} />
-            SQL Editor
-          </button>
-          <button onClick={() => onSelectAdminView("functions")} className={sidebarItemClass(view === "functions")}>
-            <Zap className={SIDEBAR_ICON_CLASS} />
-            Functions
-          </button>
-          <button onClick={() => onSelectAdminView("rls")} className={sidebarItemClass(view === "rls")}>
-            <Shield className={SIDEBAR_ICON_CLASS} />
-            RLS Policies
-          </button>
-          <button onClick={() => onSelectAdminView("matviews")} className={sidebarItemClass(view === "matviews")}>
-            <Layers className={SIDEBAR_ICON_CLASS} />
-            Matviews
-          </button>
-          <button
-            onClick={() => onSelectAdminView("schema-designer")}
-            className={sidebarItemClass(view === "schema-designer")}
-            data-testid="nav-schema-designer"
-          >
-            <Columns3 className={SIDEBAR_ICON_CLASS} />
-            Schema Designer
-          </button>
-          <button onClick={() => onSelectAdminView("fdw")} className={sidebarItemClass(view === "fdw")}>
-            <Cable className={SIDEBAR_ICON_CLASS} />
-            FDW
-          </button>
-        </div>
-
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>Services</p>
-          <button onClick={() => onSelectAdminView("storage")} className={sidebarItemClass(view === "storage")}>
-            <HardDrive className={SIDEBAR_ICON_CLASS} />
-            Storage
-          </button>
-          <button onClick={() => onSelectAdminView("sites")} className={sidebarItemClass(view === "sites")}>
-            <Globe className={SIDEBAR_ICON_CLASS} />
-            Sites
-          </button>
-          <button onClick={() => onSelectAdminView("edge-functions")} className={sidebarItemClass(view === "edge-functions")}>
-            <Zap className={SIDEBAR_ICON_CLASS} />
-            Edge Functions
-          </button>
-          <button onClick={() => onSelectAdminView("webhooks")} className={sidebarItemClass(view === "webhooks")}>
-            <Webhook className={SIDEBAR_ICON_CLASS} />
-            Webhooks
-          </button>
-        </div>
-
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>Messaging</p>
-          <button onClick={() => onSelectAdminView("sms-health")} className={sidebarItemClass(view === "sms-health")}>
-            <MessageCircle className={SIDEBAR_ICON_CLASS} />
-            SMS Health
-          </button>
-          <button onClick={() => onSelectAdminView("sms-messages")} className={sidebarItemClass(view === "sms-messages")}>
-            <MessageSquare className={SIDEBAR_ICON_CLASS} />
-            SMS Messages
-          </button>
-          <button onClick={() => onSelectAdminView("email-templates")} className={sidebarItemClass(view === "email-templates")}>
-            <Mail className={SIDEBAR_ICON_CLASS} />
-            Email Templates
-          </button>
-          <button onClick={() => onSelectAdminView("push")} className={sidebarItemClass(view === "push")}>
-            <Bell className={SIDEBAR_ICON_CLASS} />
-            Push Notifications
-          </button>
-        </div>
-
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>Admin</p>
-          <button onClick={() => onSelectAdminView("users")} className={sidebarItemClass(view === "users")}>
-            <UsersIcon className={SIDEBAR_ICON_CLASS} />
-            Users
-          </button>
-          <button onClick={() => onSelectAdminView("apps")} className={sidebarItemClass(view === "apps")}>
-            <Box className={SIDEBAR_ICON_CLASS} />
-            Apps
-          </button>
-          <button onClick={() => onSelectAdminView("api-keys")} className={sidebarItemClass(view === "api-keys")}>
-            <KeyRound className={SIDEBAR_ICON_CLASS} />
-            API Keys
-          </button>
-          <button onClick={() => onSelectAdminView("oauth-clients")} className={sidebarItemClass(view === "oauth-clients")}>
-            <Fingerprint className={SIDEBAR_ICON_CLASS} />
-            OAuth Clients
-          </button>
-          <button onClick={() => onSelectAdminView("api-explorer")} className={sidebarItemClass(view === "api-explorer")}>
-            <Compass className={SIDEBAR_ICON_CLASS} />
-            API Explorer
-          </button>
-          <button onClick={() => onSelectAdminView("jobs")} className={sidebarItemClass(view === "jobs")}>
-            <ListTodo className={SIDEBAR_ICON_CLASS} />
-            Jobs
-          </button>
-          <button onClick={() => onSelectAdminView("schedules")} className={sidebarItemClass(view === "schedules")}>
-            <CalendarClock className={SIDEBAR_ICON_CLASS} />
-            Schedules
-          </button>
-          <button onClick={() => onSelectAdminView("realtime-inspector")} className={sidebarItemClass(view === "realtime-inspector")}>
-            <Activity className={SIDEBAR_ICON_CLASS} />
-            Realtime Inspector
-          </button>
-          <button onClick={() => onSelectAdminView("security-advisor")} className={sidebarItemClass(view === "security-advisor")}>
-            <ShieldAlert className={SIDEBAR_ICON_CLASS} />
-            Security Advisor
-          </button>
-          <button onClick={() => onSelectAdminView("performance-advisor")} className={sidebarItemClass(view === "performance-advisor")}>
-            <Gauge className={SIDEBAR_ICON_CLASS} />
-            Performance Advisor
-          </button>
-          <button onClick={() => onSelectAdminView("backups")} className={sidebarItemClass(view === "backups")}>
-            <Archive className={SIDEBAR_ICON_CLASS} />
-            Backups
-          </button>
-          <button onClick={() => onSelectAdminView("analytics")} className={sidebarItemClass(view === "analytics")}>
-            <BarChart3 className={SIDEBAR_ICON_CLASS} />
-            Analytics
-          </button>
-          <button onClick={() => onSelectAdminView("usage")} className={sidebarItemClass(view === "usage")}>
-            <LineChart className={SIDEBAR_ICON_CLASS} />
-            Usage
-          </button>
-          <button onClick={() => onSelectAdminView("replicas")} className={sidebarItemClass(view === "replicas")}>
-            <Server className={SIDEBAR_ICON_CLASS} />
-            Replicas
-          </button>
-          <button onClick={() => onSelectAdminView("branches")} className={sidebarItemClass(view === "branches")}>
-            <GitBranch className={SIDEBAR_ICON_CLASS} />
-            Branches
-          </button>
-          <button onClick={() => onSelectAdminView("audit-logs")} className={sidebarItemClass(view === "audit-logs")}>
-            <ScrollText className={SIDEBAR_ICON_CLASS} />
-            Audit Logs
-          </button>
-          <button onClick={() => onSelectAdminView("admin-logs")} className={sidebarItemClass(view === "admin-logs")}>
-            <FileText className={SIDEBAR_ICON_CLASS} />
-            Admin Logs
-          </button>
-          <button onClick={() => onSelectAdminView("secrets")} className={sidebarItemClass(view === "secrets")}>
-            <Lock className={SIDEBAR_ICON_CLASS} />
-            Secrets
-          </button>
-          <button onClick={() => onSelectAdminView("custom-domains")} className={sidebarItemClass(view === "custom-domains")}>
-            <Globe className={SIDEBAR_ICON_CLASS} />
-            Custom Domains
-          </button>
-          <button onClick={() => onSelectAdminView("extensions")} className={sidebarItemClass(view === "extensions")}>
-            <Puzzle className={SIDEBAR_ICON_CLASS} />
-            Extensions
-          </button>
-          <button onClick={() => onSelectAdminView("vector-indexes")} className={sidebarItemClass(view === "vector-indexes")}>
-            <Database className={SIDEBAR_ICON_CLASS} />
-            Vector Indexes
-          </button>
-          <button onClick={() => onSelectAdminView("log-drains")} className={sidebarItemClass(view === "log-drains")}>
-            <ArrowDownToLine className={SIDEBAR_ICON_CLASS} />
-            Log Drains
-          </button>
-          <button onClick={() => onSelectAdminView("stats")} className={sidebarItemClass(view === "stats")}>
-            <LineChart className={SIDEBAR_ICON_CLASS} />
-            Stats
-          </button>
-          <button onClick={() => onSelectAdminView("notifications")} className={sidebarItemClass(view === "notifications")}>
-            <BellRing className={SIDEBAR_ICON_CLASS} />
-            Notifications
-          </button>
-          <button onClick={() => onSelectAdminView("incidents")} className={sidebarItemClass(view === "incidents")}>
-            <AlertTriangle className={SIDEBAR_ICON_CLASS} />
-            Incidents
-          </button>
-          <button onClick={() => onSelectAdminView("support-tickets")} className={sidebarItemClass(view === "support-tickets")}>
-            <LifeBuoy className={SIDEBAR_ICON_CLASS} />
-            Support Tickets
-          </button>
-          <button onClick={() => onSelectAdminView("tenants")} className={sidebarItemClass(view === "tenants")}>
-            <Building2 className={SIDEBAR_ICON_CLASS} />
-            Tenants
-          </button>
-          <button onClick={() => onSelectAdminView("organizations")} className={sidebarItemClass(view === "organizations")}>
-            <Building2 className={SIDEBAR_ICON_CLASS} />
-            Organizations
-          </button>
-        </div>
-
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>AI</p>
-          <button onClick={() => onSelectAdminView("ai-assistant")} className={sidebarItemClass(view === "ai-assistant")}>
-            <Sparkles className={SIDEBAR_ICON_CLASS} />
-            AI Assistant
-          </button>
-        </div>
-
-        <div className={SIDEBAR_SECTION_CLASS}>
-          <p className={SIDEBAR_SECTION_TITLE_CLASS}>Auth</p>
-          <button onClick={() => onSelectAdminView("auth-settings")} className={sidebarItemClass(view === "auth-settings")}>
-            <Settings className={SIDEBAR_ICON_CLASS} />
-            Auth Settings
-          </button>
-          <button onClick={() => onSelectAdminView("mfa-management")} className={sidebarItemClass(view === "mfa-management")}>
-            <ShieldCheck className={SIDEBAR_ICON_CLASS} />
-            MFA Management
-          </button>
-          <button onClick={() => onSelectAdminView("account-linking")} className={sidebarItemClass(view === "account-linking")}>
-            <Link className={SIDEBAR_ICON_CLASS} />
-            Account Linking
-          </button>
-          <button onClick={() => onSelectAdminView("saml")} className={sidebarItemClass(view === "saml")}>
-            <ShieldPlus className={SIDEBAR_ICON_CLASS} />
-            SAML
-          </button>
-          <button onClick={() => onSelectAdminView("auth-hooks")} className={sidebarItemClass(view === "auth-hooks")}>
-            <Anchor className={SIDEBAR_ICON_CLASS} />
-            Auth Hooks
-          </button>
-        </div>
+        {SIDEBAR_NAV_SECTIONS.map((section) => (
+          <div key={section.title} className={SIDEBAR_SECTION_CLASS}>
+            <p className={SIDEBAR_SECTION_TITLE_CLASS}>{section.title}</p>
+            {section.items.map((item) => (
+              <SidebarAdminNavButton
+                key={item.view}
+                item={item}
+                active={view === item.view}
+                onSelectAdminView={onSelectAdminView}
+              />
+            ))}
+          </div>
+        ))}
       </nav>
 
       <div className="border-t border-gray-200 dark:border-gray-700 p-2 flex gap-1">

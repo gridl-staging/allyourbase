@@ -270,8 +270,18 @@ func TestIsSkippableSchemaTableError(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "wrapped postgres error is skippable",
+			err:  fmt.Errorf("wrapped: %w", &pgconn.PgError{Code: "42P01"}),
+			want: true,
+		},
+		{
 			name: "non postgres error is not skippable",
 			err:  fmt.Errorf("boom"),
+			want: false,
+		},
+		{
+			name: "nil error is not skippable",
+			err:  nil,
 			want: false,
 		},
 	}

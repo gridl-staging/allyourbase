@@ -28,18 +28,14 @@ var functionSizeAllowlist = map[string]int{
 	"auth.Service.VerifyTOTPChallenge": 108,
 	"auth.init":                        111,
 	"cli.flyProvider.Deploy":           111,
-	"cli.runFunctionsDeploy":           114,
 	"cli.runPushListDevices":           100,
-	"cli.runStartDetached":             113,
 	"cli.runStartForeground":           103,
 	"cli.showTableDetail":              104,
 	// Default config wiring is an explicit stage non-goal for extraction.
-	"config.Default":                    185,
-	"main.run":                          103,
-	"pgmanager.Manager.Start":           117,
-	"sbmigrate.Migrator.migrateData":    102,
-	"sbmigrate.Migrator.migrateSchema":  113,
-	"sbmigrate.Migrator.migrateStorage": 116,
+	"config.Default":                 185,
+	"main.run":                       103,
+	"pgmanager.Manager.Start":        117,
+	"sbmigrate.Migrator.migrateData": 102,
 	// Template-heavy schema/client generators are kept contiguous for readability
 	// of emitted output and to avoid fragmented string assembly wrappers.
 	"templates.blogTemplate.Schema":          110,
