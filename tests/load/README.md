@@ -62,7 +62,7 @@ This directory contains the shared Stage 2 k6 foundation, Stage 3 auth request-p
 - Stage 6 tracks auth/data/realtime latency and failures with separate endpoint tags inside the same scenario.
 - Stage 7 measured smoke command: `AYB_SOAK_DURATION=30s K6_VUS=1 make load-sustained-soak-local`
 - Stage 7 contract assertion: `bash tests/test_load_soak_contract.sh`
-- Stage 7 caveat: the 30s smoke run confirms mixed-flow wiring but does not cross the 10-minute pooled-session age rollover boundary.
+- Stage 7 caveat: the 30s smoke run confirms mixed-flow wiring quickly; the rollover proof comes from `AYB_SOAK_DURATION=12m K6_VUS=1 make load-sustained-soak-local`, which passed on 2026-03-31 and crossed the 10-minute pooled-session age boundary.
 
 ## Commands
 

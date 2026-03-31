@@ -458,6 +458,7 @@ describe("Sites", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /site settings/i })).toBeInTheDocument();
     });
+    await screen.findByDisplayValue("Marketing");
 
     fireEvent.change(screen.getByDisplayValue("Marketing"), {
       target: { value: renamedSite.name },
