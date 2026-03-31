@@ -62,7 +62,9 @@ while IFS= read -r -d '' file; do
     continue
   fi
 
-  if [[ "$allowlisted_count" != "$line_count" ]]; then
+  # Allow files to be shorter than the allowlist (e.g., after scrai strip removes
+  # TODO stubs in staging/prod). Only flag if the file has grown past the baseline.
+  if (( line_count > allowlisted_count )); then
     violations+=("$relative_path:$line_count (allowlist has $allowlisted_count)")
   fi
 done < <(find "$SCAN_ROOT" -name '*.go' -type f ! -name '*_test.go' ! -path "$SCAN_ROOT/vendor/*" ! -path "$SCAN_ROOT/_dev/*" -print0)
