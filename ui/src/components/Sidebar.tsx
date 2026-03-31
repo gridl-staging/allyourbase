@@ -125,7 +125,7 @@ export function Sidebar({
           <div className="px-4 py-6 text-center">
             <TableProperties className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">No tables yet</p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
               Create your first table to get started.
             </p>
             <button
@@ -153,7 +153,7 @@ export function Sidebar({
                 <TableIcon className={SIDEBAR_ICON_CLASS} />
                 <span className="truncate">
                   {table.schema !== "public" && (
-                    <span className="text-gray-400 dark:text-gray-500">{table.schema}.</span>
+                    <span className="text-gray-600 dark:text-gray-400">{table.schema}.</span>
                   )}
                   {table.name}
                 </span>

@@ -191,7 +191,10 @@ export function FunctionBrowser({ functions }: FunctionBrowserProps) {
                               {result.durationMs}ms
                             </span>
                           </div>
-                          <pre className="p-3 text-xs font-mono overflow-auto max-h-64 whitespace-pre-wrap">
+                          <pre
+                            tabIndex={0}
+                            className="p-3 text-xs font-mono overflow-auto max-h-64 whitespace-pre-wrap"
+                          >
                             {result.status === 204
                               ? "(no return value)"
                               : JSON.stringify(result.data, null, 2)}

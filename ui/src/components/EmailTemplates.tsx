@@ -474,6 +474,7 @@ export function EmailTemplates() {
                       <p className="font-medium text-gray-700 dark:text-gray-200 mb-1">HTML</p>
                       <pre
                         data-testid="email-template-preview-html"
+                        tabIndex={0}
                         className="whitespace-pre-wrap border rounded bg-white dark:bg-gray-800 p-2 max-h-36 overflow-auto"
                       >
                         {previewResult.html}

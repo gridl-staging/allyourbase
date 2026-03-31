@@ -171,12 +171,22 @@ describe("Layout", () => {
       <Layout schema={makeSchema()} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     expect(screen.getByText("No tables yet")).toBeInTheDocument();
+    const sidebarHelperClasses = screen
+      .getByText("Create your first table to get started.")
+      .className.split(" ");
+    expect(sidebarHelperClasses).toContain("text-gray-500");
+    expect(sidebarHelperClasses).not.toContain("text-gray-400");
     expect(screen.getByText("Select a table from the sidebar")).toBeInTheDocument();
     const emptyStateClasses = screen
       .getByText("Select a table from the sidebar")
       .parentElement?.className.split(" ");
     expect(emptyStateClasses).toContain("text-gray-500");
     expect(emptyStateClasses).not.toContain("text-gray-400");
+    const helperTextClasses = screen
+      .getByText("Use SQL Editor from the sidebar to create one.")
+      .className.split(" ");
+    expect(helperTextClasses).toContain("text-gray-600");
+    expect(helperTextClasses).not.toContain("text-gray-400");
   });
 
   it("keeps a single Open SQL Editor CTA owner in empty-schema surfaces", () => {
@@ -273,7 +283,13 @@ describe("Layout", () => {
       <Layout schema={schema} onLogout={onLogout} onRefresh={onRefresh} />,
     );
     // "other." appears in sidebar and header, so use getAllByText.
-    expect(screen.getAllByText("other.").length).toBeGreaterThanOrEqual(1);
+    const prefixes = screen.getAllByText("other.");
+    expect(prefixes.length).toBeGreaterThanOrEqual(1);
+    for (const prefix of prefixes) {
+      const classes = prefix.className.split(" ");
+      expect(classes).toContain("text-gray-600");
+      expect(classes).not.toContain("text-gray-400");
+    }
     expect(screen.getAllByText("events").length).toBeGreaterThanOrEqual(1);
   });
 

@@ -106,6 +106,8 @@ describe("RlsPolicyActionModals", () => {
     );
 
     expect(screen.getByText("SQL Preview")).toBeInTheDocument();
-    expect(screen.getByText(/CREATE POLICY/)).toBeInTheDocument();
+    const sqlPreview = screen.getByText(/CREATE POLICY/);
+    expect(sqlPreview).toBeInTheDocument();
+    expect(sqlPreview.closest("pre")).toHaveAttribute("tabindex", "0");
   });
 });

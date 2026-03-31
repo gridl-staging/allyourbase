@@ -359,6 +359,16 @@ describe("EmailTemplates", () => {
     });
   });
 
+  it("makes the preview HTML output keyboard-focusable for scroll access", async () => {
+    renderWithProviders(<EmailTemplates />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email-template-preview-html")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("email-template-preview-html")).toHaveAttribute("tabindex", "0");
+  });
+
   it("reloads effective template after reset to default", async () => {
     mockListEmailTemplates
       .mockResolvedValueOnce({

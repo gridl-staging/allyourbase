@@ -184,7 +184,7 @@ export function ContentRouter({
         <header className="border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center gap-4">
           <h1 className="font-semibold text-gray-900 dark:text-gray-100">
             {selected.schema !== "public" && (
-              <span className="text-gray-400 dark:text-gray-500">{selected.schema}.</span>
+              <span className="text-gray-600 dark:text-gray-400">{selected.schema}.</span>
             )}
             {selected.name}
           </h1>
@@ -250,7 +250,7 @@ export function ContentRouter({
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
         <TableProperties className="w-12 h-12 text-gray-300 dark:text-gray-700 mb-3" />
         <p className="text-sm mb-1">Select a table from the sidebar</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-gray-600 dark:text-gray-400">
           Use SQL Editor from the sidebar to create one.
         </p>
       </div>

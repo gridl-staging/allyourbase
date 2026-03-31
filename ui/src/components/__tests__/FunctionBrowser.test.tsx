@@ -146,6 +146,19 @@ describe("FunctionBrowser", () => {
     expect(mockCallRpc).toHaveBeenCalledWith("add_numbers", { a: 10, b: 32 });
   });
 
+  it("makes execution result output keyboard-focusable for scroll access", async () => {
+    mockCallRpc.mockResolvedValueOnce({ status: 200, data: 42 });
+    const user = userEvent.setup();
+    render(<FunctionBrowser functions={sampleFunctions} />);
+
+    await user.click(screen.getByText("add_numbers"));
+    await user.click(screen.getByRole("button", { name: /Execute/ }));
+
+    const resultValue = await screen.findByText("42");
+    const resultPre = resultValue.closest("pre");
+    expect(resultPre).toHaveAttribute("tabindex", "0");
+  });
+
   it("executes void function and shows void result", async () => {
     mockCallRpc.mockResolvedValueOnce({ status: 204, data: null });
     const user = userEvent.setup();

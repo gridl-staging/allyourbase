@@ -65,7 +65,10 @@ export function RlsPolicyActionModals({
         </div>
 
         <div className="px-6 py-4">
-          <pre className="p-3 text-xs font-mono bg-gray-900 text-gray-100 rounded overflow-x-auto whitespace-pre-wrap">
+          <pre
+            tabIndex={0}
+            className="p-3 text-xs font-mono bg-gray-900 text-gray-100 rounded overflow-x-auto whitespace-pre-wrap"
+          >
             {modal.sql}
           </pre>
         </div>

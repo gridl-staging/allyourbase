@@ -84,7 +84,7 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
 
         <div className="flex-1 overflow-auto p-4">
           {loading ? (
-            <div className="flex items-center justify-center h-32 text-gray-400 dark:text-gray-500">
+            <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400">
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
               Loading deliveries...
             </div>
@@ -94,7 +94,7 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
               <p className="text-red-600 text-sm">{error}</p>
             </div>
           ) : deliveries.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
               No deliveries recorded yet
             </div>
           ) : (
@@ -136,10 +136,10 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
                       >
                         {del.eventAction}
                       </span>
-                      <span className="text-gray-400 dark:text-gray-500 text-xs">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">
                         {del.eventTable}
                       </span>
-                      <span className="ml-auto text-gray-400 dark:text-gray-500 text-xs flex items-center gap-2">
+                      <span className="ml-auto text-gray-500 dark:text-gray-400 text-xs flex items-center gap-2">
                         <span>{del.durationMs}ms</span>
                         <span>{formatTime(del.deliveredAt)}</span>
                         {expandedId === del.id ? (
@@ -180,7 +180,10 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
                             <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">
                               Error
                             </p>
-                            <pre className="text-xs bg-red-50 text-red-700 p-2 rounded border border-red-200 overflow-x-auto">
+                            <pre
+                              tabIndex={0}
+                              className="text-xs bg-red-50 text-red-700 p-2 rounded border border-red-200 overflow-x-auto"
+                            >
                               {del.error}
                             </pre>
                           </div>
@@ -190,7 +193,10 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
                             <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">
                               Request Body
                             </p>
-                            <pre className="text-xs bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-32">
+                            <pre
+                              tabIndex={0}
+                              className="text-xs bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-32"
+                            >
                               {del.requestBody}
                             </pre>
                           </div>
@@ -200,7 +206,10 @@ export function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalP
                             <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">
                               Response Body
                             </p>
-                            <pre className="text-xs bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-32">
+                            <pre
+                              tabIndex={0}
+                              className="text-xs bg-white dark:bg-gray-800 p-2 rounded border overflow-x-auto max-h-32"
+                            >
                               {del.responseBody}
                             </pre>
                           </div>
